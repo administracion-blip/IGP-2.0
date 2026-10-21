@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  useWindowDimensions,
   Platform,
   StyleSheet,
 } from 'react-native';
@@ -80,7 +79,15 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
 import { MIN_TOUCH } from '../../constants/layout';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
-import { tasksColor, tasksRadius } from '../../constants/tasksUiTokens';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { mismoId6 } from '../../utils/idFormat';
@@ -121,9 +128,8 @@ export default function FacturaDetalleScreen() {
   const facturaId = params.id ?? '';
   const router = useRouter();
   const { user, hasPermiso } = useAuth();
-  const { width } = useWindowDimensions();
-  const isWide = width >= 768;
   const { isPhone } = useBreakpoint();
+  const isWide = !isPhone;
 
   const esVenta = tipo === 'OUT';
   const backPath = esVenta ? '/facturacion/facturas-venta' : '/facturacion/facturas-gasto';
@@ -1219,7 +1225,7 @@ export default function FacturaDetalleScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando factura…</Text>
       </View>
     );
@@ -1238,7 +1244,7 @@ export default function FacturaDetalleScreen() {
           style={styles.backBtn}
           accessibilityLabel="Volver al listado"
         >
-          <MaterialIcons name="arrow-back" size={20} color={tasksColor.textoSecundario} />
+          <MaterialIcons name="arrow-back" size={20} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.title}>{titulo}</Text>
@@ -1253,7 +1259,7 @@ export default function FacturaDetalleScreen() {
 
       {tipo === 'IN' && modo === 'editar' && remesaActiva ? (
         <View style={styles.remesaActivaBanner}>
-          <MaterialIcons name="account-balance" size={18} color={tasksColor.acentoTexto} />
+          <MaterialIcons name="account-balance" size={18} color={statusColors.info.text} />
           <View style={styles.remesaActivaBannerBody}>
             <View style={styles.remesaActivaBannerLine}>
               <Text style={styles.remesaActivaBannerText}>Incluida en remesa </Text>
@@ -1285,10 +1291,10 @@ export default function FacturaDetalleScreen() {
               disabled={quitandoRemesa}
             >
               {quitandoRemesa ? (
-                <ActivityIndicator size="small" color={tasksColor.acentoTexto} />
+                <ActivityIndicator size="small" color={statusColors.info.text} />
               ) : (
                 <>
-                  <MaterialIcons name="remove-circle-outline" size={16} color={tasksColor.acentoTexto} />
+                  <MaterialIcons name="remove-circle-outline" size={16} color={statusColors.info.text} />
                   <Text style={styles.btnQuitarRemesaText}>
                     {remesaActiva.estado === 'Ejecutada' ? 'Descartar pendiente en la remesa' : 'Quitar de la remesa'}
                   </Text>
@@ -1303,9 +1309,9 @@ export default function FacturaDetalleScreen() {
       <View style={styles.actionsRow}>
         {esEditable && (
           <TouchableOpacity style={styles.btnPrimary} onPress={guardarBorrador} disabled={saving}>
-            {saving ? <ActivityIndicator size="small" color="#fff" /> : (
+            {saving ? <ActivityIndicator size="small" color={colors.surface} /> : (
               <>
-                <MaterialIcons name="save" size={16} color="#fff" />
+                <MaterialIcons name="save" size={16} color={colors.surface} />
                 <Text style={styles.btnPrimaryText}>
                   {tipo === 'IN' && estado !== 'borrador' ? 'Guardar' : 'Guardar borrador'}
                 </Text>
@@ -1315,7 +1321,7 @@ export default function FacturaDetalleScreen() {
         )}
         {puedeEmitir && hasPermiso('facturacion.emitir') && (
           <TouchableOpacity style={styles.btnSuccess} onPress={emitirFactura} disabled={saving}>
-            <MaterialIcons name={esValidacionRevisionIn ? 'task-alt' : 'send'} size={16} color={tasksColor.exito} />
+            <MaterialIcons name={esValidacionRevisionIn ? 'task-alt' : 'send'} size={16} color={colors.success} />
             <Text style={styles.btnSuccessText}>
               {esValidacionRevisionIn ? 'Validar revisión' : 'Emitir'}
             </Text>
@@ -1323,29 +1329,29 @@ export default function FacturaDetalleScreen() {
         )}
         {puedeDuplicar && (
           <TouchableOpacity style={styles.btnOutline} onPress={duplicarFactura} disabled={saving}>
-            <MaterialIcons name="content-copy" size={16} color={tasksColor.textoSecundario} />
+            <MaterialIcons name="content-copy" size={16} color={colors.textPrimary} />
             <Text style={styles.btnOutlineText}>Duplicar</Text>
           </TouchableOpacity>
         )}
         {puedeRectificar && (
           <TouchableOpacity style={styles.btnOutlineWarn} onPress={rectificarFactura} disabled={saving}>
-            <MaterialIcons name="replay" size={16} color={tasksColor.aviso} />
+            <MaterialIcons name="replay" size={16} color={colors.warning} />
             <Text style={styles.btnOutlineWarnText}>Rectificativa</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity style={styles.btnOutline} onPress={previsualizarPDF}>
-          <MaterialIcons name="visibility" size={16} color={tasksColor.textoSecundario} />
+          <MaterialIcons name="visibility" size={16} color={colors.textPrimary} />
           <Text style={styles.btnOutlineText}>Previsualizar PDF</Text>
         </TouchableOpacity>
         {modo === 'editar' && (
           <TouchableOpacity style={styles.btnOutline} onPress={descargarPDF}>
-            <MaterialIcons name="picture-as-pdf" size={16} color={tasksColor.textoSecundario} />
+            <MaterialIcons name="picture-as-pdf" size={16} color={colors.textPrimary} />
             <Text style={styles.btnOutlineText}>Descargar PDF</Text>
           </TouchableOpacity>
         )}
         {modo === 'editar' && estado !== 'borrador' && (
           <TouchableOpacity style={styles.btnOutline} onPress={abrirModalEmail}>
-            <MaterialIcons name="email" size={16} color={tasksColor.textoSecundario} />
+            <MaterialIcons name="email" size={16} color={colors.textPrimary} />
             <Text style={styles.btnOutlineText}>Enviar email</Text>
           </TouchableOpacity>
         )}
@@ -1365,7 +1371,7 @@ export default function FacturaDetalleScreen() {
             <TextInput
               style={styles.input}
               placeholder={esVenta ? 'Buscar emisor por nombre o CIF…' : 'Buscar empresa por nombre o CIF…'}
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               value={emisorSearch || emisorNombre}
               onChangeText={(t) => {
                 setEmisorSearch(t);
@@ -1414,7 +1420,7 @@ export default function FacturaDetalleScreen() {
             <TextInput
               style={styles.input}
               placeholder={esVenta ? 'Buscar receptor por nombre o CIF…' : 'Buscar proveedor por nombre o CIF…'}
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               value={empresaSearch || empresaNombre}
               onChangeText={(t) => {
                 setEmpresaSearch(t);
@@ -1602,7 +1608,7 @@ export default function FacturaDetalleScreen() {
                   value={numFacturaProveedor}
                   onChangeText={setNumFacturaProveedor}
                   placeholder="Referencia del proveedor"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                   editable={esEditable}
                 />
               </View>
@@ -1618,7 +1624,7 @@ export default function FacturaDetalleScreen() {
                   editable={false}
                   multiline
                   placeholder="—"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
               <CampoIdDocumentoFacturaRecibida
@@ -1676,7 +1682,7 @@ export default function FacturaDetalleScreen() {
                 <MaterialIcons
                   name={esAbono ? 'check-box' : 'check-box-outline-blank'}
                   size={20}
-                  color={esAbono ? '#b91c1c' : '#64748b'}
+                  color={esAbono ? statusColors.danger.text : colors.textMuted}
                 />
                 <Text style={styles.checkLabel}>Es abono (importes en negativo)</Text>
               </TouchableOpacity>
@@ -1688,7 +1694,7 @@ export default function FacturaDetalleScreen() {
 
           {avisoAbono ? (
             <View style={[styles.field, styles.fieldFull, styles.avisoAbonoBox]}>
-              <MaterialIcons name="warning" size={16} color="#b45309" />
+              <MaterialIcons name="warning" size={16} color={statusColors.warning.text} />
               <Text style={styles.avisoAbonoText}>{avisoAbono}</Text>
             </View>
           ) : null}
@@ -1701,7 +1707,7 @@ export default function FacturaDetalleScreen() {
               value={observaciones}
               onChangeText={setObservaciones}
               placeholder="Notas internas o para el cliente…"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               multiline
               numberOfLines={3}
               editable={esEditable}
@@ -1717,11 +1723,11 @@ export default function FacturaDetalleScreen() {
         {esEditable && (
           <View style={styles.lineasActions}>
             <TouchableOpacity style={styles.btnSmall} onPress={addLinea}>
-              <MaterialIcons name="add" size={16} color="#0ea5e9" />
+              <MaterialIcons name="add" size={16} color={colors.accent} />
               <Text style={styles.btnSmallText}>Añadir línea</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.btnSmall} onPress={openProductModal}>
-              <MaterialIcons name="inventory" size={16} color="#0ea5e9" />
+              <MaterialIcons name="inventory" size={16} color={colors.accent} />
               <Text style={styles.btnSmallText}>Desde producto</Text>
             </TouchableOpacity>
           </View>
@@ -1751,7 +1757,7 @@ export default function FacturaDetalleScreen() {
                 value={linea.descripcion}
                 onChangeText={(v) => updateLinea(idx, 'descripcion', v)}
                 placeholder="Descripción"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 editable={esEditable}
               />
               <ImporteMonedaInput
@@ -1792,7 +1798,7 @@ export default function FacturaDetalleScreen() {
               <Text style={[styles.lineaCalc, { flex: 1.2 }]}>{formatMoneda(calc.total_linea)}</Text>
               {esEditable && (
                 <TouchableOpacity style={styles.lineaDeleteBtn} onPress={() => removeLinea(idx)}>
-                  <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                  <MaterialIcons name="delete-outline" size={18} color={colors.danger} />
                 </TouchableOpacity>
               )}
             </View>
@@ -1802,7 +1808,7 @@ export default function FacturaDetalleScreen() {
                 <Text style={styles.lineaCardNum}>Línea {idx + 1}</Text>
                 {esEditable && (
                   <TouchableOpacity onPress={() => removeLinea(idx)}>
-                    <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                    <MaterialIcons name="delete-outline" size={18} color={colors.danger} />
                   </TouchableOpacity>
                 )}
               </View>
@@ -1811,7 +1817,7 @@ export default function FacturaDetalleScreen() {
                 value={linea.descripcion}
                 onChangeText={(v) => updateLinea(idx, 'descripcion', v)}
                 placeholder="Descripción"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 editable={esEditable}
               />
               <View style={styles.lineaCardRow}>
@@ -1872,7 +1878,7 @@ export default function FacturaDetalleScreen() {
             </Text>
             {puedeRegistrarPago ? (
               <TouchableOpacity style={styles.btnSmall} onPress={abrirModalPago}>
-                <MaterialIcons name="add" size={16} color="#0ea5e9" />
+                <MaterialIcons name="add" size={16} color={colors.accent} />
                 <Text style={styles.btnSmallText}>Registrar {esVenta ? 'cobro' : 'pago'}</Text>
               </TouchableOpacity>
             ) : null}
@@ -1919,23 +1925,23 @@ export default function FacturaDetalleScreen() {
               onPress={subirAdjunto}
               disabled={subiendoAdjunto}
             >
-              {subiendoAdjunto ? <ActivityIndicator size="small" color="#0ea5e9" /> : (
+              {subiendoAdjunto ? <ActivityIndicator size="small" color={colors.accent} /> : (
                 <>
-                  <MaterialIcons name="attach-file" size={14} color="#0ea5e9" />
-                  <Text style={[styles.btnOutlineText, { fontSize: 11 }]}>Subir archivo</Text>
+                  <MaterialIcons name="attach-file" size={14} color={colors.accent} />
+                  <Text style={[styles.btnOutlineText, { fontSize: typography.etiqueta.fontSize }]}>Subir archivo</Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
           {adjuntos.length === 0 ? (
-            <Text style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Sin adjuntos</Text>
+            <Text style={{ fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic' }}>Sin adjuntos</Text>
           ) : (
             adjuntos.map((adj) => (
               <View key={adj.id} style={styles.adjuntoRow}>
                 <MaterialIcons
                   name={adj.tipo?.includes('pdf') ? 'picture-as-pdf' : adj.tipo?.startsWith('image') ? 'image' : 'insert-drive-file'}
                   size={18}
-                  color={adj.tipo?.includes('pdf') ? '#dc2626' : '#0ea5e9'}
+                  color={adj.tipo?.includes('pdf') ? colors.danger : colors.accent}
                 />
                 <View style={{ flex: 1, marginLeft: 6 }}>
                   <Text style={styles.adjuntoNombre} numberOfLines={1}>{adj.nombre}</Text>
@@ -1951,18 +1957,18 @@ export default function FacturaDetalleScreen() {
                     accessibilityLabel={tipo === 'IN' ? 'Descargar documento' : 'Abrir documento'}
                   >
                     {descargandoAdjId === adj.id ? (
-                      <ActivityIndicator size="small" color="#0ea5e9" />
+                      <ActivityIndicator size="small" color={colors.accent} />
                     ) : (
                       <MaterialIcons
                         name={tipo === 'IN' ? 'download' : 'open-in-new'}
                         size={16}
-                        color="#0ea5e9"
+                        color={colors.accent}
                       />
                     )}
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity onPress={() => eliminarAdjunto(adj.id)} style={{ padding: 4 }}>
-                  <MaterialIcons name="delete-outline" size={16} color="#dc2626" />
+                  <MaterialIcons name="delete-outline" size={16} color={colors.danger} />
                 </TouchableOpacity>
               </View>
             ))
@@ -1976,7 +1982,7 @@ export default function FacturaDetalleScreen() {
           <Text style={styles.sectionTitle}>Auditoría</Text>
           {auditLog.map((entry, idx) => (
             <View key={idx} style={styles.auditRow}>
-              <MaterialIcons name="history" size={14} color="#94a3b8" />
+              <MaterialIcons name="history" size={14} color={colors.textMuted} />
               <View style={{ flex: 1, marginLeft: 6 }}>
                 <Text style={styles.auditAction}>{entry.accion}</Text>
                 <Text style={styles.auditMeta}>{entry.usuario_nombre} · {formatCreadoEn(entry.timestamp_accion)}</Text>
@@ -1996,19 +2002,19 @@ export default function FacturaDetalleScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Seleccionar producto</Text>
               <TouchableOpacity onPress={() => setShowProductModal(false)}>
-                <MaterialIcons name="close" size={22} color="#334155" />
+                <MaterialIcons name="close" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
             <TextInput
               style={styles.input}
               placeholder="Buscar por nombre o referencia…"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               value={productoSearch}
               onChangeText={setProductoSearch}
               autoFocus
             />
             {loadingProductos ? (
-              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 16 }} />
+              <ActivityIndicator size="small" color={colors.accent} style={{ marginVertical: SPACING.lg }} />
             ) : (
               <ScrollView style={styles.modalScroll}>
                 {productosFiltrados.length === 0 ? (
@@ -2095,7 +2101,7 @@ export default function FacturaDetalleScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Enviar factura por email</Text>
               <TouchableOpacity onPress={() => setShowEmailModal(false)}>
-                <MaterialIcons name="close" size={22} color="#334155" />
+                <MaterialIcons name="close" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
 
@@ -2106,7 +2112,7 @@ export default function FacturaDetalleScreen() {
                 value={emailDestinatario}
                 onChangeText={setEmailDestinatario}
                 placeholder="email@empresa.com"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 keyboardType="email-address"
                 autoCapitalize="none"
               />
@@ -2119,7 +2125,7 @@ export default function FacturaDetalleScreen() {
                 value={emailAsunto}
                 onChangeText={setEmailAsunto}
                 placeholder="Asunto del email"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
               />
             </View>
 
@@ -2130,19 +2136,19 @@ export default function FacturaDetalleScreen() {
                 value={emailCuerpo}
                 onChangeText={setEmailCuerpo}
                 placeholder="Mensaje personalizado…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 multiline
                 numberOfLines={4}
               />
-              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+              <Text style={{ fontSize: fontSizes.badge, color: colors.textMuted, marginTop: 2 }}>
                 Si dejas vacío se usará un mensaje predeterminado. El PDF se adjuntará automáticamente.
               </Text>
             </View>
 
-            <TouchableOpacity style={[styles.btnPrimary, { marginTop: 8 }]} onPress={enviarEmail} disabled={sendingEmail}>
-              {sendingEmail ? <ActivityIndicator size="small" color="#fff" /> : (
+            <TouchableOpacity style={[styles.btnPrimary, { marginTop: SPACING.sm }]} onPress={enviarEmail} disabled={sendingEmail}>
+              {sendingEmail ? <ActivityIndicator size="small" color={colors.surface} /> : (
                 <>
-                  <MaterialIcons name="send" size={14} color="#fff" />
+                  <MaterialIcons name="send" size={14} color={colors.surface} />
                   <Text style={styles.btnPrimaryText}>Enviar</Text>
                 </>
               )}
@@ -2157,41 +2163,44 @@ export default function FacturaDetalleScreen() {
   );
 }
 
+/** Radio 8: entre `radius.sm` (6) y `radius.md` (10). No hay token. */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: tasksColor.fondoApp,
+    backgroundColor: colors.bg,
   },
   contentContainer: {
-    padding: 16,
+    padding: SPACING.lg,
   },
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: tasksColor.fondoApp,
+    backgroundColor: colors.bg,
   },
   loadingText: {
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoSecundario,
+    marginTop: SPACING.sm,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
   },
 
   // Header
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: tasksRadius.contenedor,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: tasksColor.bordeSutil,
-    backgroundColor: tasksColor.superficie,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2203,20 +2212,20 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   title: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[20],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textStrong,
   },
   remesaActivaBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     flexWrap: 'wrap',
-    backgroundColor: tasksColor.acentoSuave,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
-    borderColor: tasksColor.bordeSutil,
-    borderRadius: tasksRadius.contenedor,
-    paddingHorizontal: 12,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     marginBottom: 10,
   },
@@ -2231,158 +2240,158 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   remesaActivaBannerText: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.acentoTexto,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: statusColors.info.text,
   },
   remesaActivaNombre: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: tasksColor.acentoTexto,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
+    color: statusColors.info.text,
   },
   remesaActivaLink: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: tasksColor.acentoTexto,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
+    color: statusColors.info.text,
     textDecorationLine: 'underline',
   },
   remesaActivaBannerHint: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoSecundario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
   },
   btnQuitarRemesa: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
-    borderColor: tasksColor.bordeFuerte,
-    backgroundColor: tasksColor.superficie,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: tasksRadius.control,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: radius.sm,
     minHeight: MIN_TOUCH,
   },
   btnQuitarRemesaText: {
-    color: tasksColor.acentoTexto,
-    fontSize: 12,
-    fontWeight: '400',
+    color: statusColors.info.text,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
   },
 
   // Actions
   actionsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
   btnPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: tasksColor.acento,
+    backgroundColor: colors.accent,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: tasksRadius.control,
+    paddingVertical: SPACING.sm,
+    borderRadius: radius.sm,
   },
   btnPrimaryText: {
-    color: tasksColor.textoInverso,
-    fontSize: 12,
-    fontWeight: '500',
+    color: colors.surface,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
   },
   btnSuccess: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: tasksColor.exitoSuave,
+    backgroundColor: statusColors.success.bg,
     borderWidth: 1,
-    borderColor: tasksColor.bordeFuerte,
+    borderColor: colors.border,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: tasksRadius.control,
+    paddingVertical: SPACING.sm,
+    borderRadius: radius.sm,
   },
   btnSuccessText: {
-    color: tasksColor.exito,
-    fontSize: 12,
-    fontWeight: '500',
+    color: colors.success,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
   },
   btnOutline: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
-    borderColor: tasksColor.bordeFuerte,
+    borderColor: colors.border,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: tasksRadius.control,
-    backgroundColor: tasksColor.superficie,
+    paddingVertical: SPACING.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
   },
   btnOutlineText: {
-    color: tasksColor.textoSecundario,
-    fontSize: 12,
-    fontWeight: '400',
+    color: colors.textPrimary,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
   },
   btnOutlineWarn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
-    borderColor: tasksColor.bordeFuerte,
+    borderColor: colors.border,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: tasksRadius.control,
-    backgroundColor: tasksColor.superficie,
+    paddingVertical: SPACING.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
   },
   btnOutlineWarnText: {
-    color: tasksColor.aviso,
-    fontSize: 12,
-    fontWeight: '400',
+    color: colors.warning,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
   },
   btnSmall: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: tasksRadius.control,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: tasksColor.bordeFuerte,
-    backgroundColor: tasksColor.superficie,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   btnSmallText: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoSecundario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
   },
 
   errorText: {
-    color: tasksColor.peligro,
-    fontSize: 12,
-    fontWeight: '400',
-    marginBottom: 8,
+    color: colors.danger,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    marginBottom: SPACING.sm,
   },
 
   // Sections
   section: {
-    backgroundColor: tasksColor.superficie,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: tasksColor.bordeSutil,
-    borderRadius: tasksRadius.contenedor,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     padding: 12,
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
+    color: colors.textStrong,
     marginBottom: 10,
   },
   sectionHint: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     marginTop: -6,
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
     lineHeight: 15,
   },
   sectionHeaderRow: {
@@ -2409,10 +2418,10 @@ const styles = StyleSheet.create({
     top: '100%',
     left: 0,
     right: 0,
-    backgroundColor: tasksColor.superficie,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: tasksColor.bordeSutil,
-    borderRadius: tasksRadius.control,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     maxHeight: 220,
     zIndex: 9999,
     shadowColor: '#000',
@@ -2429,31 +2438,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: tasksColor.bordeSutil,
+    borderBottomColor: colors.border,
   },
   dropdownName: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
   },
   dropdownCif: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
   },
   empresaInfo: {
-    marginTop: 8,
-    backgroundColor: tasksColor.superficieHundida,
-    borderRadius: tasksRadius.control,
+    marginTop: SPACING.sm,
+    backgroundColor: colors.bg,
+    borderRadius: radius.sm,
     padding: 8,
     gap: 2,
   },
   empresaInfoText: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
   },
 
   // Form
@@ -2486,102 +2495,102 @@ const styles = StyleSheet.create({
     minWidth: 160,
   },
   readOnlyInline: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoPrimario,
-    paddingVertical: 8,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
+    paddingVertical: SPACING.sm,
   },
   checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     minHeight: MIN_TOUCH,
     alignSelf: 'flex-start',
     paddingRight: 8,
   },
   checkLabel: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
   },
   checkHint: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     lineHeight: 15,
   },
   avisoAbonoBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
-    backgroundColor: tasksColor.avisoSuave,
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
-    borderColor: tasksColor.bordeSutil,
-    borderRadius: tasksRadius.control,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
   },
   avisoAbonoText: {
     flex: 1,
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.aviso,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.warning,
     lineHeight: 16,
   },
   label: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     marginBottom: 4,
   },
   inputReadOnly: {
-    backgroundColor: tasksColor.superficieHundida,
-    color: tasksColor.textoPrimario,
+    backgroundColor: colors.bg,
+    color: colors.textStrong,
     minHeight: 36,
   },
   numeroFacturaText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[20],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textStrong,
     paddingVertical: 4,
   },
   numeroFacturaAuto: {
-    fontSize: 11,
-    fontWeight: '400',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     fontStyle: 'italic',
-    color: tasksColor.textoTerciario,
+    color: colors.textMuted,
     paddingVertical: 4,
   },
   numeroFacturaPreview: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoSecundario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
     paddingVertical: 4,
     fontStyle: 'italic',
   },
   numeroFacturaProvisional: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.aviso,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.warning,
     paddingVertical: 4,
     fontStyle: 'italic',
   },
   numeroFacturaHint: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     lineHeight: 14,
   },
   vencHint: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: '#64748b',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     marginTop: 4,
   },
   vencLink: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#0ea5e9',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
+    color: colors.accent,
     marginTop: 4,
     textDecorationLine: 'underline',
   },
@@ -2590,35 +2599,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   vencEstado: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
     marginTop: 2,
   },
   labelSmall: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     marginBottom: 2,
   },
   input: {
-    fontSize: 12,
-    fontWeight: '400',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     padding: 8,
     borderWidth: 1,
-    borderColor: tasksColor.bordeFuerte,
-    borderRadius: tasksRadius.control,
-    backgroundColor: tasksColor.superficie,
-    color: tasksColor.textoPrimario,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    color: colors.textStrong,
   },
   inputSmall: {
-    fontSize: 12,
-    fontWeight: '400',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     padding: 6,
     borderWidth: 1,
-    borderColor: tasksColor.bordeFuerte,
-    borderRadius: tasksRadius.control,
-    backgroundColor: tasksColor.superficie,
-    color: tasksColor.textoPrimario,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    color: colors.textStrong,
   },
   inputMultiline: {
     minHeight: 60,
@@ -2629,52 +2638,52 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pickerPlaceholder: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     fontStyle: 'italic',
   },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: tasksRadius.control,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: tasksColor.bordeSutil,
-    backgroundColor: tasksColor.superficie,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     marginRight: 6,
   },
   chipActive: {
-    backgroundColor: tasksColor.acentoSuave,
-    borderColor: tasksColor.acento,
+    backgroundColor: colors.accentMuted,
+    borderColor: colors.accent,
   },
   chipText: {
-    fontSize: 11,
-    color: tasksColor.textoSecundario,
-    fontWeight: '400',
+    fontSize: typography.etiqueta.fontSize,
+    color: colors.textPrimary,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
   },
   chipTextActive: {
-    color: tasksColor.acentoTexto,
+    color: statusColors.info.text,
   },
 
   // Líneas
   lineasActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: SPACING.sm,
     marginBottom: 10,
   },
   lineaHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: tasksColor.bordeSutil,
+    borderBottomColor: colors.border,
     marginBottom: 4,
   },
   lineaHeaderCell: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     textTransform: 'uppercase',
     textAlign: 'center',
   },
@@ -2682,25 +2691,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 3,
-    gap: 4,
+    gap: SPACING.xs,
     borderBottomWidth: 1,
-    borderBottomColor: tasksColor.bordeSutil,
+    borderBottomColor: colors.border,
   },
   lineaInput: {
-    fontSize: 12,
-    fontWeight: '400',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     padding: 6,
     borderWidth: 1,
-    borderColor: tasksColor.bordeFuerte,
-    borderRadius: tasksRadius.control,
-    backgroundColor: tasksColor.superficie,
-    color: tasksColor.textoPrimario,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    color: colors.textStrong,
     textAlign: 'center',
   },
   lineaCalc: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
     textAlign: 'center',
   },
   lineaDeleteBtn: {
@@ -2713,11 +2722,11 @@ const styles = StyleSheet.create({
   // Líneas mobile
   lineaCard: {
     borderWidth: 1,
-    borderColor: tasksColor.bordeSutil,
-    borderRadius: tasksRadius.control,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     padding: 10,
-    marginBottom: 8,
-    backgroundColor: tasksColor.superficieHundida,
+    marginBottom: SPACING.sm,
+    backgroundColor: colors.bg,
     gap: 6,
   },
   lineaCardHeader: {
@@ -2726,31 +2735,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   lineaCardNum: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
   },
   lineaCardRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: SPACING.sm,
   },
   lineaCardField: {
     flex: 1,
   },
   lineaCalcSmall: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
     paddingVertical: 6,
   },
   lineaCardTotal: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
+    color: colors.textStrong,
     textAlign: 'right',
     paddingTop: 4,
     borderTopWidth: 1,
-    borderTopColor: tasksColor.bordeSutil,
+    borderTopColor: colors.border,
   },
 
   totalesWrap: {
@@ -2762,42 +2771,42 @@ const styles = StyleSheet.create({
   pagoRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: tasksColor.bordeSutil,
-    gap: 8,
+    borderBottomColor: colors.border,
+    gap: SPACING.sm,
   },
   pagoFecha: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
   },
   pagoMeta: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
   },
   pagoObs: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     fontStyle: 'italic',
   },
   pagoAutor: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     marginTop: 2,
   },
   pagoImporte: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
+    color: colors.textStrong,
   },
   emptyText: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     textAlign: 'center',
     paddingVertical: 12,
   },
@@ -2808,48 +2817,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: tasksColor.bordeSutil,
-    gap: 4,
+    borderBottomColor: colors.border,
+    gap: SPACING.xs,
   },
-  adjuntoNombre: { fontSize: 12, fontWeight: '400', color: tasksColor.textoPrimario },
-  adjuntoMeta: { fontSize: 11, fontWeight: '400', color: tasksColor.textoTerciario },
+  adjuntoNombre: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textStrong },
+  adjuntoMeta: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted },
 
   auditRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: tasksColor.bordeSutil,
+    borderBottomColor: colors.border,
   },
   auditAction: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
   },
   auditMeta: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
   },
   auditDetail: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoSecundario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
     marginTop: 2,
   },
 
   // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: tasksColor.overlay,
+    backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
   modalContent: {
-    backgroundColor: tasksColor.superficie,
-    borderRadius: tasksRadius.contenedor,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
+    padding: SPACING.lg,
     width: '100%',
     maxWidth: 520,
     maxHeight: '85%',
@@ -2861,9 +2870,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalTitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
+    color: colors.textStrong,
   },
   modalScroll: {
     maxHeight: 320,
@@ -2872,24 +2881,24 @@ const styles = StyleSheet.create({
   productoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: tasksColor.bordeSutil,
+    borderBottomColor: colors.border,
   },
   productoNombre: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
   },
   productoRef: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: tasksColor.textoTerciario,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
   },
   productoPrecio: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: tasksColor.textoPrimario,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
   },
 });
