@@ -37,12 +37,20 @@ import {
   TextInput,
   Modal,
   Linking,
-  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useLocalToast } from '../../components/Toast';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import * as XLSX from 'xlsx';
@@ -319,9 +327,9 @@ function formatFechaCorta(iso: string): string {
 
 /** Paleta pastel estable para chips de empresa del grupo. */
 const EMPRESA_CHIP_PASTEL: ReadonlyArray<{ bg: string; text: string }> = [
-  { bg: '#e0f2fe', text: '#0369a1' }, // sky
-  { bg: '#dcfce7', text: '#15803d' }, // green
-  { bg: '#fef3c7', text: '#b45309' }, // amber
+  { bg: colors.accentMuted, text: statusColors.info.text }, // sky
+  { bg: statusColors.success.bg, text: statusColors.success.text }, // green
+  { bg: statusColors.warning.bg, text: statusColors.warning.text }, // amber
   { bg: '#fce7f3', text: '#be185d' }, // pink
   { bg: '#ede9fe', text: '#6d28d9' }, // violet
   { bg: '#ffedd5', text: '#c2410c' }, // orange
@@ -331,7 +339,7 @@ const EMPRESA_CHIP_PASTEL: ReadonlyArray<{ bg: string; text: string }> = [
   { bg: '#ecfccb', text: '#4d7c0f' }, // lime
 ];
 
-const EMPRESA_CHIP_SIN = { bg: '#f1f5f9', text: '#64748b' };
+const EMPRESA_CHIP_SIN = { bg: colors.navActive, text: colors.textMuted };
 
 /**
  * Color pastel determinista. Clave = nombre normalizado (prioridad) para que
@@ -443,10 +451,10 @@ type EstadoMeta = {
 };
 
 const ESTADO_META: Record<EstadoConciliacion, EstadoMeta> = {
-  descuadre: { label: 'Descuadre', bg: '#fee2e2', text: '#b91c1c', orden: 0 },
+  descuadre: { label: 'Descuadre', bg: statusColors.danger.bg, text: statusColors.danger.text, orden: 0 },
   sin_factura: { label: 'Sin factura', bg: '#ffedd5', text: '#c2410c', orden: 1 },
-  sin_albaran: { label: 'Sin albarán', bg: '#e2e8f0', text: '#475569', orden: 2 },
-  leve: { label: 'Dif. leve', bg: '#fef3c7', text: '#b45309', orden: 3 },
+  sin_albaran: { label: 'Sin albarán', bg: colors.border, text: colors.textPrimary, orden: 2 },
+  leve: { label: 'Dif. leve', bg: statusColors.warning.bg, text: statusColors.warning.text, orden: 3 },
   cuadra: { label: 'Cuadra', bg: '#d1fae5', text: '#047857', orden: 4 },
   validada: {
     label: 'Validada',
@@ -485,7 +493,7 @@ function absorberClickFila(e: { stopPropagation?: () => void; nativeEvent?: { st
 export default function ConciliacionFacturasScreen() {
   const router = useRouter();
   const { hasPermiso, user } = useAuth();
-  const { shouldStackPanels } = useBreakpoint();
+  const { shouldStackPanels, width: winW, height: winH } = useBreakpoint();
   const { show: showToast, ToastView } = useLocalToast();
   const { confirmar, ConfirmarView } = useConfirmar();
   const { compras, loading: loadingCompras, recargar, rangoCargado } = useComprasProveedorCache();
@@ -537,7 +545,7 @@ export default function ConciliacionFacturasScreen() {
     hasPermiso('compras_proveedor.sincronizar') || hasPermiso('ajustes.sincronizaciones.compras_proveedor');
 
   // ── Comparador albaranes ↔ factura (modal dividido) ──
-  const { width: winW, height: winH } = useWindowDimensions();
+  // 900 no es un breakpoint del sistema (768 / 1024).
   const comparadorApilado = winW < 900;
   const [comparador, setComparador] = useState<NodoProveedor | null>(null);
   const [compFacturaId, setCompFacturaId] = useState<string | null>(null);
@@ -1904,7 +1912,7 @@ export default function ConciliacionFacturasScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.accent} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>Conciliación compras ↔ facturas</Text>
@@ -1919,7 +1927,7 @@ export default function ConciliacionFacturasScreen() {
           accessibilityLabel="Exportar Excel"
           variant="outline"
         >
-          <MaterialIcons name="table-chart" size={TOOLBAR_ICON_SIZE} color={visibles.length === 0 ? '#cbd5e1' : '#0ea5e9'} />
+          <MaterialIcons name="table-chart" size={TOOLBAR_ICON_SIZE} color={visibles.length === 0 ? colors.borderStrong : colors.accent} />
         </ComprasToolbarIconBtn>
         <ComprasToolbarIconBtn
           tooltip="PDF diferencias (economato)"
@@ -1929,12 +1937,12 @@ export default function ConciliacionFacturasScreen() {
           variant="outline"
         >
           {exportandoPdf ? (
-            <ActivityIndicator size="small" color="#dc2626" />
+            <ActivityIndicator size="small" color={colors.danger} />
           ) : (
             <MaterialIcons
               name="picture-as-pdf"
               size={TOOLBAR_ICON_SIZE}
-              color={nodosDiferenciasPdf.length === 0 ? '#cbd5e1' : '#dc2626'}
+              color={nodosDiferenciasPdf.length === 0 ? colors.borderStrong : colors.danger}
             />
           )}
         </ComprasToolbarIconBtn>
@@ -1944,7 +1952,7 @@ export default function ConciliacionFacturasScreen() {
           accessibilityLabel="Albaranes que faltan"
           variant="outline"
         >
-          <MaterialIcons name="assignment-late" size={TOOLBAR_ICON_SIZE} color="#d97706" />
+          <MaterialIcons name="assignment-late" size={TOOLBAR_ICON_SIZE} color={colors.warning} />
         </ComprasToolbarIconBtn>
         <ComprasToolbarIconBtn
           tooltip="Recargar albaranes y facturas"
@@ -1954,9 +1962,9 @@ export default function ConciliacionFacturasScreen() {
           variant="outline"
         >
           {cargando ? (
-            <ActivityIndicator size="small" color="#0ea5e9" />
+            <ActivityIndicator size="small" color={colors.accent} />
           ) : (
-            <MaterialIcons name="refresh" size={TOOLBAR_ICON_SIZE} color="#0ea5e9" />
+            <MaterialIcons name="refresh" size={TOOLBAR_ICON_SIZE} color={colors.accent} />
           )}
         </ComprasToolbarIconBtn>
         {puedeSincronizar ? (
@@ -1973,13 +1981,13 @@ export default function ConciliacionFacturasScreen() {
           <MaterialIcons
             name={syncResult.startsWith('Error') ? 'error-outline' : 'check-circle'}
             size={16}
-            color={syncResult.startsWith('Error') ? '#dc2626' : '#16a34a'}
+            color={syncResult.startsWith('Error') ? colors.danger : colors.success}
           />
           <Text style={[styles.syncResultText, syncResult.startsWith('Error') && styles.syncResultTextError]}>
             {syncResult}
           </Text>
           <TouchableOpacity onPress={() => setSyncResult('')} hitSlop={8}>
-            <MaterialIcons name="close" size={14} color="#94a3b8" />
+            <MaterialIcons name="close" size={14} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
       ) : null}
@@ -2039,7 +2047,7 @@ export default function ConciliacionFacturasScreen() {
             <TextInput
               style={local.buscarInput}
               placeholder="Buscar por nombre o CIF…"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               value={busqueda}
               onChangeText={setBusqueda}
             />
@@ -2064,7 +2072,7 @@ export default function ConciliacionFacturasScreen() {
 
       {/* Banner resumen */}
       <View style={local.totalBanner}>
-        <MaterialIcons name="fact-check" size={16} color="#0369a1" />
+        <MaterialIcons name="fact-check" size={16} color={statusColors.info.text} />
         <Text style={local.totalBannerText}>
           Albaranes: <Text style={local.totalBannerStrong}>{formatMoneda(resumen.totalAlb)}</Text>
           {'  ·  '}Facturas: <Text style={local.totalBannerStrong}>{formatMoneda(resumen.totalFact)}</Text>
@@ -2073,17 +2081,17 @@ export default function ConciliacionFacturasScreen() {
           {' · '}
           <Text style={{ color: '#065f46' }}>{resumen.validadas} validadas</Text>
           {' · '}
-          <Text style={{ color: '#b91c1c' }}>{resumen.diferencias} con diferencias</Text>
+          <Text style={{ color: statusColors.danger.text }}>{resumen.diferencias} con diferencias</Text>
           {' · '}
           <Text style={{ color: '#c2410c' }}>{resumen.sinFactura} sin factura</Text>
           {' · '}
-          <Text style={{ color: '#475569' }}>{resumen.sinAlbaran} sin albarán</Text>
+          <Text style={{ color: colors.textPrimary }}>{resumen.sinAlbaran} sin albarán</Text>
         </Text>
       </View>
 
       {errorFacturas ? (
         <View style={local.errorBanner}>
-          <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+          <MaterialIcons name="error-outline" size={16} color={statusColors.danger.text} />
           <Text style={local.errorBannerText}>{errorFacturas}</Text>
           <TouchableOpacity onPress={cargarFacturas}>
             <Text style={local.errorBannerRetry}>Reintentar</Text>
@@ -2093,7 +2101,7 @@ export default function ConciliacionFacturasScreen() {
 
       {puedeValidarRevision && seleccionRevision.size > 0 ? (
         <View style={local.validarBar}>
-          <MaterialIcons name="task-alt" size={18} color="#0369a1" />
+          <MaterialIcons name="task-alt" size={18} color={statusColors.info.text} />
           <Text style={local.validarBarText}>
             {seleccionRevision.size} factura{seleccionRevision.size !== 1 ? 's' : ''} seleccionada{seleccionRevision.size !== 1 ? 's' : ''}
           </Text>
@@ -2110,9 +2118,9 @@ export default function ConciliacionFacturasScreen() {
             disabled={validandoRevision}
           >
             {validandoRevision ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={colors.surface} />
             ) : (
-              <MaterialIcons name="check-circle" size={16} color="#fff" />
+              <MaterialIcons name="check-circle" size={16} color={colors.surface} />
             )}
             <Text style={local.validarBarBtnText}>Validar revisión</Text>
           </TouchableOpacity>
@@ -2122,24 +2130,24 @@ export default function ConciliacionFacturasScreen() {
       {/* Listado */}
       {cargando ? (
         <View style={local.emptyWrap}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={local.emptyText}>Cargando albaranes y facturas…</Text>
         </View>
       ) : visibles.length === 0 ? (
         <View style={local.emptyWrap}>
-          <MaterialIcons name="inbox" size={48} color="#cbd5e1" />
+          <MaterialIcons name="inbox" size={48} color={colors.borderStrong} />
           <Text style={local.emptyText}>No hay proveedores para el periodo y filtros seleccionados.</Text>
         </View>
       ) : (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: SPACING.xl }}>
           {visibles.map((p) => {
             const abierto = abiertos.has(p.key);
             const meta = ESTADO_META[p.estado];
-            const difColor = Math.abs(p.dif) <= UMBRAL_CUADRA_EUR ? '#047857' : p.dif > 0 ? '#b91c1c' : '#b45309';
+            const difColor = Math.abs(p.dif) <= UMBRAL_CUADRA_EUR ? '#047857' : p.dif > 0 ? statusColors.danger.text : statusColors.warning.text;
             return (
               <View key={p.key} style={local.provBlock}>
                 <TouchableOpacity style={local.provHeader} onPress={() => toggleAbierto(p.key)} activeOpacity={0.7}>
-                  <MaterialIcons name={abierto ? 'expand-more' : 'chevron-right'} size={22} color="#0f172a" />
+                  <MaterialIcons name={abierto ? 'expand-more' : 'chevron-right'} size={22} color={colors.textStrong} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <View style={local.provNombreRow}>
                       <Text style={local.provNombre} numberOfLines={1}>{p.nombre}</Text>
@@ -2152,7 +2160,7 @@ export default function ConciliacionFacturasScreen() {
                         hitSlop={6}
                         accessibilityLabel="Comparar albaranes con factura"
                       >
-                        <MaterialIcons name="vertical-split" size={15} color="#0369a1" />
+                        <MaterialIcons name="vertical-split" size={15} color={statusColors.info.text} />
                       </TouchableOpacity>
                     </View>
                     <Text style={local.provMeta} numberOfLines={1}>
@@ -2168,7 +2176,7 @@ export default function ConciliacionFacturasScreen() {
                       Fact: <Text style={local.provImporteStrong}>{formatMoneda(p.totalFacturasTotal)}</Text>
                       <Text style={local.provImporteVs}> · base {formatMoneda(p.totalFacturasBase)}</Text>
                     </Text>
-                    <Text style={[local.provImporteLinea, { color: difColor, fontWeight: '700' }]}>
+                    <Text style={[local.provImporteLinea, { color: difColor, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight }]}>
                       Dif: {formatMoneda(p.dif)}
                     </Text>
                   </View>
@@ -2213,7 +2221,7 @@ export default function ConciliacionFacturasScreen() {
                               activeOpacity={0.6}
                             >
                               <Text style={local.detalleFecha}>{formatFechaCorta(a.fechaIso)}</Text>
-                              <MaterialIcons name="receipt" size={14} color="#94a3b8" />
+                              <MaterialIcons name="receipt" size={14} color={colors.textMuted} />
                               <Text style={local.detalleDoc} numberOfLines={1}>
                                 {a.label}{a.numDoc ? `  ·  Nº doc: ${a.numDoc}` : ''}
                               </Text>
@@ -2283,7 +2291,7 @@ export default function ConciliacionFacturasScreen() {
                                       <MaterialIcons
                                         name={seleccionada ? 'check-box' : 'check-box-outline-blank'}
                                         size={18}
-                                        color={seleccionada ? '#0ea5e9' : '#cbd5e1'}
+                                        color={seleccionada ? colors.accent : colors.borderStrong}
                                       />
                                     </TouchableOpacity>
                                   ) : (
@@ -2298,9 +2306,9 @@ export default function ConciliacionFacturasScreen() {
                                 >
                                   <Text style={local.detalleFecha}>{formatFechaCorta(f.fechaIso)}</Text>
                                   {abriendoDocId === f.id ? (
-                                    <ActivityIndicator size={14} color="#0ea5e9" />
+                                    <ActivityIndicator size={14} color={colors.accent} />
                                   ) : (
-                                    <MaterialIcons name="description" size={14} color="#94a3b8" />
+                                    <MaterialIcons name="description" size={14} color={colors.textMuted} />
                                   )}
                                   <Text style={local.detalleDoc} numberOfLines={1}>
                                     {f.numero}{f.numeroProveedor ? `  ·  Nº prov: ${f.numeroProveedor}` : ''}
@@ -2361,10 +2369,10 @@ export default function ConciliacionFacturasScreen() {
           <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.syncMenuWrap}>
             <View style={styles.syncMenuCard}>
               <View style={styles.syncMenuHeader}>
-                <MaterialIcons name="sync" size={18} color="#0ea5e9" />
+                <MaterialIcons name="sync" size={18} color={colors.accent} />
                 <Text style={styles.syncMenuTitle}>Sincronizar compras</Text>
                 <TouchableOpacity onPress={() => setMenuSyncVisible(false)} hitSlop={8}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               {OPCIONES_SYNC.map((op) => (
@@ -2375,17 +2383,17 @@ export default function ConciliacionFacturasScreen() {
                   activeOpacity={0.7}
                 >
                   <View style={styles.syncMenuIconBox}>
-                    <MaterialIcons name={op.icono} size={18} color="#0ea5e9" />
+                    <MaterialIcons name={op.icono} size={18} color={colors.accent} />
                   </View>
                   <View style={styles.syncMenuRowTextWrap}>
                     <Text style={styles.syncMenuRowTitle}>{op.titulo}</Text>
                     <Text style={styles.syncMenuRowSub}>{op.subtitulo}</Text>
                   </View>
-                  <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+                  <MaterialIcons name="chevron-right" size={20} color={colors.borderStrong} />
                 </TouchableOpacity>
               ))}
               <View style={styles.syncMenuHint}>
-                <MaterialIcons name="info-outline" size={14} color="#b45309" />
+                <MaterialIcons name="info-outline" size={14} color={statusColors.warning.text} />
                 <Text style={styles.syncMenuHintText}>
                   Cuanto mayor sea el rango, más tarda la sincronización con Ágora. Tras sync se recargan albaranes y facturas (incluye purge de huérfanos).
                 </Text>
@@ -2412,7 +2420,7 @@ export default function ConciliacionFacturasScreen() {
                         </Text>
                       </View>
                       <TouchableOpacity onPress={() => setAlbaranModal(null)} hitSlop={8}>
-                        <MaterialIcons name="close" size={22} color="#64748b" />
+                        <MaterialIcons name="close" size={22} color={colors.textMuted} />
                       </TouchableOpacity>
                     </View>
 
@@ -2521,7 +2529,7 @@ export default function ConciliacionFacturasScreen() {
                         Asignado: <Text style={local.compRestoStrong}>{formatMoneda(baseAsignadaComp)}</Text>
                         {keysAsigComp.length > 0 ? ` (${keysAsigComp.length})` : ''}
                       </Text>
-                      <Text style={[local.compRestoItem, { color: colorRestoComp, fontWeight: '700' }]}>
+                      <Text style={[local.compRestoItem, { color: colorRestoComp, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight }]}>
                         Resto base: {formatMoneda(restoComp)}
                       </Text>
                     </View>
@@ -2532,9 +2540,9 @@ export default function ConciliacionFacturasScreen() {
                         disabled={marcandoPagoId === compFactura.id}
                       >
                         {marcandoPagoId === compFactura.id ? (
-                          <ActivityIndicator size="small" color="#fff" />
+                          <ActivityIndicator size="small" color={colors.surface} />
                         ) : (
-                          <MaterialIcons name="check-circle" size={16} color="#fff" />
+                          <MaterialIcons name="check-circle" size={16} color={colors.surface} />
                         )}
                         <Text style={local.compValidarBtnText}>Validar revisión</Text>
                       </TouchableOpacity>
@@ -2557,7 +2565,7 @@ export default function ConciliacionFacturasScreen() {
                       </Text>
                     </View>
                     <TouchableOpacity onPress={cerrarComparador} hitSlop={8}>
-                      <MaterialIcons name="close" size={22} color="#64748b" />
+                      <MaterialIcons name="close" size={22} color={colors.textMuted} />
                     </TouchableOpacity>
                   </View>
 
@@ -2572,13 +2580,13 @@ export default function ConciliacionFacturasScreen() {
                           disabled={loadingCompras}
                           accessibilityLabel="Mes anterior de albaranes"
                         >
-                          <MaterialIcons name="chevron-left" size={22} color="#0369a1" />
+                          <MaterialIcons name="chevron-left" size={22} color={statusColors.info.text} />
                         </TouchableOpacity>
                         <Text style={local.compAlbMesLabel} numberOfLines={1}>
                           {labelMes}
                         </Text>
                         {loadingCompras ? (
-                          <ActivityIndicator size="small" color="#0369a1" style={{ marginHorizontal: 4 }} />
+                          <ActivityIndicator size="small" color={statusColors.info.text} style={{ marginHorizontal: 4 }} />
                         ) : null}
                         <TouchableOpacity
                           style={[local.compFactNavBtn, loadingCompras && { opacity: 0.4 }]}
@@ -2587,22 +2595,22 @@ export default function ConciliacionFacturasScreen() {
                           disabled={loadingCompras}
                           accessibilityLabel="Mes siguiente de albaranes"
                         >
-                          <MaterialIcons name="chevron-right" size={22} color="#0369a1" />
+                          <MaterialIcons name="chevron-right" size={22} color={statusColors.info.text} />
                         </TouchableOpacity>
                       </View>
                       <Text style={local.compPanelTitle}>{tituloAlbComp}</Text>
                       <View style={local.compBuscarWrap}>
-                        <MaterialIcons name="search" size={16} color="#94a3b8" />
+                        <MaterialIcons name="search" size={16} color={colors.textMuted} />
                         <TextInput
                           style={local.compBuscarInput}
                           placeholder="Buscar albarán, nº doc, producto, empresa…"
-                          placeholderTextColor="#94a3b8"
+                          placeholderTextColor={colors.textMuted}
                           value={compBusquedaAlb}
                           onChangeText={setCompBusquedaAlb}
                         />
                         {compBusquedaAlb.trim() ? (
                           <TouchableOpacity onPress={() => setCompBusquedaAlb('')} hitSlop={8} accessibilityLabel="Limpiar búsqueda">
-                            <MaterialIcons name="close" size={16} color="#94a3b8" />
+                            <MaterialIcons name="close" size={16} color={colors.textMuted} />
                           </TouchableOpacity>
                         ) : null}
                       </View>
@@ -2667,9 +2675,9 @@ export default function ConciliacionFacturasScreen() {
                                         : 'check-box-outline-blank'
                                   }
                                   size={18}
-                                  color={marcadoEditable ? '#16a34a' : bloqueadoVisual ? '#94a3b8' : '#cbd5e1'}
+                                  color={marcadoEditable ? colors.success : bloqueadoVisual ? colors.textMuted : colors.borderStrong}
                                 />
-                                <MaterialIcons name="receipt" size={13} color={bloqueadoVisual ? '#94a3b8' : '#0369a1'} />
+                                <MaterialIcons name="receipt" size={13} color={bloqueadoVisual ? colors.textMuted : statusColors.info.text} />
                                 <Text
                                   style={[local.compAlbTitulo, bloqueadoVisual && local.compAlbTextoBloqueado]}
                                   numberOfLines={1}
@@ -2685,9 +2693,9 @@ export default function ConciliacionFacturasScreen() {
                                   {formatMoneda(a.total)}
                                 </Text>
                                 {marcadoEditable ? (
-                                  <MaterialIcons name="link" size={15} color="#16a34a" />
+                                  <MaterialIcons name="link" size={15} color={colors.success} />
                                 ) : marcadoCompensado ? (
-                                  <MaterialIcons name="lock" size={14} color="#94a3b8" />
+                                  <MaterialIcons name="lock" size={14} color={colors.textMuted} />
                                 ) : null}
                               </TouchableOpacity>
                               {puedeDeshacerOtra ? (
@@ -2697,7 +2705,7 @@ export default function ConciliacionFacturasScreen() {
                                   style={local.compAlbLinkOff}
                                   accessibilityLabel="Deshacer asignación"
                                 >
-                                  <MaterialIcons name="link-off" size={16} color="#64748b" />
+                                  <MaterialIcons name="link-off" size={16} color={colors.textMuted} />
                                 </TouchableOpacity>
                               ) : null}
                             </View>
@@ -2710,7 +2718,7 @@ export default function ConciliacionFacturasScreen() {
                                   {Number(l.Quantity) || 0}{l.PurchaseUnitName ? ` ${String(l.PurchaseUnitName)}` : ''}
                                 </Text>
                                 <Text style={[local.compLineaDato, { width: 74 }]}>{formatMoneda(l.Price)}</Text>
-                                <Text style={[local.compLineaDato, { width: 80, fontWeight: '600', color: '#0f172a' }]}>
+                                <Text style={[local.compLineaDato, { width: 80, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong }]}>
                                   {formatMoneda(l.TotalAmount)}
                                 </Text>
                               </View>
@@ -2736,7 +2744,7 @@ export default function ConciliacionFacturasScreen() {
                             hitSlop={8}
                             accessibilityLabel="Factura anterior"
                           >
-                            <MaterialIcons name="chevron-left" size={22} color="#0369a1" />
+                            <MaterialIcons name="chevron-left" size={22} color={statusColors.info.text} />
                           </TouchableOpacity>
                           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 1, flexShrink: 1 }}>
                             <View style={local.compFactChips}>
@@ -2781,7 +2789,7 @@ export default function ConciliacionFacturasScreen() {
                             hitSlop={8}
                             accessibilityLabel="Factura siguiente"
                           >
-                            <MaterialIcons name="chevron-right" size={22} color="#0369a1" />
+                            <MaterialIcons name="chevron-right" size={22} color={statusColors.info.text} />
                           </TouchableOpacity>
                         </View>
                       ) : null}
@@ -2795,7 +2803,7 @@ export default function ConciliacionFacturasScreen() {
                               onPress={() => setAfFacturaId(compFactura.id)}
                               accessibilityLabel="Albaranes que faltan en esta factura"
                             >
-                              <MaterialIcons name="playlist-add" size={16} color="#b45309" />
+                              <MaterialIcons name="playlist-add" size={16} color={statusColors.warning.text} />
                               <Text style={local.compFaltaBtnText}>Falta albarán</Text>
                             </TouchableOpacity>
                             {nPendAF > 0 ? (
@@ -2804,7 +2812,7 @@ export default function ConciliacionFacturasScreen() {
                                 onPress={() => setAfFacturaId(compFactura.id)}
                                 accessibilityLabel={`Faltan ${nPendAF} albaranes`}
                               >
-                                <MaterialIcons name="report-problem" size={13} color="#b45309" />
+                                <MaterialIcons name="report-problem" size={13} color={statusColors.warning.text} />
                                 <Text style={local.compFaltaBadgeText}>Faltan {nPendAF}</Text>
                               </TouchableOpacity>
                             ) : notasAF.length > 0 ? (
@@ -2818,16 +2826,16 @@ export default function ConciliacionFacturasScreen() {
                       <View style={local.compPreviewBox}>
                         {comparador.facturas.length === 0 ? (
                           <View style={local.compPreviewCentro}>
-                            <MaterialIcons name="description" size={40} color="#cbd5e1" />
+                            <MaterialIcons name="description" size={40} color={colors.borderStrong} />
                             <Text style={local.detalleVacio}>Sin facturas de gasto en el periodo.</Text>
                           </View>
                         ) : compPreviewLoading ? (
                           <View style={local.compPreviewCentro}>
-                            <ActivityIndicator size="large" color="#0ea5e9" />
+                            <ActivityIndicator size="large" color={colors.accent} />
                           </View>
                         ) : compPreviewError ? (
                           <View style={local.compPreviewCentro}>
-                            <MaterialIcons name="error-outline" size={36} color="#f87171" />
+                            <MaterialIcons name="error-outline" size={36} color={colors.danger} />
                             <Text style={[local.detalleVacio, { textAlign: 'center' }]}>{compPreviewError}</Text>
                             {compFacturaId ? (
                               <TouchableOpacity
@@ -2895,161 +2903,166 @@ export default function ConciliacionFacturasScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
+
 const local = StyleSheet.create({
-  filtros: { paddingHorizontal: 12, paddingTop: 8, gap: 8 },
+  filtros: { paddingHorizontal: SPACING.md, paddingTop: SPACING.sm, gap: SPACING.sm },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: '#f1f5f9',
+    borderRadius: radius.xl,
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  chipActivo: { backgroundColor: '#e0f2fe', borderColor: '#7dd3fc' },
-  chipValidada: { backgroundColor: '#dcfce7', borderColor: '#86efac' },
-  chipConAsignacion: { backgroundColor: '#fef3c7', borderColor: '#fcd34d' },
-  chipActivoValidada: { borderColor: '#16a34a', borderWidth: 2 },
-  chipActivoConAsignacion: { borderColor: '#d97706', borderWidth: 2 },
-  chipText: { fontSize: 12, color: '#475569', fontWeight: '500' },
-  chipTextActivo: { color: '#0369a1', fontWeight: '700' },
-  chipTextValidada: { color: '#16a34a', fontWeight: '700' },
-  chipTextConAsignacion: { color: '#d97706', fontWeight: '700' },
+  chipActivo: { backgroundColor: colors.accentMuted, borderColor: '#7dd3fc' },
+  chipValidada: { backgroundColor: statusColors.success.bg, borderColor: '#86efac' },
+  chipConAsignacion: { backgroundColor: statusColors.warning.bg, borderColor: '#fcd34d' },
+  chipActivoValidada: { borderColor: colors.success, borderWidth: 2 },
+  chipActivoConAsignacion: { borderColor: colors.warning, borderWidth: 2 },
+  chipText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  chipTextActivo: { color: statusColors.info.text, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  chipTextValidada: { color: colors.success, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  chipTextConAsignacion: { color: colors.warning, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   fechasRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' },
   fechaField: { gap: 2 },
-  fechaLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  fechaInput: { minWidth: 130, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  fechaLabel: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  fechaInput: { minWidth: 130, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, paddingHorizontal: 10, paddingVertical: 6 },
   buscarInput: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    fontSize: 13,
-    color: '#0f172a',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textStrong,
   },
 
   totalBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginHorizontal: 12,
+    marginHorizontal: SPACING.md,
     marginTop: 10,
-    marginBottom: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    marginBottom: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     backgroundColor: '#eff6ff',
     borderWidth: 1,
     borderColor: '#bfdbfe',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     flexWrap: 'wrap',
   },
-  totalBannerText: { fontSize: 13, color: '#1e3a8a', flexShrink: 1 },
-  totalBannerStrong: { fontWeight: '700', color: '#0369a1' },
+  totalBannerText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: '#1e3a8a', flexShrink: 1 },
+  totalBannerStrong: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text },
 
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 12,
+    gap: SPACING.sm,
+    marginHorizontal: SPACING.md,
     marginTop: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#fef2f2',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  errorBannerText: { flex: 1, fontSize: 12, color: '#b91c1c' },
-  errorBannerRetry: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
+  errorBannerText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.danger.text },
+  errorBannerRetry: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent },
 
   validarBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 12,
+    gap: SPACING.sm,
+    marginHorizontal: SPACING.md,
     marginTop: 6,
-    marginBottom: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#e0f2fe',
+    marginBottom: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     flexWrap: 'wrap',
   },
-  validarBarText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0369a1', minWidth: 120 },
+  validarBarText: { flex: 1, fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text, minWidth: 120 },
   validarBarBtnSec: {
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    backgroundColor: '#fff',
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
   },
-  validarBarBtnSecText: { fontSize: 12, fontWeight: '500', color: '#64748b' },
+  validarBarBtnSecText: { fontSize: fontSizes[12], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textMuted },
   validarBarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accent,
   },
   validarBarBtnDisabled: { opacity: 0.7 },
-  validarBarBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  validarBarBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
 
-  provBlock: { marginHorizontal: 12, marginTop: 8, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden', backgroundColor: '#fff' },
-  provHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 10, backgroundColor: '#f8fafc' },
-  provNombre: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  provMeta: { fontSize: 11, color: '#94a3b8', marginTop: 1 },
+  provBlock: { marginHorizontal: SPACING.md, marginTop: SPACING.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface },
+  provHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingHorizontal: 10, paddingVertical: 10, backgroundColor: colors.bg },
+  provNombre: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  provMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 1 },
   provImportes: { alignItems: 'flex-end', gap: 1 },
-  provImporteLinea: { fontSize: 12, color: '#475569' },
-  provImporteStrong: { fontWeight: '600', color: '#0f172a' },
-  provImporteVs: { fontSize: 10, color: '#94a3b8' },
-  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, marginLeft: 4 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
+  provImporteLinea: { fontVariant: ['tabular-nums'], fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  provImporteStrong: { fontVariant: ['tabular-nums'], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong },
+  provImporteVs: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted },
+  badge: { paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs, borderRadius: radius.lg, marginLeft: SPACING.xs },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
-  detalle: { paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+  detalle: { paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.navActive },
   detalleCols: { flexDirection: 'row', alignItems: 'flex-start', gap: 0 },
   detalleColsStack: { flexDirection: 'column' },
   detalleCol: { flex: 1, minWidth: 0 },
   detalleColSide: { paddingHorizontal: 4 },
-  detalleColDivider: { borderLeftWidth: 1, borderLeftColor: '#e2e8f0', paddingLeft: 12 },
+  detalleColDivider: { borderLeftWidth: 1, borderLeftColor: colors.border, paddingLeft: 12 },
   detalleColStackGap: { marginTop: 10 },
   /** Scroll independiente por columna en layout 50/50 (no rompe el ScrollView padre). */
   detalleColScroll: { maxHeight: 280 },
   /** Contenedor tipo cuadrícula (albaranes y facturas). */
   detalleGrid: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
-  detalleTitulo: { fontSize: 12, fontWeight: '700', color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
-  detalleVacio: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', paddingVertical: 4 },
+  detalleTitulo: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, marginBottom: SPACING.xs, textTransform: 'uppercase', letterSpacing: 0.3 },
+  detalleVacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic', paddingVertical: SPACING.xs },
   detalleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.bg,
   },
   detalleCheckbox: { width: 28, alignItems: 'center', justifyContent: 'center' },
   detalleRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  detalleFecha: { fontSize: 12, color: '#64748b', width: 76 },
+  detalleFecha: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, width: 76 },
   detalleDoc: {
     flexGrow: 0,
     flexShrink: 1,
     maxWidth: '30%',
-    fontSize: 12.5,
-    color: '#334155',
+    fontFamily: fontFamily.regular, fontSize: 12.5,
+    color: colors.textPrimary,
     minWidth: 0,
   },
   /** Empuja importes/estado a la derecha tras la columna de empresa. */
@@ -3063,47 +3076,47 @@ const local = StyleSheet.create({
   },
   empresaChip: {
     alignSelf: 'stretch',
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  empresaChipText: { fontSize: 10, fontWeight: '600' },
-  detalleImporte: { fontSize: 12.5, fontWeight: '600', color: '#0f172a', textAlign: 'right' },
-  detalleImporteSec: { fontWeight: '400', color: '#94a3b8', fontSize: 11.5 },
-  badgeMini: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
-  badgeMiniText: { fontSize: 10, fontWeight: '700' },
-  detalleNota: { fontSize: 11, color: '#94a3b8', marginTop: 6, fontStyle: 'italic' },
+  empresaChipText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  detalleImporte: { fontVariant: ['tabular-nums'], fontSize: 12.5, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, textAlign: 'right' },
+  detalleImporteSec: { fontVariant: ['tabular-nums'], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted, fontSize: 11.5 },
+  badgeMini: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: RADIO_MEDIO },
+  badgeMiniText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  detalleNota: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 6, fontStyle: 'italic' },
 
   modalWrap: { width: '100%', maxWidth: 640, maxHeight: '88%' },
-  modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: '#e2e8f0' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
-  modalSubtitle: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  modalThRow: { flexDirection: 'row', backgroundColor: '#f8fafc', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTh: { fontSize: 11, fontWeight: '700', color: '#64748b' },
-  modalTr: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center' },
-  modalTrAlt: { backgroundColor: '#f8fafc' },
-  modalTd: { fontSize: 12, color: '#334155' },
-  modalFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#e2e8f0', backgroundColor: '#f8fafc', flexWrap: 'wrap' },
-  modalFooterMeta: { fontSize: 12, color: '#64748b', flex: 1 },
-  modalFooterTotal: { fontSize: 13, fontWeight: '700', color: '#0369a1' },
+  modalCard: { width: '100%', backgroundColor: colors.surface, borderRadius: RADIO_TARJETA, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SPACING.lg, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  modalSubtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
+  modalThRow: { flexDirection: 'row', backgroundColor: colors.bg, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTh: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted },
+  modalTr: { flexDirection: 'row', paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, alignItems: 'center' },
+  modalTrAlt: { backgroundColor: colors.bg },
+  modalTd: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  modalFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg, flexWrap: 'wrap' },
+  modalFooterMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, flex: 1 },
+  modalFooterTotal: { fontVariant: ['tabular-nums'], fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text },
 
   provNombreRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
   compareBtn: {
-    padding: 4,
-    borderRadius: 6,
-    backgroundColor: '#e0f2fe',
+    padding: SPACING.xs,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
 
   compWrap: { width: '98%', maxWidth: 1680, flex: 1, alignSelf: 'center' },
-  compCard: { flex: 1, backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: '#e2e8f0' },
+  compCard: { flex: 1, backgroundColor: colors.surface, borderRadius: RADIO_TARJETA, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
   compBody: { flex: 1, flexDirection: 'row', gap: 0 },
-  compPanel: { flex: 1, minWidth: 0, padding: 12, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
-  compPanelApilado: { borderRightWidth: 0, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  compPanelTitle: { fontSize: 12, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 6 },
-  compPanelPie: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic', marginTop: 6 },
+  compPanel: { flex: 1, minWidth: 0, padding: SPACING.md, borderRightWidth: 1, borderRightColor: colors.border },
+  compPanelApilado: { borderRightWidth: 0, borderBottomWidth: 1, borderBottomColor: colors.border },
+  compPanelTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 6 },
+  compPanelPie: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontStyle: 'italic', marginTop: 6 },
   compBuscarWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3111,114 +3124,115 @@ const local = StyleSheet.create({
     marginBottom: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
   compBuscarInput: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
-    color: '#0f172a',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textStrong,
     paddingVertical: 2,
   },
 
-  compAlbBlock: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, marginBottom: 8, overflow: 'hidden' },
+  compAlbBlock: { borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, marginBottom: SPACING.sm, overflow: 'hidden' },
   compAlbBlockMarcado: { borderColor: '#86efac', backgroundColor: '#f0fdf4' },
-  compAlbBlockBloqueado: { borderColor: '#e2e8f0', opacity: 0.72 },
-  compAlbHeader: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 7, backgroundColor: '#f0f9ff' },
+  compAlbBlockBloqueado: { borderColor: colors.border, opacity: 0.72 },
+  compAlbHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingHorizontal: SPACING.sm, paddingVertical: 7, backgroundColor: colors.accentMuted },
   compAlbHeaderMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
-  compAlbHeaderMarcado: { backgroundColor: '#dcfce7' },
-  compAlbHeaderBloqueado: { backgroundColor: '#f1f5f9' },
-  compAlbLinkOff: { padding: 4 },
-  compAlbTitulo: { flex: 1, fontSize: 12, fontWeight: '600', color: '#0f172a', minWidth: 0 },
-  compAlbTotal: { fontSize: 12, fontWeight: '700', color: '#0369a1' },
-  compAlbTextoBloqueado: { color: '#94a3b8' },
-  compAsigHint: { fontSize: 11, color: '#94a3b8', marginBottom: 6, fontStyle: 'italic' },
-  compLineaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 5 },
-  compLineaProducto: { flex: 1, fontSize: 11.5, color: '#334155' },
-  compLineaDato: { fontSize: 11.5, color: '#64748b', width: 70, textAlign: 'right' },
+  compAlbHeaderMarcado: { backgroundColor: statusColors.success.bg },
+  compAlbHeaderBloqueado: { backgroundColor: colors.navActive },
+  compAlbLinkOff: { padding: SPACING.xs },
+  compAlbTitulo: { flex: 1, fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, minWidth: 0 },
+  compAlbTotal: { fontVariant: ['tabular-nums'], fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text },
+  compAlbTextoBloqueado: { color: colors.textMuted },
+  compAsigHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginBottom: 6, fontStyle: 'italic' },
+  compLineaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: SPACING.sm, paddingVertical: 5 },
+  compLineaProducto: { flex: 1, fontFamily: fontFamily.regular, fontSize: 11.5, color: colors.textPrimary },
+  compLineaDato: { fontVariant: ['tabular-nums'], fontFamily: fontFamily.regular, fontSize: 11.5, color: colors.textMuted, width: 70, textAlign: 'right' },
 
   compFactChipsNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginBottom: 8,
+    gap: SPACING.xs,
+    marginBottom: SPACING.sm,
   },
   compFactNavBtn: {
-    padding: 4,
-    borderRadius: 8,
-    backgroundColor: '#e0f2fe',
+    padding: SPACING.xs,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
   compAlbMesLabel: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0369a1',
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[13],
+    fontWeight: typography.titulo.fontWeight,
+    color: statusColors.info.text,
     textTransform: 'capitalize',
   },
   compFactChips: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
-  compFaltaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  compFaltaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: SPACING.sm },
   compFaltaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 5,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#fcd34d',
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
   },
-  compFaltaBtnText: { fontSize: 12, fontWeight: '600', color: '#b45309' },
+  compFaltaBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.warning.text },
   compFaltaBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    backgroundColor: '#fef3c7',
+    paddingHorizontal: SPACING.sm,
+    borderRadius: radius.md,
+    backgroundColor: statusColors.warning.bg,
   },
-  compFaltaBadgeText: { fontSize: 11, fontWeight: '700', color: '#b45309' },
-  compFaltaResueltas: { fontSize: 11, color: '#15803d', fontStyle: 'italic' },
-  compPreviewBox: { flex: 1, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#f8fafc' },
+  compFaltaBadgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.warning.text },
+  compFaltaResueltas: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: statusColors.success.text, fontStyle: 'italic' },
+  compPreviewBox: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, overflow: 'hidden', backgroundColor: colors.bg },
   compPreviewCentro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 20 },
-  compAbrirBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: '#0ea5e9' },
-  compAbrirBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+  compAbrirBtn: { paddingHorizontal: 14, paddingVertical: SPACING.sm, borderRadius: RADIO_MEDIO, backgroundColor: colors.accent },
+  compAbrirBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
 
   compRestoBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     flexWrap: 'wrap',
-    marginTop: 8,
+    marginTop: SPACING.sm,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#f8fafc',
+    paddingVertical: SPACING.sm,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
   compRestoNums: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 10, minWidth: 160 },
-  compRestoItem: { fontSize: 12, color: '#475569' },
-  compRestoStrong: { fontWeight: '700', color: '#0f172a' },
-  compRestoHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
+  compRestoItem: { fontVariant: ['tabular-nums'], fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  compRestoStrong: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  compRestoHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic' },
   compValidarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#16a34a',
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.success,
   },
-  compValidarBtnText: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  compValidarBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
 
-  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 40 },
-  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACING.md, padding: 40 },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
 });
