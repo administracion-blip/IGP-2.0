@@ -13,6 +13,15 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { useAuth } from '../contexts/AuthContext';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 import { apiFetch } from '../utils/api';
 
 /** Canónicos históricos a los que se puede agrupar una forma de pago. */
@@ -158,7 +167,7 @@ export default function FormasPagoScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Formas de pago</Text>
         {puedeSincronizar ? (
@@ -168,9 +177,9 @@ export default function FormasPagoScreen() {
             disabled={sincronizando}
           >
             {sincronizando ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <MaterialIcons name="sync" size={16} color="#0ea5e9" />
+              <MaterialIcons name="sync" size={16} color={colors.accent} />
             )}
             <Text style={styles.syncBtnText}>Sincronizar con Ágora</Text>
           </TouchableOpacity>
@@ -187,7 +196,7 @@ export default function FormasPagoScreen() {
 
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Cargando formas de pago…</Text>
         </View>
       ) : formasOrdenadas.length === 0 ? (
@@ -216,7 +225,7 @@ export default function FormasPagoScreen() {
                       </View>
                     ) : null}
                   </View>
-                  {guardando ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
+                  {guardando ? <ActivityIndicator size="small" color={colors.accent} /> : null}
                 </View>
 
                 <View style={styles.controlsRow}>
@@ -261,8 +270,8 @@ export default function FormasPagoScreen() {
                       value={f.arquear !== false}
                       disabled={!puedeEditar}
                       onValueChange={(val) => actualizarForma(Number(f.agoraId), { arquear: val })}
-                      trackColor={{ false: '#e2e8f0', true: '#86efac' }}
-                      thumbColor={f.arquear !== false ? '#22c55e' : '#94a3b8'}
+                      trackColor={{ false: colors.border, true: '#86efac' }}
+                      thumbColor={f.arquear !== false ? '#22c55e' : colors.textMuted}
                     />
                   </View>
                 </View>
@@ -275,62 +284,66 @@ export default function FormasPagoScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 12, backgroundColor: '#f8fafc' },
+  container: { flex: 1, padding: SPACING.md, backgroundColor: colors.bg },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#1e293b', flex: 1 },
-  subtitle: { fontSize: 12, color: '#64748b', marginBottom: 10, lineHeight: 17 },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flex: 1 },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginBottom: 10, lineHeight: 17 },
   syncBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 7,
-    paddingHorizontal: 12,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
-  syncBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
+  syncBtnText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   btnDisabled: { opacity: 0.6 },
-  resultText: { fontSize: 12, color: '#0f766e', marginBottom: 8 },
-  errorText: { fontSize: 13, color: '#dc2626', marginBottom: 8 },
-  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  loadingText: { fontSize: 13, color: '#64748b' },
-  emptyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  emptyText: { fontSize: 13, color: '#94a3b8', textAlign: 'center', lineHeight: 19 },
+  resultText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#0f766e', marginBottom: SPACING.sm },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.danger, marginBottom: SPACING.sm },
+  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SPACING.md },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
+  emptyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: SPACING.xl },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
   list: { flex: 1 },
   listContent: { paddingBottom: 32, gap: 10 },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: '#1e293b' },
-  idChip: { backgroundColor: '#f1f5f9', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
-  idChipText: { fontSize: 11, color: '#64748b', fontWeight: '600' },
-  inactivoChip: { backgroundColor: '#fee2e2', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
-  inactivoChipText: { fontSize: 11, color: '#b91c1c', fontWeight: '600' },
-  controlsRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.md },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexShrink: 1 },
+  cardTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong },
+  idChip: { backgroundColor: colors.navActive, borderRadius: radius.sm, paddingHorizontal: 7, paddingVertical: 2 },
+  idChipText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  inactivoChip: { backgroundColor: statusColors.danger.bg, borderRadius: radius.sm, paddingHorizontal: 7, paddingVertical: 2 },
+  inactivoChipText: { fontSize: typography.etiqueta.fontSize, color: statusColors.danger.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  controlsRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: SPACING.md },
   controlField: { flex: 1, minWidth: 200 },
   controlFieldSmall: { width: 80 },
-  controlFieldSwitch: { alignItems: 'center', gap: 4 },
-  controlLabel: { fontSize: 10, fontWeight: '600', color: '#6b7280', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
+  controlFieldSwitch: { alignItems: 'center', gap: SPACING.xs },
+  controlLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: SPACING.xs, textTransform: 'uppercase', letterSpacing: 0.3 },
   selector: { marginBottom: 0 },
   ordenInput: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    paddingVertical: 8,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    fontSize: 13,
-    color: '#334155',
+    fontVariant: ['tabular-nums'],
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textPrimary,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     textAlign: 'center',
   },
 });
