@@ -23,6 +23,15 @@ import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { formatFecha } from '../../utils/formatFecha';
 import { formatMoneda, labelEstado } from '../../utils/facturacion';
 import { MIN_TOUCH } from '../../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { ActuacionesCalendario } from '../../components/actuaciones/ActuacionesCalendario';
 import { FirmaEnPantallaModal } from '../../components/FirmaEnPantallaModal';
 import { buildFirmaFormData } from '../../utils/uploadFirmaPng';
@@ -204,10 +213,10 @@ function importeActuacion(a: Actuacion): number | null {
 
 /** Color del % de gasto según el ratio_musicos del local (verde ≤ ratio, ámbar ≤ ratio+1, rojo > ratio+1). */
 function colorPctGasto(pct: number, ratio: number | null): string {
-  if (ratio == null || Number.isNaN(ratio)) return '#334155';
-  if (pct <= ratio) return '#16a34a';
-  if (pct <= ratio + 1) return '#d97706';
-  return '#dc2626';
+  if (ratio == null || Number.isNaN(ratio)) return colors.textPrimary;
+  if (pct <= ratio) return colors.success;
+  if (pct <= ratio + 1) return colors.warning;
+  return colors.danger;
 }
 
 /** Días ISO para «Generar huecos»: 1 = lunes … 7 = domingo. */
@@ -1404,7 +1413,7 @@ export default function ProgramacionScreen() {
       {ToastView}
       {!puedeVer ? (
         <View style={styles.sinPermisoBox}>
-          <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+          <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
           <Text style={styles.sinPermisoText}>No tienes permiso para ver la programación de actuaciones.</Text>
         </View>
       ) : (
@@ -1416,7 +1425,7 @@ export default function ProgramacionScreen() {
             style={[styles.iconBtn, { width: altoControl, height: altoControl }]}
             accessibilityLabel="Volver"
           >
-            <MaterialIcons name="arrow-back" size={22} color="#0f172a" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.textStrong} />
           </TouchableOpacity>
           <Text style={styles.topBarTitle}>Planificación</Text>
         </View>
@@ -1429,11 +1438,11 @@ export default function ProgramacionScreen() {
               activeOpacity={0.7}
               accessibilityLabel="Filtrar por local"
             >
-              <MaterialIcons name="place" size={16} color="#64748b" />
+              <MaterialIcons name="place" size={16} color={colors.textMuted} />
               <Text style={styles.filterToolbarTriggerText} numberOfLines={1}>
                 {textoFiltroLocal}
               </Text>
-              <MaterialIcons name={filtroLocalDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
+              <MaterialIcons name={filtroLocalDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color={colors.textMuted} />
             </TouchableOpacity>
             {filtroLocalDropdownOpen ? (
               <View style={styles.filterToolbarList}>
@@ -1444,9 +1453,9 @@ export default function ProgramacionScreen() {
                   >
                     <Text style={styles.filterToolbarOptText}>Todos los locales</Text>
                     {filtroLocalesIds.length === 0 ? (
-                      <MaterialIcons name="check-box" size={18} color="#0ea5e9" />
+                      <MaterialIcons name="check-box" size={18} color={colors.accent} />
                     ) : (
-                      <MaterialIcons name="check-box-outline-blank" size={18} color="#94a3b8" />
+                      <MaterialIcons name="check-box-outline-blank" size={18} color={colors.textMuted} />
                     )}
                   </TouchableOpacity>
                   {localesParipe.map((loc) => {
@@ -1463,7 +1472,7 @@ export default function ProgramacionScreen() {
                         <MaterialIcons
                           name={sel ? 'check-box' : 'check-box-outline-blank'}
                           size={18}
-                          color={sel ? '#0ea5e9' : '#94a3b8'}
+                          color={sel ? colors.accent : colors.textMuted}
                         />
                       </TouchableOpacity>
                     );
@@ -1497,7 +1506,7 @@ export default function ProgramacionScreen() {
               onPress={() => moverPeriodo(-1)}
               accessibilityLabel={modoPeriodo === 'semana' ? 'Semana anterior' : 'Mes anterior'}
             >
-              <MaterialIcons name="chevron-left" size={22} color="#0f172a" />
+              <MaterialIcons name="chevron-left" size={22} color={colors.textStrong} />
             </TouchableOpacity>
             <Text style={styles.periodoTexto} numberOfLines={1}>
               {textoPeriodo}
@@ -1507,7 +1516,7 @@ export default function ProgramacionScreen() {
               onPress={() => moverPeriodo(1)}
               accessibilityLabel={modoPeriodo === 'semana' ? 'Semana siguiente' : 'Mes siguiente'}
             >
-              <MaterialIcons name="chevron-right" size={22} color="#0f172a" />
+              <MaterialIcons name="chevron-right" size={22} color={colors.textStrong} />
             </TouchableOpacity>
             <TouchableOpacity style={[styles.hoyLink, { minHeight: altoControl }]} onPress={irAHoy}>
               <Text style={styles.hoyLinkText}>Hoy</Text>
@@ -1522,7 +1531,7 @@ export default function ProgramacionScreen() {
               onPress={abrirNuevosRegistros}
               disabled={generando}
             >
-              <MaterialIcons name="add" size={18} color="#0f172a" />
+              <MaterialIcons name="add" size={18} color={colors.textStrong} />
               <Text style={styles.btnSecundarioText}>Generar huecos</Text>
             </TouchableOpacity>
           ) : null}
@@ -1533,9 +1542,9 @@ export default function ProgramacionScreen() {
             accessibilityLabel="Actualizar"
           >
             {loading ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+              <MaterialIcons name="refresh" size={20} color={colors.accent} />
             )}
           </TouchableOpacity>
         </View>
@@ -1571,13 +1580,13 @@ export default function ProgramacionScreen() {
 
       <View style={[styles.herramientas, shouldStackToolbar && styles.herramientasStack]}>
         <View style={[styles.buscador, { height: altoControl }]}>
-          <MaterialIcons name="search" size={18} color="#94a3b8" />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} />
           <TextInput
             style={styles.buscadorInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
             placeholder="Buscar artista, local, hora…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
         <View style={styles.segmentado}>
@@ -1618,7 +1627,7 @@ export default function ProgramacionScreen() {
                     disabled={selectedIds.size === 0 || seleccionTieneHuecos}
                     onPress={() => setModalAsoc(true)}
                   >
-                    <MaterialIcons name="link" size={18} color="#fff" />
+                    <MaterialIcons name="link" size={18} color={colors.surface} />
                     <Text style={styles.btnPrimarioText}>Asociar pago ({selectedIds.size})</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -1628,7 +1637,7 @@ export default function ProgramacionScreen() {
                     disabled={selectedIds.size === 0 || borrando}
                     onPress={() => setModalBorrarMultipleOpen(true)}
                   >
-                    <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                    <MaterialIcons name="delete-outline" size={18} color={colors.danger} />
                     <Text style={styles.btnPeligroText}>Borrar ({selectedIds.size})</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -1641,7 +1650,7 @@ export default function ProgramacionScreen() {
                 style={[styles.btnSecundario, { minHeight: altoControl }]}
                 onPress={() => setModoSeleccion(true)}
               >
-                <MaterialIcons name="check-box-outline-blank" size={18} color="#0f172a" />
+                <MaterialIcons name="check-box-outline-blank" size={18} color={colors.textStrong} />
                 <Text style={styles.btnSecundarioText}>Seleccionar</Text>
               </TouchableOpacity>
             )}
@@ -1659,12 +1668,12 @@ export default function ProgramacionScreen() {
         >
           {cargandoPeriodo ? (
             <View style={styles.estadoBox}>
-              <ActivityIndicator color="#0ea5e9" />
+              <ActivityIndicator color={colors.accent} />
             </View>
           ) : actuaciones.length === 0 ? (
             error ? null : (
               <View style={styles.tarjetaVacia}>
-                <MaterialIcons name="event-busy" size={28} color="#94a3b8" />
+                <MaterialIcons name="event-busy" size={28} color={colors.textMuted} />
                 <Text style={styles.tarjetaVaciaText}>
                   No hay actuaciones en este periodo. Pulsa «Generar huecos» para crear las horas.
                 </Text>
@@ -1672,7 +1681,7 @@ export default function ProgramacionScreen() {
             )
           ) : gruposLista.length === 0 ? (
             <View style={styles.tarjetaVacia}>
-              <MaterialIcons name="filter-list-off" size={28} color="#94a3b8" />
+              <MaterialIcons name="filter-list-off" size={28} color={colors.textMuted} />
               <Text style={styles.tarjetaVaciaText}>Ningún resultado con el filtro</Text>
             </View>
           ) : (
@@ -1756,7 +1765,7 @@ export default function ProgramacionScreen() {
                               <MaterialIcons
                                 name={sel ? 'check-box' : 'check-box-outline-blank'}
                                 size={22}
-                                color={sel ? '#0ea5e9' : '#94a3b8'}
+                                color={sel ? colors.accent : colors.textMuted}
                               />
                             </View>
                           ) : null}
@@ -1814,7 +1823,7 @@ export default function ProgramacionScreen() {
                                 onPress={() => void pedirBorrarActuacion(act)}
                                 accessibilityLabel="Eliminar actuación"
                               >
-                                <MaterialIcons name="delete-outline" size={18} color="#94a3b8" />
+                                <MaterialIcons name="delete-outline" size={18} color={colors.textMuted} />
                               </TouchableOpacity>
                             ) : null}
                           </View>
@@ -1838,7 +1847,7 @@ export default function ProgramacionScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Generar huecos</Text>
               <TouchableOpacity onPress={() => setModalNuevos(false)}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
@@ -1893,7 +1902,7 @@ export default function ProgramacionScreen() {
                     >
                       {resumenLocalesGen || 'Selecciona uno o más locales…'}
                     </Text>
-                    <MaterialIcons name={localesGenDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
+                    <MaterialIcons name={localesGenDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color={colors.textMuted} />
                   </TouchableOpacity>
                   {localesGenDropdownOpen ? (
                     <View style={styles.dropdownList}>
@@ -1923,7 +1932,7 @@ export default function ProgramacionScreen() {
                               <MaterialIcons
                                 name={on ? 'check-box' : 'check-box-outline-blank'}
                                 size={20}
-                                color={on ? '#0ea5e9' : '#94a3b8'}
+                                color={on ? colors.accent : colors.textMuted}
                                 style={{ marginRight: 10 }}
                               />
                               <Text style={[styles.dropdownOptionText, on && styles.dropdownOptionTextSelected]} numberOfLines={2}>
@@ -1942,14 +1951,14 @@ export default function ProgramacionScreen() {
                 <View style={styles.horasChipsWrap}>
                   {horasN.map((h, idx) => (
                     <View key={`${h}-${idx}`} style={styles.horaChip}>
-                      <MaterialIcons name="schedule" size={16} color="#0369a1" />
+                      <MaterialIcons name="schedule" size={16} color={statusColors.info.text} />
                       <Text style={styles.horaChipText}>{h}</Text>
                       <TouchableOpacity
                         onPress={() => setHorasN(horasN.filter((_, i) => i !== idx))}
                         hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                         accessibilityLabel={`Quitar hora ${h}`}
                       >
-                        <MaterialIcons name="close" size={18} color="#0369a1" />
+                        <MaterialIcons name="close" size={18} color={statusColors.info.text} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -1960,7 +1969,7 @@ export default function ProgramacionScreen() {
                     value={horaBorradorN}
                     onChangeText={setHoraBorradorN}
                     placeholder="HH:MM"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                     keyboardType="default"
                     onSubmitEditing={añadirHoraDesdeBorrador}
                     returnKeyType="done"
@@ -1977,7 +1986,7 @@ export default function ProgramacionScreen() {
                     accessibilityLabel="Añadir hora"
                   >
                     <View style={styles.horaAddBtnInner}>
-                      <MaterialIcons name="add" size={18} color="#fff" />
+                      <MaterialIcons name="add" size={18} color={colors.surface} />
                       <Text style={styles.horaAddBtnText}>Añadir</Text>
                     </View>
                   </Pressable>
@@ -1991,7 +2000,7 @@ export default function ProgramacionScreen() {
                 onPress={confirmarGenerarBase}
                 disabled={generando || fechasGenN.length === 0}
               >
-                {generando ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Generar registros</Text>}
+                {generando ? <ActivityIndicator color={colors.surface} /> : <Text style={styles.saveBtnText}>Generar registros</Text>}
               </Pressable>
             </ScrollView>
           </View>
@@ -2004,7 +2013,7 @@ export default function ProgramacionScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Pago asociado</Text>
               <TouchableOpacity onPress={cerrarModalAsoc}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={styles.modalBodyPadded}>
@@ -2028,7 +2037,7 @@ export default function ProgramacionScreen() {
                 onSeleccionar={(id) => setEmpresaAsocId(id)}
               />
 
-              <Text style={[styles.label, { marginTop: 12 }]}>Facturas recibidas pendientes (según proveedor)</Text>
+              <Text style={[styles.label, { marginTop: SPACING.md }]}>Facturas recibidas pendientes (según proveedor)</Text>
               <View style={styles.asocFacListBox}>
                 {!empresaAsocId ? (
                   <Text style={styles.asocFacListEmpty}>
@@ -2040,7 +2049,7 @@ export default function ProgramacionScreen() {
                       <TextInput
                         style={styles.asocFacSearchInput}
                         placeholder="Filtrar nº, CIF…"
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor={colors.textMuted}
                         value={qFac}
                         onChangeText={setQFac}
                         onSubmitEditing={buscarFacturas}
@@ -2049,7 +2058,7 @@ export default function ProgramacionScreen() {
                         <Text style={styles.asocFacSearchBtnText}>Buscar</Text>
                       </TouchableOpacity>
                     </View>
-                    {loadingFac ? <ActivityIndicator color="#0ea5e9" style={{ marginVertical: 10 }} /> : null}
+                    {loadingFac ? <ActivityIndicator color={colors.accent} style={{ marginVertical: 10 }} /> : null}
                     <ScrollView style={styles.asocFacScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                       {facturas.length === 0 && !loadingFac ? (
                         <Text style={styles.asocFacListEmpty}>No hay facturas pendientes para este proveedor.</Text>
@@ -2132,7 +2141,7 @@ export default function ProgramacionScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{puedeEditar ? 'Editar actuación' : 'Actuación'}</Text>
               <TouchableOpacity onPress={cerrarModalEdit}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
@@ -2269,7 +2278,7 @@ export default function ProgramacionScreen() {
                       disabled={saving}
                       activeOpacity={0.85}
                     >
-                      <MaterialIcons name="link-off" size={16} color="#b45309" />
+                      <MaterialIcons name="link-off" size={16} color={statusColors.warning.text} />
                       <Text style={styles.desasocBtnText} numberOfLines={2}>
                         Desasociar factura
                       </Text>
@@ -2286,7 +2295,7 @@ export default function ProgramacionScreen() {
                       disabled={!form.id_actuacion}
                       activeOpacity={0.82}
                     >
-                      <MaterialIcons name="draw" size={22} color={form.id_actuacion ? '#0369a1' : '#94a3b8'} />
+                      <MaterialIcons name="draw" size={22} color={form.id_actuacion ? statusColors.info.text : colors.textMuted} />
                       <Text style={[styles.firmaBtnHalfTitle, !form.id_actuacion && styles.firmaBtnTitleDis]}>
                         Firmar en pantalla
                       </Text>
@@ -2297,7 +2306,7 @@ export default function ProgramacionScreen() {
                       disabled={!form.id_actuacion}
                       activeOpacity={0.82}
                     >
-                      <MaterialIcons name="folder-open" size={22} color={form.id_actuacion ? '#0369a1' : '#94a3b8'} />
+                      <MaterialIcons name="folder-open" size={22} color={form.id_actuacion ? statusColors.info.text : colors.textMuted} />
                       <Text style={[styles.firmaBtnHalfTitle, !form.id_actuacion && styles.firmaBtnTitleDis]}>
                         Subir imagen
                       </Text>
@@ -2316,7 +2325,7 @@ export default function ProgramacionScreen() {
               ) : null}
               {puedeEditar ? (
                 <Pressable style={[styles.saveBtn, saving && styles.saveBtnDis]} onPress={guardarEdicion} disabled={saving}>
-                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Guardar</Text>}
+                  {saving ? <ActivityIndicator color={colors.surface} /> : <Text style={styles.saveBtnText}>Guardar</Text>}
                 </Pressable>
               ) : null}
             </ScrollView>
@@ -2332,11 +2341,11 @@ export default function ProgramacionScreen() {
       >
         <Pressable style={styles.desasocConfirmOverlay} onPress={cerrarConfirmDesasociar}>
           <Pressable style={styles.desasocConfirmCard} onPress={(e) => e.stopPropagation()}>
-            <MaterialIcons name="link-off" size={36} color="#d97706" style={{ alignSelf: 'center' }} />
+            <MaterialIcons name="link-off" size={36} color={colors.warning} style={{ alignSelf: 'center' }} />
             <Text style={styles.desasocConfirmTitle}>Desasociar factura</Text>
             <Text style={styles.desasocConfirmText}>
               Se quitará la vinculación con la factura de gasto. El estado de la actuación pasará a{' '}
-              <Text style={{ fontWeight: '700' }}>pendiente</Text>.
+              <Text style={{ fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight }}>pendiente</Text>.
             </Text>
             <View style={styles.desasocConfirmBtns}>
               <TouchableOpacity style={styles.cbCancel} onPress={cerrarConfirmDesasociar} disabled={saving}>
@@ -2362,11 +2371,11 @@ export default function ProgramacionScreen() {
       >
         <Pressable style={styles.desasocConfirmOverlay} onPress={() => !borrando && setModalBorrarMultipleOpen(false)}>
           <Pressable style={styles.desasocConfirmCard} onPress={(e) => e.stopPropagation()}>
-            <MaterialIcons name="delete-outline" size={36} color="#dc2626" style={{ alignSelf: 'center' }} />
+            <MaterialIcons name="delete-outline" size={36} color={colors.danger} style={{ alignSelf: 'center' }} />
             <Text style={styles.desasocConfirmTitle}>Eliminar actuaciones</Text>
             <Text style={styles.desasocConfirmText}>
               Se eliminarán{' '}
-              <Text style={{ fontWeight: '700' }}>
+              <Text style={{ fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight }}>
                 {selectedIds.size} {selectedIds.size === 1 ? 'actuación' : 'actuaciones'}
               </Text>{' '}
               seleccionada{selectedIds.size === 1 ? '' : 's'}. Esta acción no se puede deshacer.
@@ -2385,7 +2394,7 @@ export default function ProgramacionScreen() {
                 disabled={borrando}
               >
                 {borrando ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={colors.surface} />
                 ) : (
                   <Text style={styles.borrarMultiConfirmBtnOkText}>Eliminar</Text>
                 )}
@@ -2432,7 +2441,7 @@ export default function ProgramacionScreen() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.cbGuardarIgual, styles.conflictoBtnCol]} onPress={conflictoGuardarIgual}>
-                <MaterialIcons name="warning" size={18} color="#fff" style={styles.cbGuardarIgualIcon} />
+                <MaterialIcons name="warning" size={18} color={colors.surface} style={styles.cbGuardarIgualIcon} />
                 <Text style={styles.cbGuardarIgualText} numberOfLines={2}>
                   Guardar igualmente
                 </Text>
@@ -2464,94 +2473,99 @@ export default function ProgramacionScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
+
 const styles = StyleSheet.create({
-  screenWrap: { flex: 1, minHeight: 0, backgroundColor: '#f8fafc' },
-  sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 },
-  sinPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
+  screenWrap: { flex: 1, minHeight: 0, backgroundColor: colors.bg },
+  sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, padding: 24 },
+  sinPermisoText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
 
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 12,
-    paddingHorizontal: 16,
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.lg,
     paddingVertical: 10,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
     position: 'relative',
     zIndex: 30,
     elevation: 30,
   },
-  topBarStack: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
-  topBarGrupo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  topBarTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
-  topBarFiltros: { flexWrap: 'wrap', gap: 12, position: 'relative', zIndex: 31 },
+  topBarStack: { flexDirection: 'column', alignItems: 'stretch', gap: SPACING.sm },
+  topBarGrupo: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  topBarTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  topBarFiltros: { flexWrap: 'wrap', gap: SPACING.md, position: 'relative', zIndex: 31 },
   topBarFiltrosStack: { alignItems: 'stretch' },
   topBarAcciones: { marginLeft: 'auto' },
-  iconBtn: { alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
-  iconBtnBorde: { borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#ffffff' },
-  periodoNav: { flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' },
-  periodoTexto: { fontSize: 14, fontWeight: '600', color: '#0f172a', minWidth: 150, textAlign: 'center' },
-  hoyLink: { justifyContent: 'center', paddingHorizontal: 8 },
-  hoyLinkText: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
+  iconBtn: { alignItems: 'center', justifyContent: 'center', borderRadius: RADIO_MEDIO },
+  iconBtnBorde: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  periodoNav: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, flexWrap: 'wrap' },
+  periodoTexto: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, minWidth: 150, textAlign: 'center' },
+  hoyLink: { justifyContent: 'center', paddingHorizontal: SPACING.sm },
+  hoyLinkText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
   segmentado: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 8,
+    backgroundColor: colors.navActive,
+    borderRadius: RADIO_MEDIO,
     padding: 2,
   },
   segmentoOpt: {
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 14,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   segmentoOptPeq: { paddingHorizontal: 10 },
-  segmentoOptOn: { backgroundColor: '#ffffff', borderColor: '#e2e8f0' },
-  segmentoText: { fontSize: 13, fontWeight: '500', color: '#64748b' },
-  segmentoTextOn: { color: '#0f172a', fontWeight: '600' },
+  segmentoOptOn: { backgroundColor: colors.surface, borderColor: colors.border },
+  segmentoText: { fontSize: fontSizes[13], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textMuted },
+  segmentoTextOn: { color: colors.textStrong, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   btnSecundario: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  btnSecundarioText: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
+  btnSecundarioText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong },
   btnPrimario: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accent,
   },
-  btnPrimarioText: { fontSize: 13, fontWeight: '600', color: '#ffffff' },
+  btnPrimarioText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
   btnPeligro: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#fecaca',
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
   },
-  btnPeligroText: { fontSize: 13, fontWeight: '600', color: '#dc2626' },
-  btnTexto: { justifyContent: 'center', paddingHorizontal: 8 },
-  btnTextoText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-  btnTextoEnlace: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
-  ayudaSeleccion: { fontSize: 12, color: '#d97706' },
+  btnPeligroText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.danger },
+  btnTexto: { justifyContent: 'center', paddingHorizontal: SPACING.sm },
+  btnTextoText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  btnTextoEnlace: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
+  ayudaSeleccion: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.warning },
   btnOff: { opacity: 0.45 },
 
   resumen: {
@@ -2559,43 +2573,44 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     flexWrap: 'wrap',
     gap: 28,
-    paddingHorizontal: 16,
+    paddingHorizontal: SPACING.lg,
     paddingTop: 16,
     paddingBottom: 8,
   },
-  resumenHuecos: { fontSize: 26, fontWeight: '700', color: '#d97706', fontVariant: ['tabular-nums'] },
-  resumenSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  /** 26 px: entre fontSizes[24] y fontSizes[30]. */
+  resumenHuecos: { fontSize: 26, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.warning, fontVariant: ['tabular-nums'] },
+  resumenSub: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
   resumenItem: { paddingBottom: 2 },
-  resumenCifra: { fontSize: 17, fontWeight: '600', color: '#0f172a', fontVariant: ['tabular-nums'] },
-  resumenEtiqueta: { fontSize: 13, color: '#64748b' },
+  resumenCifra: { fontSize: 17, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, fontVariant: ['tabular-nums'] },
+  resumenEtiqueta: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
 
   errorBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: SPACING.md,
     marginHorizontal: 16,
-    marginTop: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#fef2f2',
+    marginTop: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  errorBarText: { flex: 1, fontSize: 12, color: '#dc2626' },
-  errorBarRetry: { fontSize: 12, fontWeight: '700', color: '#dc2626' },
+  errorBarText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
+  errorBarRetry: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.danger },
 
   herramientas: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
   },
   herramientasStack: { flexDirection: 'column', alignItems: 'stretch' },
-  herramientasAcciones: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  herramientasAcciones: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm },
   herramientasAccionesDer: { marginLeft: 'auto' },
   buscador: {
     flexDirection: 'row',
@@ -2606,20 +2621,20 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  buscadorInput: { flex: 1, minWidth: 0, fontSize: 13, color: '#0f172a', paddingVertical: 0 },
+  buscadorInput: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textStrong, paddingVertical: 0 },
 
   cuerpo: {
     flex: 1,
     minHeight: 0,
     flexDirection: 'row',
     gap: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING.lg,
     position: 'relative',
     zIndex: 0,
   },
@@ -2627,108 +2642,108 @@ const styles = StyleSheet.create({
   listaCol: { flexGrow: 62, flexShrink: 1, flexBasis: 0, minWidth: 0 },
   listaColStack: { flex: 1, minHeight: 0 },
   listaScrollInner: { flex: 1 },
-  listaContenido: { paddingTop: 4, paddingBottom: 16 },
+  listaContenido: { paddingTop: 4, paddingBottom: SPACING.lg },
   estadoBox: { paddingVertical: 48, alignItems: 'center', justifyContent: 'center' },
   tarjetaVacia: {
     alignItems: 'center',
     gap: 10,
     paddingVertical: 32,
     paddingHorizontal: 20,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
   },
-  tarjetaVaciaText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
+  tarjetaVaciaText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
   tarjeta: {
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    marginBottom: 12,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    marginBottom: SPACING.md,
     overflow: 'hidden',
   },
-  tarjetaHoy: { borderColor: '#0ea5e9' },
+  tarjetaHoy: { borderColor: colors.accent },
   tarjetaCab: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
-    paddingHorizontal: 16,
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.lg,
     paddingTop: 12,
   },
-  tarjetaCabIzq: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
-  tarjetaDia: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
-  etiquetaHoy: { backgroundColor: '#e0f2fe', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
-  etiquetaHoyText: { fontSize: 11, fontWeight: '600', color: '#0369a1' },
-  tarjetaLocal: { flexShrink: 1, fontSize: 13, fontWeight: '600', color: '#64748b', textAlign: 'right' },
+  tarjetaCabIzq: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexShrink: 0 },
+  tarjetaDia: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  etiquetaHoy: { backgroundColor: colors.accentMuted, borderRadius: radius.pill, paddingHorizontal: SPACING.sm, paddingVertical: 2 },
+  etiquetaHoyText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
+  tarjetaLocal: { flexShrink: 1, fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textAlign: 'right' },
   tarjetaSub: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
-    paddingHorizontal: 16,
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.lg,
     paddingTop: 2,
   },
-  tarjetaSubText: { flex: 1, minWidth: 0, fontSize: 12, color: '#64748b' },
-  tarjetaSubPct: { fontWeight: '600' },
-  tarjetaGasto: { fontSize: 12, fontWeight: '600', color: '#0f172a', fontVariant: ['tabular-nums'] },
+  tarjetaSubText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  tarjetaSubPct: { fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  tarjetaGasto: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, fontVariant: ['tabular-nums'] },
   fila: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: SPACING.md,
     minHeight: 56,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginTop: 8,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    marginTop: SPACING.sm,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: colors.navActive,
   },
-  filaSel: { backgroundColor: '#f0f9ff' },
-  filaPressed: { backgroundColor: '#f8fafc' },
+  filaSel: { backgroundColor: colors.accentMuted },
+  filaPressed: { backgroundColor: colors.bg },
   filaCheck: { width: 24, alignItems: 'center' },
-  filaHora: { width: 44, fontSize: 13, color: '#64748b', fontVariant: ['tabular-nums'] },
+  filaHora: { width: 44, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, fontVariant: ['tabular-nums'] },
   filaCentro: { flex: 1, minWidth: 0 },
   filaLinea: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: 10, rowGap: 4 },
-  filaNombre: { flexShrink: 1, fontSize: 15, fontWeight: '600', color: '#0f172a' },
-  filaImporte: { fontSize: 13, color: '#64748b', fontVariant: ['tabular-nums'] },
-  filaPago: { fontSize: 11, color: '#64748b', marginTop: 2 },
-  filaSinArtista: { fontSize: 14, color: '#94a3b8' },
-  filaAcciones: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 },
-  pastilla: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
-  pastillaText: { fontSize: 11, fontWeight: '600' },
-  pastillaFirmada: { backgroundColor: '#dcfce7' },
-  pastillaFirmadaText: { color: '#16a34a' },
-  pastillaAsociada: { backgroundColor: '#e0f2fe' },
-  pastillaAsociadaText: { color: '#0369a1' },
-  pastillaPendiente: { backgroundColor: '#f1f5f9' },
-  pastillaPendienteText: { color: '#475569' },
+  filaNombre: { flexShrink: 1, fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong },
+  filaImporte: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  filaPago: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 2 },
+  filaSinArtista: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted },
+  filaAcciones: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, flexShrink: 0 },
+  pastilla: { borderRadius: radius.pill, paddingHorizontal: SPACING.sm, paddingVertical: 2 },
+  pastillaText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  pastillaFirmada: { backgroundColor: statusColors.success.bg },
+  pastillaFirmadaText: { color: colors.success },
+  pastillaAsociada: { backgroundColor: colors.accentMuted },
+  pastillaAsociadaText: { color: statusColors.info.text },
+  pastillaPendiente: { backgroundColor: colors.navActive },
+  pastillaPendienteText: { color: colors.textPrimary },
   btnAsignar: {
     justifyContent: 'center',
     minHeight: 34,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#d97706',
-    backgroundColor: '#ffffff',
+    borderColor: colors.warning,
+    backgroundColor: colors.surface,
   },
-  btnAsignarText: { fontSize: 13, fontWeight: '600', color: '#d97706' },
-  accionTexto: { justifyContent: 'center', minHeight: 34, paddingHorizontal: 8 },
-  accionTextoFirmar: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
+  btnAsignarText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.warning },
+  accionTexto: { justifyContent: 'center', minHeight: 34, paddingHorizontal: SPACING.sm },
+  accionTextoFirmar: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
 
   panelCalendario: {
     flexGrow: 38,
     flexShrink: 1,
     flexBasis: 0,
     minWidth: 0,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 12,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: SPACING.md,
     overflow: 'hidden',
   },
-  panelCalendarioStack: { flex: 0, height: 560, marginTop: 4 },
+  panelCalendarioStack: { flex: 0, height: 560, marginTop: SPACING.xs },
 
   filterLocalDropdownWrap: {
     minWidth: 180,
@@ -2745,27 +2760,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
-  filterToolbarTriggerText: { fontSize: 13, color: '#0f172a', flex: 1 },
+  filterToolbarTriggerText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textStrong, flex: 1 },
   filterToolbarList: {
     position: 'absolute',
     left: 0,
     right: 0,
     top: '100%',
-    marginTop: 4,
+    marginTop: SPACING.xs,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     maxHeight: 260,
     zIndex: 41,
     ...(Platform.OS === 'web'
       ? ({ boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' } as object)
-      : { elevation: 41, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.08, shadowRadius: 16 }),
+      : { elevation: 41, shadowColor: colors.textStrong, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.08, shadowRadius: 16 }),
   },
   filterToolbarScroll: { maxHeight: 250 },
   filterToolbarOpt: {
@@ -2774,299 +2789,300 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     minHeight: MIN_TOUCH,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  filterToolbarOptOn: { backgroundColor: '#f0f9ff' },
-  filterToolbarOptText: { fontSize: 13, color: '#334155', flex: 1, paddingRight: 8 },
+  filterToolbarOptOn: { backgroundColor: colors.accentMuted },
+  filterToolbarOptText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, flex: 1, paddingRight: SPACING.sm },
   firmaRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 12,
+    marginTop: SPACING.md,
     alignItems: 'stretch',
   },
   firmaBtnHalf: {
     flex: 1,
     minHeight: 72,
-    paddingVertical: 12,
+    paddingVertical: SPACING.md,
     paddingHorizontal: 10,
-    borderRadius: 12,
+    borderRadius: radius.lg,
     borderWidth: 2,
     borderColor: '#7dd3fc',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'column',
-    gap: 4,
+    gap: SPACING.xs,
   },
-  firmaBtnHalfTitle: { fontSize: 13, fontWeight: '700', color: '#0369a1', textAlign: 'center' },
-  firmaBtnDis: { opacity: 0.55, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-  firmaBtnTitle: { fontSize: 15, fontWeight: '700', color: '#0369a1', textAlign: 'center' },
-  firmaBtnTitleDis: { color: '#94a3b8' },
-  firmaBtnHint: { fontSize: 11, color: '#64748b', textAlign: 'center', marginTop: 8 },
+  firmaBtnHalfTitle: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, textAlign: 'center' },
+  firmaBtnDis: { opacity: 0.55, borderColor: colors.border, backgroundColor: colors.bg },
+  firmaBtnTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, textAlign: 'center' },
+  firmaBtnTitleDis: { color: colors.textMuted },
+  firmaBtnHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, textAlign: 'center', marginTop: SPACING.sm },
   firmaBloqueadaHint: {
-    fontSize: 12,
-    color: '#64748b',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[12],
+    color: colors.textMuted,
     marginTop: 10,
     lineHeight: 18,
     fontStyle: 'italic',
   },
-  hintImporte: { fontSize: 10, color: '#94a3b8', lineHeight: 14, marginTop: 6, marginBottom: 2 },
-  importeSugeridoLine: { fontSize: 11, color: '#64748b', marginBottom: 4, marginTop: 2 },
-  importeSugeridoVal: { fontWeight: '700', color: '#334155' },
-  importeInputMayor: { borderColor: '#ef4444', color: '#dc2626', backgroundColor: '#fef2f2' },
-  importeInputMenor: { borderColor: '#22c55e', color: '#16a34a', backgroundColor: '#f0fdf4' },
+  hintImporte: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, lineHeight: 14, marginTop: 6, marginBottom: 2 },
+  importeSugeridoLine: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginBottom: SPACING.xs, marginTop: 2 },
+  importeSugeridoVal: { fontVariant: ['tabular-nums'], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  importeInputMayor: { borderColor: colors.danger, color: colors.danger, backgroundColor: statusColors.danger.bg },
+  importeInputMenor: { borderColor: '#22c55e', color: colors.success, backgroundColor: '#f0fdf4' },
+  /** Más oscuro que colors.overlay. */
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
   modalCard: {
     width: '100%',
     maxWidth: 440,
     alignSelf: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_TARJETA,
     maxHeight: '92%',
     overflow: 'hidden',
   },
-  modalBodyPadded: { paddingHorizontal: 16, paddingBottom: 16 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#334155' },
-  modalScroll: { padding: 16, maxHeight: 480 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 4, marginTop: 8 },
+  modalBodyPadded: { paddingHorizontal: SPACING.lg, paddingBottom: SPACING.lg },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: 17, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  modalScroll: { padding: SPACING.lg, maxHeight: 480 },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs, marginTop: SPACING.sm },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
-    fontSize: 14,
-    backgroundColor: '#f8fafc',
-    color: '#334155',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    backgroundColor: colors.bg,
+    color: colors.textPrimary,
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     marginRight: 6,
   },
-  fieldDropdown: { marginBottom: 4, zIndex: 2 },
+  fieldDropdown: { marginBottom: SPACING.xs, zIndex: 2 },
   dropdownTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: SPACING.md,
     paddingHorizontal: 14,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
-  dropdownTriggerText: { fontSize: 14, color: '#334155', flex: 1, paddingRight: 8 },
-  dropdownPlaceholder: { color: '#94a3b8' },
+  dropdownTriggerText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, flex: 1, paddingRight: SPACING.sm },
+  dropdownPlaceholder: { color: colors.textMuted },
   dropdownList: {
     marginTop: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
   dropdownToolbar: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.bg,
   },
-  dropdownCount: { fontSize: 11, color: '#64748b' },
+  dropdownCount: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
   dropdownScroll: { maxHeight: 220 },
   dropdownOption: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  dropdownOptionText: { fontSize: 13, color: '#334155', flex: 1 },
-  dropdownOptionTextSelected: { color: '#0369a1', fontWeight: '600' },
-  localesGenLink: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
-  localesGenSep: { color: '#94a3b8', fontSize: 12 },
+  dropdownOptionSelected: { backgroundColor: colors.accentMuted },
+  dropdownOptionText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, flex: 1 },
+  dropdownOptionTextSelected: { color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  localesGenLink: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
+  localesGenSep: { color: colors.textMuted, fontFamily: fontFamily.regular, fontSize: fontSizes[12] },
   diasSemanaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   diaSemanaBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  diaSemanaBtnOn: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
-  diaSemanaBtnText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
-  diaSemanaBtnTextOn: { color: '#0369a1' },
-  diasSemanaAtajos: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, marginBottom: 4 },
+  diaSemanaBtnOn: { backgroundColor: colors.accentMuted, borderColor: colors.accent },
+  diaSemanaBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  diaSemanaBtnTextOn: { color: statusColors.info.text },
+  diasSemanaAtajos: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: SPACING.sm, marginBottom: SPACING.xs },
   resumenGenBox: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
+    backgroundColor: colors.bg,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
-    marginTop: 12,
+    borderColor: colors.border,
+    padding: SPACING.md,
+    marginTop: SPACING.md,
   },
-  resumenGenText: { fontSize: 13, color: '#0f172a' },
-  chipOn: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
-  chipText: { fontSize: 11, color: '#334155' },
+  resumenGenText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textStrong },
+  chipOn: { backgroundColor: colors.accentMuted, borderColor: colors.accent },
+  chipText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
   horasSectionBox: {
-    backgroundColor: '#f1f5f9',
-    borderRadius: 8,
+    backgroundColor: colors.navActive,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     padding: 10,
-    marginBottom: 4,
+    marginBottom: SPACING.xs,
   },
   horasChipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACING.sm,
     marginBottom: 10,
   },
   horaChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e0f2fe',
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#7dd3fc',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     paddingVertical: 6,
     paddingHorizontal: 10,
     gap: 6,
   },
-  horaChipText: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
-  horaInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  horaChipText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
+  horaInputRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   horaInputHora: {
     flex: 1,
     minWidth: 0,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingVertical: Platform.OS === 'ios' ? 10 : 8,
     paddingHorizontal: 10,
-    fontSize: 13,
-    backgroundColor: '#fff',
-    color: '#334155',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    backgroundColor: colors.surface,
+    color: colors.textPrimary,
   },
   horaAddBtn: {
-    backgroundColor: '#0ea5e9',
-    borderRadius: 8,
+    backgroundColor: colors.accent,
+    borderRadius: RADIO_MEDIO,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     justifyContent: 'center',
   },
   horaAddBtnDisabled: { opacity: 0.45 },
-  horaAddBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  horaAddBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  hint: { fontSize: 11, color: '#94a3b8', marginBottom: 8 },
-  saveBtn: { backgroundColor: '#0ea5e9', borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 16 },
+  horaAddBtnInner: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  horaAddBtnText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[13] },
+  hint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginBottom: SPACING.sm },
+  saveBtn: { backgroundColor: colors.accent, borderRadius: radius.md, padding: 14, alignItems: 'center', marginTop: SPACING.lg },
   saveBtnDis: { opacity: 0.6 },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  facRow: { padding: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  facRowOn: { backgroundColor: '#e0f2fe' },
-  facTitle: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  facSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  saveBtnText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[16] },
+  facRow: { padding: SPACING.md, borderBottomWidth: 1, borderBottomColor: colors.navActive },
+  facRowOn: { backgroundColor: colors.accentMuted },
+  facTitle: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  facSub: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 2 },
   asocFacListBox: {
     marginTop: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     backgroundColor: '#fafafa',
-    padding: 8,
+    padding: SPACING.sm,
     minHeight: 120,
   },
-  asocFacListEmpty: { fontSize: 12, color: '#64748b', lineHeight: 18, paddingVertical: 8 },
-  asocFacSearchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  asocFacListEmpty: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, lineHeight: 18, paddingVertical: SPACING.sm },
+  asocFacSearchRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: 6 },
   asocFacSearchInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingVertical: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    fontSize: 13,
-    backgroundColor: '#fff',
-    color: '#334155',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    backgroundColor: colors.surface,
+    color: colors.textPrimary,
   },
   asocFacSearchBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#e0f2fe',
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
   },
-  asocFacSearchBtnText: { color: '#0369a1', fontWeight: '700', fontSize: 12 },
+  asocFacSearchBtnText: { color: statusColors.info.text, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[12] },
   asocFacScroll: { maxHeight: 220 },
   asocCompareBox: {
-    marginTop: 12,
-    marginBottom: 8,
-    padding: 12,
-    backgroundColor: '#f8fafc',
-    borderRadius: 10,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.sm,
+    padding: SPACING.md,
+    backgroundColor: colors.bg,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  asocCompareTitle: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: 8 },
+  asocCompareTitle: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase', marginBottom: SPACING.sm },
   asocCompareRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  asocCompareLabel: { fontSize: 13, color: '#475569', flex: 1 },
-  asocCompareVal: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  asocCompareDiff: { fontSize: 12, fontWeight: '600', marginTop: 4 },
-  asocCompareOk: { color: '#15803d' },
+  asocCompareLabel: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, flex: 1 },
+  asocCompareVal: { fontVariant: ['tabular-nums'], fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  asocCompareDiff: { fontVariant: ['tabular-nums'], fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, marginTop: SPACING.xs },
+  asocCompareOk: { color: statusColors.success.text },
   asocCompareWarn: { color: '#c2410c' },
-  asocCompareHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginTop: 4 },
-  localReadonly: { fontSize: 14, color: '#64748b', paddingVertical: 8 },
+  asocCompareHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic', marginTop: SPACING.xs },
+  localReadonly: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, paddingVertical: SPACING.sm },
   desasocBox: {
-    marginTop: 8,
-    marginBottom: 4,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xs,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingHorizontal: SPACING.md,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: '#fde68a',
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
   },
   desasocRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   desasocTextCol: { flex: 1, minWidth: 0 },
-  desasocTitle: { fontSize: 12, fontWeight: '700', color: '#92400e', marginBottom: 4 },
-  desasocLine: { fontSize: 13, color: '#78350f', marginBottom: 2 },
-  desasocMeta: { fontSize: 11, color: '#a16207' },
+  desasocTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#92400e', marginBottom: SPACING.xs },
+  desasocLine: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: '#78350f', marginBottom: 2 },
+  desasocMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#a16207' },
   desasocBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
     gap: 6,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
     maxWidth: 132,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#fbbf24',
     backgroundColor: '#fff7ed',
   },
   desasocBtnDis: { opacity: 0.55 },
-  desasocBtnText: { fontSize: 11, fontWeight: '700', color: '#b45309', flexShrink: 1 },
+  desasocBtnText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.warning.text, flexShrink: 1 },
   desasocConfirmOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -3077,20 +3093,21 @@ const styles = StyleSheet.create({
   desasocConfirmCard: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_TARJETA,
     padding: 20,
   },
+  /** 17 px: entre fontSizes[16] y fontSizes[18]. */
   desasocConfirmTitle: {
     fontSize: 17,
-    fontWeight: '700',
-    color: '#334155',
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: SPACING.sm,
   },
   desasocConfirmText: {
-    fontSize: 14,
-    color: '#64748b',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textMuted,
     textAlign: 'center',
     marginTop: 10,
     lineHeight: 20,
@@ -3104,75 +3121,75 @@ const styles = StyleSheet.create({
   },
   desasocConfirmBtnOk: {
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#d97706',
+    paddingHorizontal: SPACING.lg,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.warning,
     borderWidth: 1,
-    borderColor: '#d97706',
+    borderColor: colors.warning,
     minWidth: 120,
     alignItems: 'center',
   },
-  desasocConfirmBtnOkText: { fontSize: 14, color: '#fff', fontWeight: '700' },
+  desasocConfirmBtnOkText: { fontSize: fontSizes[14], color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   borrarMultiConfirmBtnOk: {
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#dc2626',
+    paddingHorizontal: SPACING.lg,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.danger,
     borderWidth: 1,
-    borderColor: '#b91c1c',
+    borderColor: statusColors.danger.text,
     minWidth: 120,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 40,
   },
-  borrarMultiConfirmBtnOkText: { fontSize: 14, color: '#fff', fontWeight: '700' },
+  borrarMultiConfirmBtnOkText: { fontSize: fontSizes[14], color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   conflictoCard: {
     width: '100%',
     maxWidth: 440,
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_TARJETA,
     padding: 20,
     alignSelf: 'center',
   },
-  conflictoTitle: { fontSize: 17, fontWeight: '700', color: '#334155', textAlign: 'center', marginTop: 8 },
-  conflictoText: { fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 8, lineHeight: 20 },
-  conflictoBox: { marginTop: 12, padding: 12, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  conflictoSub: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: 6 },
-  conflictoDetail: { fontSize: 13, color: '#334155', marginBottom: 4 },
+  conflictoTitle: { fontSize: 17, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, textAlign: 'center', marginTop: SPACING.sm },
+  conflictoText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center', marginTop: SPACING.sm, lineHeight: 20 },
+  conflictoBox: { marginTop: SPACING.md, padding: SPACING.md, backgroundColor: colors.bg, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border },
+  conflictoSub: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase', marginBottom: 6 },
+  conflictoDetail: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, marginBottom: SPACING.xs },
   conflictoBtns: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
+    gap: SPACING.sm,
+    marginTop: SPACING.lg,
     alignItems: 'stretch',
     flexWrap: 'nowrap',
     justifyContent: 'space-between',
   },
   conflictoBtnCol: { flex: 1, minWidth: 0, justifyContent: 'center' },
-  cbCancel: { paddingVertical: 10, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center' },
-  cbCancelText: { color: '#475569', fontWeight: '600', fontSize: 12, textAlign: 'center' },
+  cbCancel: { paddingVertical: 10, paddingHorizontal: SPACING.sm, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border, alignItems: 'center' },
+  cbCancelText: { color: colors.textPrimary, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[12], textAlign: 'center' },
   cbGuardarIgual: {
     flexDirection: 'row',
     paddingVertical: 10,
     paddingHorizontal: 6,
-    borderRadius: 8,
-    backgroundColor: '#dc2626',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.danger,
     borderWidth: 1,
-    borderColor: '#b91c1c',
+    borderColor: statusColors.danger.text,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: SPACING.xs,
   },
   cbGuardarIgualIcon: { flexShrink: 0 },
-  cbGuardarIgualText: { color: '#fff', fontWeight: '700', fontSize: 12, textAlign: 'center', flexShrink: 1 },
+  cbGuardarIgualText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[12], textAlign: 'center', flexShrink: 1 },
   cbMover: {
     paddingVertical: 10,
     paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#f59e0b',
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
   },
-  cbMoverText: { color: '#b45309', fontWeight: '700', fontSize: 12, textAlign: 'center' },
+  cbMoverText: { color: statusColors.warning.text, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[12], textAlign: 'center' },
 });
