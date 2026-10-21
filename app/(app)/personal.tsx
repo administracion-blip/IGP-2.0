@@ -17,7 +17,17 @@ import {
   ERP_LIST_HEADER_TEXT_PROPS,
   erpListTableStyles,
 } from '../constants/erpListTableStyles';
+import { MIN_TOUCH } from '../constants/layout';
 import { useAuth } from '../contexts/AuthContext';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 import { fotoGeneralUrl, tallaDeActivo, unidadesDeActivo } from '../lib/activos';
 import { apiFetch, errorMessage } from '../utils/api';
 import type { CustodiaEmpleado } from '../types/activos';
@@ -197,7 +207,7 @@ export default function PersonalScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Personal</Text>
         <Text style={styles.subtitle}>Empleados sincronizados desde Factorial HR</Text>
@@ -208,7 +218,7 @@ export default function PersonalScreen() {
         <TextInput
           style={styles.searchInput}
           placeholder="Buscar por nombre, email, DNI…"
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={colors.textMuted}
           value={filtro}
           onChangeText={setFiltro}
         />
@@ -226,9 +236,9 @@ export default function PersonalScreen() {
           disabled={syncing}
         >
           {syncing ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <ActivityIndicator size="small" color={colors.surface} />
           ) : (
-            <MaterialIcons name="sync" size={18} color="#fff" />
+            <MaterialIcons name="sync" size={18} color={colors.surface} />
           )}
           <Text style={styles.syncBtnText}>{syncing ? 'Sincronizando…' : 'Sincronizar'}</Text>
         </TouchableOpacity>
@@ -242,14 +252,14 @@ export default function PersonalScreen() {
       )}
       {error && (
         <View style={styles.bannerError}>
-          <MaterialIcons name="error-outline" size={16} color="#dc2626" />
+          <MaterialIcons name="error-outline" size={16} color={colors.danger} />
           <Text style={styles.bannerErrorText}>{error}</Text>
         </View>
       )}
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Cargando empleados…</Text>
         </View>
       ) : (
@@ -317,9 +327,9 @@ export default function PersonalScreen() {
                             const esActivo = col.key === 'active';
                             const activoStyles =
                               esActivo && emp.active !== false
-                                ? { backgroundColor: '#d1fae5', color: '#047857', fontWeight: '600' as const }
+                                ? { backgroundColor: '#d1fae5', color: '#047857', fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight }
                                 : esActivo
-                                  ? { backgroundColor: '#fee2e2', color: '#b91c1c', fontWeight: '600' as const }
+                                  ? { backgroundColor: statusColors.danger.bg, color: statusColors.danger.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight }
                                   : null;
                             return (
                               <View
@@ -327,7 +337,7 @@ export default function PersonalScreen() {
                                 style={[
                                   erpListTableStyles.cell,
                                   { width: col.width },
-                                  activoStyles && { backgroundColor: activoStyles.backgroundColor, borderRadius: 6 },
+                                  activoStyles && { backgroundColor: activoStyles.backgroundColor, borderRadius: radius.sm },
                                 ]}
                               >
                                 <Text
@@ -373,7 +383,7 @@ export default function PersonalScreen() {
                         <MaterialIcons
                           name={on ? 'check-box' : 'check-box-outline-blank'}
                           size={22}
-                          color={on ? '#0ea5e9' : '#94a3b8'}
+                          color={on ? colors.accent : colors.textMuted}
                         />
                       </TouchableOpacity>
                     ) : null}
@@ -389,7 +399,7 @@ export default function PersonalScreen() {
                         style={[styles.modalThumb, styles.modalThumbVacio]}
                         accessibilityLabel={fotoLabel}
                       >
-                        <MaterialIcons name="image" size={20} color="#94a3b8" />
+                        <MaterialIcons name="image" size={20} color={colors.textMuted} />
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
@@ -429,7 +439,7 @@ export default function PersonalScreen() {
                   disabled={devolviendo}
                 >
                   {devolviendo ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={colors.surface} />
                   ) : (
                     <Text style={styles.modalOkTxt}>Devolver marcadas</Text>
                   )}
@@ -449,23 +459,26 @@ function formatCellValue(key: string, val: unknown): string {
   return String(val);
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: '#fff', minHeight: 0 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  container: { flex: 1, padding: 10, backgroundColor: colors.surface, minHeight: 0 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.navActive,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 13, color: '#94a3b8', marginLeft: 4 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, marginLeft: SPACING.xs },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginBottom: 10,
     flexWrap: 'wrap',
   },
@@ -474,128 +487,130 @@ const styles = StyleSheet.create({
     minWidth: 200,
     height: 36,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
-    fontSize: 13,
-    color: '#334155',
-    backgroundColor: '#f8fafc',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textPrimary,
+    backgroundColor: colors.bg,
   },
   filterChip: {
     paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    backgroundColor: '#f1f5f9',
+    paddingHorizontal: SPACING.md,
+    borderRadius: radius.xl,
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
   filterChipActive: { backgroundColor: '#dbeafe', borderColor: '#93c5fd' },
-  filterChipText: { fontSize: 12, color: '#64748b' },
-  filterChipTextActive: { color: '#1d4ed8', fontWeight: '600' },
+  filterChipText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  filterChipTextActive: { color: '#1d4ed8', fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   syncBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
     paddingVertical: 7,
     paddingHorizontal: 14,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
   syncBtnDisabled: { opacity: 0.6 },
-  syncBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  syncBtnText: { fontSize: fontSizes[13], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   bannerOk: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    padding: 8,
+    padding: SPACING.sm,
     backgroundColor: '#ccfbf1',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#5eead4',
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
   },
-  bannerOkText: { fontSize: 13, color: '#0f766e', fontWeight: '500' },
+  bannerOkText: { fontSize: fontSizes[13], color: '#0f766e', fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   bannerError: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    padding: 8,
-    backgroundColor: '#fef2f2',
-    borderRadius: 8,
+    padding: SPACING.sm,
+    backgroundColor: statusColors.danger.bg,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#fecaca',
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
   },
-  bannerErrorText: { fontSize: 13, color: '#dc2626' },
+  bannerErrorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.danger },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
-  loadingText: { marginTop: 8, fontSize: 14, color: '#64748b' },
-  countText: { fontSize: 12, color: '#64748b', marginBottom: 6 },
-  prendasLink: { color: '#0369a1', fontWeight: '700', textDecorationLine: 'underline' },
+  loadingText: { marginTop: SPACING.sm, fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted },
+  countText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginBottom: 6 },
+  prendasLink: { color: statusColors.info.text, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, textDecorationLine: 'underline' },
+  /** Más oscuro que colors.overlay. */
   modalFondo: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
     justifyContent: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
   modalCaja: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: SPACING.lg,
     maxHeight: '88%',
     maxWidth: 560,
     width: '100%',
     alignSelf: 'center',
   },
-  modalTitulo: { fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
-  modalSub: { fontSize: 13, color: '#64748b', marginBottom: 12 },
-  modalLista: { maxHeight: 320, marginBottom: 8 },
+  modalTitulo: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginBottom: SPACING.xs },
+  modalSub: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, marginBottom: SPACING.md },
+  modalLista: { maxHeight: 320, marginBottom: SPACING.sm },
   modalFila: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
   modalThumb: {
     width: 48,
     height: 48,
-    borderRadius: 8,
-    backgroundColor: '#e2e8f0',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.border,
   },
   modalThumbVacio: { alignItems: 'center', justifyContent: 'center' },
-  modalEtiqueta: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  modalMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  modalEtiqueta: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  modalMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
   modalCant: {
     width: 52,
     height: 40,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 8,
+    borderColor: colors.borderStrong,
+    borderRadius: RADIO_MEDIO,
     textAlign: 'center',
-    fontWeight: '700',
-    color: '#0f172a',
+    fontVariant: ['tabular-nums'],
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textStrong,
   },
-  modalUd: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  modalError: { color: '#dc2626', marginBottom: 8, fontSize: 13 },
-  modalAcciones: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 },
+  modalUd: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  modalError: { color: colors.danger, marginBottom: SPACING.sm, fontFamily: fontFamily.regular, fontSize: fontSizes[13] },
+  modalAcciones: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACING.sm, marginTop: SPACING.sm },
   modalCancel: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalCancelTxt: { fontWeight: '700', color: '#64748b' },
+  modalCancelTxt: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted },
   modalOk: {
-    minHeight: 44,
+    minHeight: MIN_TOUCH,
     paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalOkTxt: { color: '#fff', fontWeight: '700' },
+  modalOkTxt: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 });
