@@ -1,12 +1,13 @@
 import { Platform, StyleSheet } from 'react-native';
-import { colors, radius, shadowCard, SPACING, typography } from './theme';
+import { colors, fontSizes, radius, shadowCard, typography, MIN_TOUCH, SPACING } from './theme';
 
 /**
  * Patrón visual estándar para listados CRUD del ERP (Almacenes, Usuarios, maestros…).
  * - Tablas planas: sin sombra (boxShadow / elevation).
  * - Una sola línea de valor por celda salvo indicación explícita.
  */
-export const ERP_ROW_HEIGHT = 36;
+/** Alto de fila en escritorio. En móvil, TablaBasica suma `SPACING.xs` (48). */
+export const ERP_ROW_HEIGHT = MIN_TOUCH;
 
 /** Estilos compartidos listados CRUD (patrón Facturación + tokens IGP). */
 export const erpTableStyles = StyleSheet.create({
@@ -95,9 +96,9 @@ export const erpTableStyles = StyleSheet.create({
     zIndex: 10,
   },
   tooltipText: {
-    fontSize: 9,
+    fontSize: fontSizes[12],
     color: colors.bgSubtle,
-    fontWeight: '400',
+    fontWeight: typography.cuerpo.fontWeight,
   },
 
   btnPrimary: {
@@ -166,7 +167,9 @@ export const erpTableStyles = StyleSheet.create({
     backgroundColor: colors.bgSubtle,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderStrong,
-    ...(Platform.OS === 'web' ? { display: 'flex' as const } : {}),
+    ...(Platform.OS === 'web'
+      ? ({ position: 'sticky', top: 0, zIndex: 2, display: 'flex' } as object)
+      : {}),
   },
   cellHeader: {
     paddingVertical: SPACING.xs,
@@ -182,8 +185,7 @@ export const erpTableStyles = StyleSheet.create({
   },
   cellHeaderText: {
     ...typography.etiqueta,
-    fontSize: 10,
-    letterSpacing: 0.3,
+    letterSpacing: typography.etiqueta.letterSpacing,
     color: colors.textSecondary,
   },
   resizeHandle: {
@@ -222,9 +224,8 @@ export const erpTableStyles = StyleSheet.create({
     borderRightWidth: 0,
   },
   cellText: {
-    fontSize: 10,
+    ...typography.tabla,
     color: colors.textSecondary,
-    lineHeight: 13,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   cellTextPrimary: {
@@ -234,6 +235,7 @@ export const erpTableStyles = StyleSheet.create({
   cellTextRight: {
     textAlign: 'right' as const,
     alignSelf: 'stretch' as const,
+    fontVariant: ['tabular-nums'],
   },
   cellCheckbox: {
     width: 32,
@@ -417,7 +419,7 @@ export const erpTableStyles = StyleSheet.create({
     alignItems: 'center',
   },
   modalIdLabel: {
-    fontSize: 10,
+    fontSize: fontSizes.badge,
     fontWeight: '600',
     color: colors.textMuted,
     marginBottom: 2,

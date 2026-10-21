@@ -13,7 +13,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  ActivityIndicator,
   TouchableOpacity,
   TextInput,
   Platform,
@@ -37,11 +36,14 @@ import {
   tasksTabla,
   tasksTabularNums,
 } from '../constants/tasksUiTokens';
+import { Skeleton } from './ui/Skeleton';
 import { TasksEmptyState } from './tasks/TasksEmptyState';
 import { TasksTableSkeleton } from './tasks/TasksSkeleton';
 
 const DEFAULT_COL_WIDTH = 90;
 const DENSE_COL_WIDTH = 72;
+/** Filas de espera mientras carga. Un solo uso. */
+const FILAS_SKELETON = 6;
 const MIN_COL_WIDTH = ERP_LIST_MIN_COL_WIDTH;
 
 /** Variante visual del piloto Proyectos; el resto del ERP usa `default`. */
@@ -280,16 +282,6 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
   const deleteDisabled = guardando || ((selectedRowIndex == null || selectedEsBanda) && !tieneBorradoExterno);
 
   const totalTableWidth = columnas.reduce((sum, col) => sum + getColWidth(col), 0);
-
-  // Variant tasks: skeleton dentro del layout (toolbar visible). Default: spinner full.
-  if (loading && datos.length === 0 && !isTasksVariant) {
-    return (
-      <View style={[styles.center, styles.centerDefault]}>
-        <ActivityIndicator size="large" color={tasksColor.acento} />
-        <Text style={[styles.loadingText, styles.loadingTextDefault]}>Cargando…</Text>
-      </View>
-    );
-  }
 
   if (error != null && error !== '' && datos.length === 0 && !isTasksVariant) {
     return (
@@ -639,10 +631,26 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                       />
                     )}
                   </View>
+                ) : loading ? (
+                  <View>
+                    {Array.from({ length: FILAS_SKELETON }, (_, i) => (
+                      <View
+                        key={`sk-${i}`}
+                        style={[
+                          erpListTableStyles.row,
+                          styles.rowDefaultChrome,
+                          comodo ? styles.rowComodo : styles.rowDefault,
+                          styles.skeletonRow,
+                        ]}
+                      >
+                        <Skeleton alto={comodo ? MIN_TOUCH + SPACING.xs : MIN_TOUCH} />
+                      </View>
+                    ))}
+                  </View>
                 ) : (
-                  <View style={[erpListTableStyles.row, !isTasksVariant && styles.rowDefaultChrome]}>
+                  <View style={[erpListTableStyles.row, styles.rowDefaultChrome]}>
                     <View style={erpListTableStyles.cellEmpty}>
-                      <Text style={[erpListTableStyles.cellEmptyText, !isTasksVariant && styles.emptyTextDefault]}>
+                      <Text style={[erpListTableStyles.cellEmptyText, styles.emptyTextDefault]}>
                         {filtroBusqueda.trim() ? emptyFilterMessage : emptyMessage}
                       </Text>
                     </View>
@@ -772,8 +780,6 @@ const styles = StyleSheet.create({
   tasksEmptyWrap: {
     paddingVertical: tasksSpace[2],
   },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  loadingTextDefault: { fontSize: 14, color: tasksColor.textoTerciario },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
   errorTextDefault: { fontSize: 14, color: tasksColor.peligro },
   retryBtn: {
@@ -1011,6 +1017,7 @@ const styles = StyleSheet.create({
     borderBottomColor: tasksColor.bordeSutil,
     borderLeftWidth: tasksTabla.seleccionBarra,
     borderLeftColor: 'transparent',
+    ...(Platform.OS === 'web' ? ({ position: 'sticky', top: 0, zIndex: 2 } as object) : {}),
   },
   cellHeaderDefault: {
     borderRightColor: tasksColor.bordeSutil,
@@ -1049,9 +1056,10 @@ const styles = StyleSheet.create({
   cellHeaderTextRight: { textAlign: 'right' },
   cellHeaderRight: { alignItems: 'flex-end', justifyContent: 'center' },
   rowDense: { minHeight: 18 },
-  rowComodo: { minHeight: MIN_TOUCH },
-  /** Default ERP: altura de fila web cuando no hay dense/cómodo. */
-  rowDefault: { minHeight: tasksTabla.filaMinHeight },
+  rowComodo: { minHeight: MIN_TOUCH + SPACING.xs },
+  /** Default ERP: 44 px en escritorio. En móvil, `rowComodo` llega a 48. */
+  rowDefault: { minHeight: MIN_TOUCH },
+  skeletonRow: { paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs },
   /** Reserva la barra izquierda para no desplazar el contenido al seleccionar. */
   rowDefaultBase: {
     borderLeftWidth: tasksTabla.seleccionBarra,
