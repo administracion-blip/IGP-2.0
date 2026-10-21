@@ -24,6 +24,7 @@ import {
   colorEstado,
   ESTADOS_OUT,
   mapTipoReciboToFormaPago,
+  saldoParaPago,
   tieneExcesoPendiente,
 } from '../../utils/facturacion';
 import type { FacturaListado, SerieFactura } from '../../types/factura';
@@ -712,7 +713,12 @@ export default function FacturasVentaScreen() {
       metodo: clave,
       metodoOtro: clave === 'otro' ? otroTexto : '',
       referencia: '',
-      importe: (selectedFactura.saldo_pendiente ?? 0) > 0 ? String(selectedFactura.saldo_pendiente) : '',
+      importe: (() => {
+        const saldo = saldoParaPago(selectedFactura);
+        if (saldo > 0.001) return String(saldo);
+        if (saldo < -0.001) return String(Math.abs(saldo));
+        return '';
+      })(),
     });
     setConciliandoEnPanel(false);
     setModalCobrarVisible(true);
@@ -1354,7 +1360,14 @@ export default function FacturasVentaScreen() {
                           </Pressable>
                         </View>
                       ) : (
-                        <Text style={styles.cellText} numberOfLines={col.key === 'impuestos_resumen' ? 2 : 1} ellipsizeMode="tail">
+                        <Text
+                          style={[
+                            styles.cellText,
+                            col.key === 'total_factura' && Number(item.total_factura) < 0 && { color: '#dc2626' },
+                          ]}
+                          numberOfLines={col.key === 'impuestos_resumen' ? 2 : 1}
+                          ellipsizeMode="tail"
+                        >
                           {valorCelda(item, col.key)}
                         </Text>
                       )}
@@ -1468,6 +1481,7 @@ export default function FacturasVentaScreen() {
             : 'Registrar cobro'
         }
         textoBotonPersonalizado="Cobrar"
+        saldoOrigen={saldoParaPago(selectedFactura)}
         empresaPagadoraNombre={selectedFactura?.emisor_nombre ?? ''}
         fechaFactura={selectedFactura?.fecha_emision}
         fechaReferenciaTarjeta={

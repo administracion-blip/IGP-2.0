@@ -22,6 +22,31 @@ function round2(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+/** Saldo con signo: positivo = deuda, negativo = abono todavía abierto. */
+export function saldoRealFactura(factura) {
+  return round2((Number(factura?.total_factura) || 0) - (Number(factura?.total_cobrado) || 0));
+}
+
+/**
+ * Exceso real. En un abono (total negativo) solo hay exceso si se ha saldado
+ * de más: el cobrado queda más negativo que el total.
+ */
+export function excesoSegunSigno(total, cobrado) {
+  const t = round2(Number(total) || 0);
+  const c = round2(Number(cobrado) || 0);
+  if (t < 0) return round2(Math.max(0, t - c));
+  return round2(Math.max(0, c - t));
+}
+
+/** Estado tras un cobro que puede dejar el saldo en negativo (abono a medias). */
+export function estadoTrasSaldoFirmado(factura, cobrado, saldo) {
+  if (factura?.estado === 'anulada') return factura.estado;
+  const venta = factura?.tipo === 'OUT';
+  if (Math.abs(saldo) <= 0.001) return venta ? 'cobrada' : 'pagada';
+  if (Math.abs(cobrado) > 0.001) return venta ? 'parcialmente_cobrada' : 'parcialmente_pagada';
+  return venta ? 'emitida' : 'pendiente_pago';
+}
+
 function fechaToIsoGuardada(val) {
   if (val == null || val === '') return '';
   const s = String(val).trim();
@@ -141,7 +166,8 @@ export async function registrarPagoFactura(opts) {
     );
   }
 
-  return conReintentoFactura(() => registrarPagoUnaVez({ ...opts, fechaIso, importeNum }));
+  const saldarAbono = opts.saldar_abono === true || opts.saldar_abono === 'true' || opts.saldarAbono === true;
+  return conReintentoFactura(() => registrarPagoUnaVez({ ...opts, fechaIso, importeNum, saldarAbono }));
 }
 
 /** Lectura, cálculo y escritura de un intento; si otra escritura se adelanta, falla con conflicto. */
@@ -162,6 +188,7 @@ async function registrarPagoUnaVez({
   cuenta_caja = '',
   recibo_file_key = '',
   recibo_nombre = '',
+  saldarAbono = false,
 }) {
   const existing = await docClient.send(
     new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura), ConsistentRead: true }),
@@ -181,18 +208,32 @@ async function registrarPagoUnaVez({
     }
   }
 
+  const saldoReal = saldoRealFactura(factura);
+  // «Otro» en un abono abierto: el importe salda el crédito (resta de lo cobrado)
+  // en vez de sumarse como un pago normal, que dejaría un exceso falso.
+  const saldar = saldarAbono === true && saldoReal < -0.001;
   const saldo = round2(
     factura.saldo_pendiente != null && factura.saldo_pendiente !== ''
       ? Number(factura.saldo_pendiente)
-      : (Number(factura.total_factura) || 0) - (Number(factura.total_cobrado) || 0),
+      : saldoReal,
   );
+  if (saldar) {
+    const credito = round2(-saldoReal);
+    if (importeNum > credito + 0.001) {
+      throw Object.assign(
+        new Error(`Importe ${importeNum} supera el crédito del abono (${credito})`),
+        { status: 400 },
+      );
+    }
+  }
   // El tope es el más restrictivo de los dos, nunca el que pasa quien llama: ese
   // se calculó sobre una lectura anterior de la factura y quedarse con él anula
   // la defensa contra el sobrepago justo cuando hace falta (dos conciliaciones
   // del mismo cargo, dos claves de idempotencia, el saldo ya consumido por la
   // primera). El clamp de `saldo_pendiente` de más abajo deja el exceso invisible.
   // `permitirSobrepago` (solo POST manual) permite importe > saldo; remesas/banca no.
-  if (!permitirSobrepago) {
+  // En el saldado de un abono el tope es el crédito, ya comprobado arriba.
+  if (!saldar && !permitirSobrepago) {
     const tope = importeMaximo != null ? Math.min(saldo, round2(Number(importeMaximo))) : saldo;
     if (importeNum > tope + 0.001) {
       throw Object.assign(
@@ -226,6 +267,7 @@ async function registrarPagoUnaVez({
     creado_por: usuario_id || '',
     creado_en: now(),
     idempotency_key: idempotencyKey || '',
+    ...(saldar ? { saldar_abono: true } : {}),
     // Trazabilidad inversa de la conciliación bancaria: desde el pago se llega
     // al apunte del extracto que lo originó. Los atributos solo se escriben
     // cuando vienen, para que los pagos de remesas y los manuales queden
@@ -238,11 +280,15 @@ async function registrarPagoUnaVez({
     }),
   };
 
-  const nuevoTotalCobrado = round2((factura.total_cobrado || 0) + importeNum);
+  const nuevoTotalCobrado = saldar
+    ? round2((factura.total_cobrado || 0) - importeNum)
+    : round2((factura.total_cobrado || 0) + importeNum);
   const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
 
   let nuevoEstado = factura.estado;
-  if (nuevoSaldo <= 0) {
+  if (saldar) {
+    nuevoEstado = estadoTrasSaldoFirmado(factura, nuevoTotalCobrado, nuevoSaldo);
+  } else if (nuevoSaldo <= 0) {
     nuevoEstado = factura.tipo === 'OUT' ? 'cobrada' : 'pagada';
   } else if (nuevoTotalCobrado > 0) {
     nuevoEstado = factura.tipo === 'OUT' ? 'parcialmente_cobrada' : 'parcialmente_pagada';
@@ -251,7 +297,9 @@ async function registrarPagoUnaVez({
   // El saldo se guarda clampado a 0 —una factura no debe quedar con pendiente
   // negativo— pero un saldo negativo es un descuadre real: se ha cobrado más que
   // el total. Sin dejar rastro, el clamp lo borra y nadie se entera nunca.
-  const descuadre = nuevoSaldo < 0 ? round2(-nuevoSaldo) : 0;
+  // En el saldado de un abono el saldo negativo que queda es crédito pendiente,
+  // no un descuadre: se guarda con signo.
+  const descuadre = !saldar && nuevoSaldo < 0 ? round2(-nuevoSaldo) : 0;
   if (descuadre > 0) {
     console.warn(
       `[registrarPagoFactura] Sobrepago en ${id_factura}: cobrado ${nuevoTotalCobrado} `
@@ -260,9 +308,13 @@ async function registrarPagoUnaVez({
   }
 
   factura.total_cobrado = nuevoTotalCobrado;
-  factura.saldo_pendiente = Math.max(0, nuevoSaldo);
+  factura.saldo_pendiente = saldar
+    ? (Math.abs(nuevoSaldo) <= 0.001 ? 0 : nuevoSaldo)
+    : Math.max(0, nuevoSaldo);
   factura.estado = nuevoEstado;
-  const exceso = recalcularExcesoPendiente(factura);
+  const exceso = saldar
+    ? (factura.exceso_pendiente = excesoSegunSigno(factura.total_factura, nuevoTotalCobrado))
+    : recalcularExcesoPendiente(factura);
   factura.modificado_por = usuario_id || '';
   factura.modificado_en = now();
 

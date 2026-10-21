@@ -216,6 +216,7 @@ export type Borrador = {
     metodo_pago: string;
     referencia: string;
     observaciones: string;
+    saldar_abono?: boolean;
   };
 };
 

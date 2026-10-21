@@ -3,13 +3,14 @@
  * En web: tooltip al pasar el ratón sobre un día con detalle de actuaciones.
  */
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, Image } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, Platform, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatFecha } from '../../utils/formatFecha';
 import { formatMoneda } from '../../utils/facturacion';
 import { API_BASE_URL } from '../../utils/apiBaseUrl';
 import { fechaComparacionParaObjetivo, type FestivoGestionRow } from '../../utils/objetivosComparativa';
 import { apiFetch } from '../../utils/api';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 
 export type ActuacionCalItem = {
   id_actuacion: string;
@@ -206,13 +207,38 @@ export type LocalAgoraLookup = { id_Locales: string; agoraCode?: string; AgoraCo
 type Props = {
   actuaciones: ActuacionCalItem[];
   locales?: LocalAgoraLookup[];
+  /** Día resaltado en la vista mes (YYYY-MM-DD). */
+  diaSeleccionado?: string;
+  /** Si se define, pulsar un día de la vista mes lo notifica. */
+  onSeleccionarDia?: (iso: string) => void;
+  /** Fecha (YYYY-MM-DD) cuyo mes debe mostrar la vista mes; al cambiar de mes, el calendario lo sigue. */
+  mesReferencia?: string;
+  /** Texto adicional bajo la leyenda de la vista mes. */
+  notaPie?: string;
 };
 
-export function ActuacionesCalendario({ actuaciones, locales }: Props) {
-  const hoy = useMemo(() => new Date(), []);
+export function ActuacionesCalendario({
+  actuaciones,
+  locales,
+  diaSeleccionado,
+  onSeleccionarDia,
+  mesReferencia,
+  notaPie,
+}: Props) {
+  const hoy = useMemo(() => {
+    const [y, m, d] = fechaJornadaNegocioIso().split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }, []);
   const [vista, setVista] = useState<'mes' | 'semana' | 'dia'>('mes');
   const [mesY, setMesY] = useState(() => hoy.getFullYear());
   const [mesM, setMesM] = useState(() => hoy.getMonth());
+  const mesRefClave = /^\d{4}-\d{2}/.test(mesReferencia ?? '') ? String(mesReferencia).slice(0, 7) : '';
+  useEffect(() => {
+    if (!mesRefClave) return;
+    const [y, m] = mesRefClave.split('-').map(Number);
+    setMesY(y);
+    setMesM(m - 1);
+  }, [mesRefClave]);
   const [semanaInicio, setSemanaInicio] = useState(() => inicioSemanaLunes(hoy));
   /** Día mostrado en vista «Día» (medianoche local). */
   const [diaVista, setDiaVista] = useState(() => new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
@@ -519,6 +545,8 @@ export function ActuacionesCalendario({ actuaciones, locales }: Props) {
                     iso={iso}
                     list={list}
                     esHoy={!!esHoy}
+                    seleccionado={!!iso && iso === diaSeleccionado}
+                    onSeleccionar={onSeleccionarDia}
                     onShowTooltip={showDayTooltip}
                     onHideTooltip={hideDayTooltip}
                   />
@@ -526,6 +554,18 @@ export function ActuacionesCalendario({ actuaciones, locales }: Props) {
               })}
             </View>
           ))}
+          <View style={styles.leyendaRow}>
+            <View style={styles.leyendaItem}>
+              <View style={styles.leyendaPunto} />
+              <Text style={styles.leyendaText}>Falta alguien</Text>
+            </View>
+            <View style={styles.leyendaItem}>
+              <View style={styles.leyendaCrema} />
+              <Text style={styles.leyendaText}>Día vacío</Text>
+            </View>
+          </View>
+          {onSeleccionarDia ? <Text style={styles.pieAyuda}>Pulsa un día para verlo en la lista</Text> : null}
+          {notaPie ? <Text style={styles.pieAyuda}>{notaPie}</Text> : null}
         </ScrollView>
       ) : vista === 'semana' ? (
         <ScrollView
@@ -749,14 +789,29 @@ type CeldaProps = {
   iso: string;
   list: ActuacionCalItem[];
   esHoy: boolean;
+  seleccionado?: boolean;
+  onSeleccionar?: (iso: string) => void;
   onShowTooltip: (iso: string, list: ActuacionCalItem[], anchor: TooltipAnchor) => void;
   onHideTooltip: () => void;
 };
 
-function DiaMesCelda({ cell, iso, list, esHoy, onShowTooltip, onHideTooltip }: CeldaProps) {
+function DiaMesCelda({
+  cell,
+  iso,
+  list,
+  esHoy,
+  seleccionado,
+  onSeleccionar,
+  onShowTooltip,
+  onHideTooltip,
+}: CeldaProps) {
   const ref = useRef<View>(null);
   const porLocal = useMemo(() => resumenPorLocal(list), [list]);
   const totalDia = useMemo(() => sumaImportesDia(list), [list]);
+  const conArtista = list.some((a) => !!a.id_artista);
+  const sinArtista = list.some((a) => !a.id_artista);
+  const faltaAlguien = conArtista && sinArtista;
+  const diaVacio = list.length > 0 && !conArtista;
 
   const webHover =
     IS_WEB && list.length > 0
@@ -773,25 +828,44 @@ function DiaMesCelda({ cell, iso, list, esHoy, onShowTooltip, onHideTooltip }: C
     <View
       ref={ref}
       collapsable={false}
-      style={[styles.diaCell, !cell.inMonth && styles.diaCellFuera, esHoy && styles.diaCellHoy]}
+      style={[
+        styles.diaCell,
+        !cell.inMonth && styles.diaCellFuera,
+        esHoy && styles.diaCellHoy,
+        diaVacio && styles.diaCellVacio,
+        seleccionado && styles.diaCellSeleccionado,
+      ]}
       {...(webHover as object)}
     >
-      <View style={styles.diaNumRow}>
-        <Text style={[styles.diaNum, !cell.inMonth && styles.diaNumFuera]}>{cell.date?.getDate() ?? ''}</Text>
-        {totalDia != null ? (
-          <Text style={[styles.diaTotalDia, !cell.inMonth && styles.diaNumFuera]} numberOfLines={1}>
-            {formatMoneda(totalDia)}
+      <Pressable
+        style={styles.diaCellPress}
+        disabled={!onSeleccionar || !iso}
+        onPress={() => {
+          if (onSeleccionar && iso) onSeleccionar(iso);
+        }}
+        accessibilityRole={onSeleccionar ? 'button' : undefined}
+        accessibilityLabel={onSeleccionar && iso ? `Ver ${formatFecha(iso)} en la lista` : undefined}
+      >
+        <View style={styles.diaNumRow}>
+          <View style={styles.diaNumIzq}>
+            <Text style={[styles.diaNum, !cell.inMonth && styles.diaNumFuera]}>{cell.date?.getDate() ?? ''}</Text>
+            {faltaAlguien ? <View style={styles.diaPuntoFalta} /> : null}
+          </View>
+          {totalDia != null ? (
+            <Text style={[styles.diaTotalDia, !cell.inMonth && styles.diaNumFuera]} numberOfLines={1}>
+              {formatMoneda(totalDia)}
+            </Text>
+          ) : null}
+        </View>
+        {porLocal.slice(0, 3).map((r) => (
+          <Text key={r.key} style={styles.localResumenLine} numberOfLines={1}>
+            {r.nombre}: {r.suma != null ? formatMoneda(r.suma) : '—'}
           </Text>
+        ))}
+        {porLocal.length > 3 ? (
+          <Text style={styles.actMore}>+{porLocal.length - 3} locales</Text>
         ) : null}
-      </View>
-      {porLocal.slice(0, 3).map((r) => (
-        <Text key={r.key} style={styles.localResumenLine} numberOfLines={1}>
-          {r.nombre}: {r.suma != null ? formatMoneda(r.suma) : '—'}
-        </Text>
-      ))}
-      {porLocal.length > 3 ? (
-        <Text style={styles.actMore}>+{porLocal.length - 3} locales</Text>
-      ) : null}
+      </Pressable>
     </View>
   );
 }
@@ -913,6 +987,9 @@ const styles = StyleSheet.create({
   },
   diaCellFuera: { backgroundColor: '#fafafa' },
   diaCellHoy: { backgroundColor: '#f0f9ff', borderColor: '#0ea5e9' },
+  diaCellVacio: { backgroundColor: '#fffbeb' },
+  diaCellSeleccionado: { backgroundColor: '#e0f2fe' },
+  diaCellPress: { flex: 1 },
   diaNumRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -920,6 +997,21 @@ const styles = StyleSheet.create({
     gap: 2,
     marginBottom: 2,
   },
+  diaNumIzq: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  diaPuntoFalta: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#d97706' },
+  leyendaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginTop: 8 },
+  leyendaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  leyendaPunto: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#d97706' },
+  leyendaCrema: {
+    width: 14,
+    height: 10,
+    borderRadius: 3,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  leyendaText: { fontSize: 11, color: '#64748b' },
+  pieAyuda: { fontSize: 11, color: '#94a3b8', marginTop: 6 },
   diaNum: { fontSize: 10, fontWeight: '700', color: '#334155' },
   diaTotalDia: { fontSize: 7, fontWeight: '700', color: '#0ea5e9', flexShrink: 1, textAlign: 'right' },
   diaNumFuera: { color: '#cbd5e1' },

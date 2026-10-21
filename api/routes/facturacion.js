@@ -48,7 +48,7 @@ import {
   isIaEnriquecimientoDisponible,
 } from '../lib/ocrEnriquecerIa.js';
 import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
-import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
+import { registrarPagoFactura, estadoTrasSaldoFirmado, excesoSegunSigno } from '../lib/facturacion/registrarPago.js';
 import { eliminarPagoFactura } from '../lib/facturacion/eliminarPago.js';
 import {
   conReintentoFactura,
@@ -94,6 +94,10 @@ import {
   assertSinAplicacionesExcesoEnFactura,
   METODO_PAGO_APLICACION_EXCESO,
 } from '../lib/facturacion/excesoPago.js';
+import {
+  cargarCreditoSinAplicar,
+  MAX_IDS_CREDITO_REMESA,
+} from '../lib/facturacion/creditoRemesa.js';
 import { emitirOValidarFacturaPorId } from '../lib/facturacion/emitirFactura.js';
 import { completarVencimientoFactura } from '../lib/facturacion/plazoProveedor.js';
 import {
@@ -581,6 +585,27 @@ router.get('/facturacion/deuda-proveedores/facturas', requirePermission('factura
       emisorId: String(req.query.emisorId || '').trim(),
       hoy,
     }));
+  } catch (err) {
+    responderError(res, err);
+  }
+});
+
+/**
+ * Crédito sin aplicar (exceso o abono) de los proveedores de las facturas
+ * que se van a meter en una remesa, misma sociedad emisora.
+ */
+// [SEC S-01]
+router.post('/facturacion/remesas/credito-sin-aplicar', requirePermission('facturacion.ver'), async (req, res) => {
+  try {
+    const facturaIds = req.body?.facturaIds;
+    if (!Array.isArray(facturaIds) || facturaIds.length > MAX_IDS_CREDITO_REMESA) {
+      return res.status(400).json({
+        error: `facturaIds debe ser un array de como máximo ${MAX_IDS_CREDITO_REMESA} ids`,
+      });
+    }
+    // [SEC S-08]
+    const empresasOk = await empresasPermitidasDelUsuario(req.user);
+    res.json(await cargarCreditoSinAplicar(facturaIds, empresasOk));
   } catch (err) {
     responderError(res, err);
   }
@@ -1552,6 +1577,7 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
       usuario_id,
       usuario_nombre,
       permitirSobrepago: true,
+      saldar_abono: b.saldar_abono === true || b.saldar_abono === 'true',
       recibo_file_key,
       recibo_nombre,
     });
@@ -1570,11 +1596,26 @@ async function guardarEdicionPago(pagoLeido, factura, { fechaIso, importeNum, me
   const versionLeida = factura.version;
   const importeAnterior = round2(Number(pagoLeido.importe) || 0);
   const delta = round2(importeNum - importeAnterior);
-  const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) + delta));
+  const saldar = pagoLeido.saldar_abono === true;
+  if (saldar) {
+    const saldoReal = round2((Number(factura.total_factura) || 0) - (Number(factura.total_cobrado) || 0));
+    const credito = round2((saldoReal < 0 ? -saldoReal : 0) + importeAnterior);
+    if (importeNum > credito + 0.001) {
+      throw Object.assign(
+        new Error(`Importe ${importeNum} supera el crédito del abono (${credito})`),
+        { status: 400 },
+      );
+    }
+  }
+  const nuevoTotalCobrado = saldar
+    ? round2((Number(factura.total_cobrado) || 0) - delta)
+    : round2(Math.max(0, (Number(factura.total_cobrado) || 0) + delta));
   const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
 
   let nuevoEstado = factura.estado;
-  if (nuevoSaldo <= 0 && factura.estado !== 'anulada') {
+  if (saldar) {
+    nuevoEstado = estadoTrasSaldoFirmado(factura, nuevoTotalCobrado, nuevoSaldo);
+  } else if (nuevoSaldo <= 0 && factura.estado !== 'anulada') {
     nuevoEstado = factura.tipo === 'OUT' ? 'cobrada' : 'pagada';
   } else if (nuevoTotalCobrado <= 0 && factura.estado !== 'anulada') {
     nuevoEstado = factura.tipo === 'OUT' ? 'emitida' : 'pendiente_pago';
@@ -1594,9 +1635,12 @@ async function guardarEdicionPago(pagoLeido, factura, { fechaIso, importeNum, me
   };
 
   factura.total_cobrado = nuevoTotalCobrado;
-  factura.saldo_pendiente = Math.max(0, nuevoSaldo);
+  factura.saldo_pendiente = saldar
+    ? (Math.abs(nuevoSaldo) <= 0.001 ? 0 : nuevoSaldo)
+    : Math.max(0, nuevoSaldo);
   factura.estado = nuevoEstado;
-  recalcularExcesoPendiente(factura);
+  if (saldar) factura.exceso_pendiente = excesoSegunSigno(factura.total_factura, nuevoTotalCobrado);
+  else recalcularExcesoPendiente(factura);
   factura.modificado_por = usuario_id || '';
   factura.modificado_en = now();
 

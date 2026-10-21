@@ -25,6 +25,7 @@ import {
   labelFormaPago,
   mapTipoReciboToFormaPago,
   resolveMetodoPagoParaEnvio,
+  saldoParaPago,
 } from '../utils/facturacion';
 import { hoyISO } from '../utils/facturaFormLogic';
 import { fechaEmisionFacturaAIso, formatFechaPagoRow } from '../utils/formatFecha';
@@ -51,14 +52,14 @@ export type BorradorPagoFactura = {
 export function esFacturaPagableGasto(f: FacturaListado): boolean {
   const estado = f.estado || '';
   if (estado === 'anulada' || estado === 'pagada' || estado === 'borrador') return false;
-  return Math.abs(Number(f.saldo_pendiente ?? 0)) > 0;
+  return Math.abs(saldoParaPago(f)) > 0.001;
 }
 
 export function buildBorradorPagoInicial(
   f: FacturaListado,
   empresasCatalogo: EmpresaConTipoRecibo[],
 ): BorradorPagoFactura {
-  const saldo = Number(f.saldo_pendiente ?? 0);
+  const saldo = saldoParaPago(f);
   const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, f.empresa_id);
   const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
   const hoy = hoyISO();
@@ -233,7 +234,7 @@ export function MultipagoFacturasModal({
         return;
       }
 
-      const saldoAbs = Math.abs(Number(f.saldo_pendiente ?? 0));
+      const saldoAbs = Math.abs(saldoParaPago(f));
       if (importeNum > saldoAbs + 0.001) {
         onValidationError?.(
           'Error',
@@ -250,6 +251,7 @@ export function MultipagoFacturasModal({
           metodo_pago: metodoEnvio,
           referencia: b.referencia,
           observaciones: b.observaciones,
+          ...(b.metodo === 'otro' && saldoParaPago(f) < -0.001 ? { saldar_abono: true } : {}),
         },
       });
     }

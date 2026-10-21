@@ -1200,6 +1200,7 @@ export default function RegistroMasivoScreen() {
             metodo_pago: pago.metodo_pago,
             referencia: pago.referencia,
             observaciones: pago.observaciones,
+            ...(pago.saldar_abono ? { saldar_abono: true } : {}),
             usuario_id: user?.id_usuario ?? '',
             usuario_nombre: user?.Nombre ?? '',
           }),
@@ -1304,6 +1305,7 @@ export default function RegistroMasivoScreen() {
                 metodo_pago: payload.metodo_pago,
                 referencia: payload.referencia,
                 observaciones: payload.observaciones,
+                ...(payload.saldar_abono ? { saldar_abono: true } : {}),
               },
             }
           : b,

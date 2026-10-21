@@ -15,6 +15,7 @@ import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
 import { initialPagoFacturaGasto, registrarPagoFacturaApi } from '../../lib/pagosFacturaDetalle';
 import type { EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import type { FacturaListado } from '../../types/factura';
+import { saldoParaPago } from '../../utils/facturacion';
 
 export type FacturaPagoGasto = Omit<FacturaListado, 'remesaActiva'>;
 
@@ -109,7 +110,7 @@ export function PagarFacturaGastoModal({ factura, empresasCatalogo, onClose, onP
         }
         habilitarCompensacion
         facturaId={factura?.id_factura}
-        saldoOrigen={Number(factura?.saldo_pendiente ?? 0)}
+        saldoOrigen={saldoParaPago(factura)}
         avisoSobrepago={factura?.estado === 'pagada'}
         habilitarAplicacionExceso={
           !!factura

@@ -615,8 +615,22 @@ router.post('/actuaciones/generar-base', requirePermission('actuaciones.crear'),
   if (!Array.isArray(horas) || horas.length === 0) {
     return res.status(400).json({ error: 'horas debe ser un array no vacío' });
   }
-  const fechas = enumerarFechasIso(fecha_inicio, fecha_fin);
+  let fechas = enumerarFechasIso(fecha_inicio, fecha_fin);
   if (fechas.length === 0) return res.status(400).json({ error: 'Rango de fechas inválido' });
+  /** Días ISO: 1 = lunes … 7 = domingo. Ausente = todos los días. */
+  if (body.dias_semana != null) {
+    if (!Array.isArray(body.dias_semana)) {
+      return res.status(400).json({ error: 'dias_semana debe ser un array (1 = lunes … 7 = domingo)' });
+    }
+    const dias = new Set(
+      body.dias_semana.map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 1 && d <= 7)
+    );
+    if (dias.size === 0) return res.status(400).json({ error: 'Selecciona al menos un día de la semana' });
+    fechas = fechas.filter((f) => dias.has(new Date(`${f}T12:00:00.000Z`).getUTCDay() || 7));
+    if (fechas.length === 0) {
+      return res.status(400).json({ error: 'El rango no contiene ninguno de los días de la semana elegidos' });
+    }
+  }
   const creadas = [];
   for (const idLoc of idsLocales) {
     const loc = await docClient.send(

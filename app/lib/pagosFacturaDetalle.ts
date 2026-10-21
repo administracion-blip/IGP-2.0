@@ -1,5 +1,5 @@
 import { apiFetch } from '../utils/api';
-import { esMetodoAplicacionExceso, mapTipoReciboToFormaPago } from '../utils/facturacion';
+import { esMetodoAplicacionExceso, mapTipoReciboToFormaPago, saldoParaPago } from '../utils/facturacion';
 import { esMetodoCompensacion, type CompensacionDetalle } from './compensacionFactura';
 import { avisoPagosFacturaEnRemesa } from './remesas';
 import type { RegistrarPagoInitial, RegistrarPagoPayloadFactura } from '../components/RegistrarPagoModal';
@@ -68,10 +68,10 @@ export function pagoRecordToInitial(p: PagoDetalleRow): RegistrarPagoInitial {
 
 /** Valores iniciales del modal «Pagar» de una factura de gasto (mismo criterio que el listado). */
 export function initialPagoFacturaGasto(
-  f: Pick<FacturaListado, 'saldo_pendiente' | 'empresa_id' | 'fecha_emision'>,
+  f: Pick<FacturaListado, 'saldo_pendiente' | 'total_factura' | 'total_cobrado' | 'empresa_id' | 'fecha_emision'>,
   empresasCatalogo: EmpresaConTipoRecibo[],
 ): RegistrarPagoInitial {
-  const saldo = Number(f.saldo_pendiente ?? 0);
+  const saldo = saldoParaPago(f);
   const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, f.empresa_id);
   const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
   const hoy = hoyISO();
@@ -123,6 +123,7 @@ export async function registrarPagoFacturaApi(
       ...baseBody,
       metodo_pago: payload.metodo_pago,
       referencia: payload.referencia,
+      ...(payload.saldar_abono ? { saldar_abono: true } : {}),
     }),
   });
   const data = (await r.json()) as ErrorPagoBody & { pago?: PagoDetalleRow; factura?: FacturaListado };

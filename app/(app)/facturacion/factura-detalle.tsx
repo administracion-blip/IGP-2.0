@@ -45,6 +45,7 @@ import {
   labelFormaPago,
   avisoSignoAbono,
   mapTipoReciboToFormaPago,
+  saldoParaPago,
   tieneExcesoPendiente,
   type LineaFactura,
   type Factura,
@@ -908,13 +909,18 @@ export default function FacturaDetalleScreen() {
       : (fechaEmisionFacturaAIso(fechaEmision) ?? hoy);
 
     setFechaReferenciaTarjetaPago(fechaFactura);
+    const saldo = saldoParaPago({
+      total_factura: totales.total_factura,
+      total_cobrado: totalCobrado,
+      saldo_pendiente: saldoPendiente,
+    });
     setPagoInitial({
       fecha: clave === 'tarjeta' ? fechaFactura : hoy,
       metodo: clave,
       metodoOtro: clave === 'otro' ? otroTexto : '',
       referencia: '',
       observaciones: '',
-      importe: '',
+      importe: saldo < -0.001 ? String(Math.abs(saldo)) : '',
     });
     setConciliandoEnPanel(false);
     setShowPagoModal(true);
@@ -2039,7 +2045,11 @@ export default function FacturaDetalleScreen() {
         datosPago={datosPagoModal}
         habilitarCompensacion={!esVenta}
         facturaId={facturaId}
-        saldoOrigen={saldoPendiente}
+        saldoOrigen={saldoParaPago({
+          total_factura: totales.total_factura,
+          total_cobrado: totalCobrado,
+          saldo_pendiente: saldoPendiente,
+        })}
         avisoSobrepago={tipo === 'IN' && estado === 'pagada'}
         habilitarAplicacionExceso={
           tipo === 'IN'

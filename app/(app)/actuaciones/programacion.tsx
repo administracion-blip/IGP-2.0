@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode, type RefObject } from 'react';
 import {
   View,
   Text,
@@ -17,16 +17,12 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useLocalToast } from '../../components/Toast';
-import { TablaBasica } from '../../components/TablaBasica';
-import { erpListTableStyles } from '../../constants/erpListTableStyles';
+import { useConfirmar } from '../../hooks/useConfirmar';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
-import { SelectorRangoSemana } from '../../components/SelectorRangoSemana';
-import { RangoFechas } from '../../components/RangoFechas';
 import { formatFecha } from '../../utils/formatFecha';
 import { formatMoneda, labelEstado } from '../../utils/facturacion';
-import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
-import { ICON_SIZE } from '../../constants/icons';
+import { MIN_TOUCH } from '../../constants/layout';
 import { ActuacionesCalendario } from '../../components/actuaciones/ActuacionesCalendario';
 import { FirmaEnPantallaModal } from '../../components/FirmaEnPantallaModal';
 import { buildFirmaFormData } from '../../utils/uploadFirmaPng';
@@ -89,20 +85,17 @@ type LocalOpt = {
   ratio_musicos?: number | string | null;
 };
 
-const COLUMNAS = ['Sel', 'Hora', 'Artista', 'Importe', 'Estado', 'Firma', 'Pago'] as const;
-
-/** Campos buscables (incluye fecha/local aunque no estén como columnas visibles). */
+/** Campos buscables (incluye fecha/local aunque no se muestren en la fila). */
 const CAMPOS_BUSQUEDA = ['Fecha', 'Local', 'Hora', 'Artista', 'Importe', 'Estado', 'Firma', 'Pago'] as const;
 
 const MESES_NOMBRE = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ] as const;
+const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] as const;
+const DIAS_NOMBRE = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'] as const;
 
-const MESES_FILTRO_OPCIONES = MESES_NOMBRE.map((nombre, i) => ({
-  id: String(i + 1).padStart(2, '0'),
-  titulo: nombre,
-}));
+type ModoPeriodo = 'semana' | 'mes';
 
 /** Rango ISO del mes natural (mes 1–12). */
 function rangoMesCalendario(anio: number, mes: number): { from: string; to: string } {
@@ -113,43 +106,85 @@ function rangoMesCalendario(anio: number, mes: number): { from: string; to: stri
   return { from, to };
 }
 
-function detectarAnioMesDesdeRango(from: string, to: string): { anio: string; mes: string } | null {
-  const mFrom = from.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const mTo = to.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!mFrom || !mTo) return null;
-  const anio = mFrom[1];
-  const mes = mFrom[2];
-  if (mTo[1] !== anio || mTo[2] !== mes || mFrom[3] !== '01') return null;
-  const r = rangoMesCalendario(parseInt(anio, 10), parseInt(mes, 10));
-  if (r.from === from && r.to === to) return { anio, mes };
-  return null;
+function sumarDiasIso(iso: string, n: number): string {
+  const t = new Date(`${iso}T12:00:00.000Z`).getTime() + n * 864e5;
+  return new Date(t).toISOString().slice(0, 10);
 }
 
-function filtrosFechaPorDefecto(): { anio: string; mes: string; desde: string; hasta: string } {
-  const j = fechaJornadaNegocioIso();
-  const [anio, mes] = j.split('-');
-  const r = rangoMesCalendario(parseInt(anio, 10), parseInt(mes, 10));
-  return { anio, mes, desde: r.from, hasta: r.to };
+/** Semana lunes–domingo o mes natural que contiene `iso`. */
+function rangoPeriodo(modo: ModoPeriodo, iso: string): { desde: string; hasta: string } {
+  if (modo === 'semana') {
+    const lunes = sumarDiasIso(iso, 1 - diaSemanaIso(iso));
+    return { desde: lunes, hasta: sumarDiasIso(lunes, 6) };
+  }
+  const [y, m] = iso.split('-').map(Number);
+  const r = rangoMesCalendario(y, m);
+  return { desde: r.from, hasta: r.to };
 }
 
-type FilaGrupoProgramacion = {
-  _tipo: 'grupo';
+function desplazarPeriodo(modo: ModoPeriodo, desde: string, delta: number): { desde: string; hasta: string } {
+  if (modo === 'semana') return rangoPeriodo('semana', sumarDiasIso(desde, 7 * delta));
+  const [y, m] = desde.split('-').map(Number);
+  const idx = y * 12 + (m - 1) + delta;
+  const ny = Math.floor(idx / 12);
+  const nm = (idx % 12) + 1;
+  return rangoPeriodo('mes', `${ny}-${String(nm).padStart(2, '0')}-01`);
+}
+
+/** «Semana del 19 – 25 oct» o «Octubre 2026». */
+function etiquetaPeriodo(modo: ModoPeriodo, desde: string, hasta: string): string {
+  const [ya, ma, da] = desde.split('-').map(Number);
+  if (modo === 'mes') return `${MESES_NOMBRE[ma - 1] ?? ''} ${ya}`;
+  const [yb, mb, db] = hasta.split('-').map(Number);
+  if (ya === yb && ma === mb) return `Semana del ${da} – ${db} ${MESES_CORTOS[mb - 1] ?? ''}`;
+  const anioA = ya !== yb ? ` ${ya}` : '';
+  const anioB = ya !== yb ? ` ${yb}` : '';
+  return `Semana del ${da} ${MESES_CORTOS[ma - 1] ?? ''}${anioA} – ${db} ${MESES_CORTOS[mb - 1] ?? ''}${anioB}`;
+}
+
+/** «Miércoles 1 oct». */
+function cabeceraDia(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number);
+  if (!m || !d) return iso || '—';
+  return `${DIAS_NOMBRE[diaSemanaIso(iso) % 7]} ${d} ${MESES_CORTOS[m - 1] ?? ''}`;
+}
+
+type GrupoDiaLocal = {
   clave: string;
   fecha: string;
-  fechaLabel: string;
   localNombre: string;
   idLocal: string;
-  count: number;
+  items: Actuacion[];
 };
 
-type FilaTablaProgramacion = FilaGrupoProgramacion | ({ _tipo: 'actuacion' } & Actuacion);
-
-function esFilaGrupo(item: FilaTablaProgramacion): item is FilaGrupoProgramacion {
-  return item._tipo === 'grupo';
-}
-
-function actuacionDeFila(item: FilaTablaProgramacion): Actuacion | null {
-  return item._tipo === 'actuacion' ? item : null;
+/** Bloque que registra su offset vertical dentro del ScrollView y lo borra al desmontarse. */
+function BloqueMedido({
+  clave,
+  offsets,
+  onMedido,
+  children,
+}: {
+  clave: string;
+  offsets: RefObject<Record<string, number>>;
+  onMedido: (clave: string) => void;
+  children: ReactNode;
+}) {
+  useEffect(
+    () => () => {
+      delete offsets.current[clave];
+    },
+    [clave, offsets]
+  );
+  return (
+    <View
+      onLayout={(e) => {
+        offsets.current[clave] = e.nativeEvent.layout.y;
+        onMedido(clave);
+      }}
+    >
+      {children}
+    </View>
+  );
 }
 
 /** Sobre TotalFacturadoComparativa bruta para referencia neta (aprox. −10% impuestos); igual que el calendario. */
@@ -175,65 +210,47 @@ function colorPctGasto(pct: number, ratio: number | null): string {
   return '#dc2626';
 }
 
-function estiloBadgePctGasto(pct: number, ratio: number | null): { bg: string; border: string; text: string } {
-  const color = colorPctGasto(pct, ratio);
-  if (color === '#16a34a') return { bg: '#dcfce7', border: '#86efac', text: '#16a34a' };
-  if (color === '#d97706') return { bg: '#fef3c7', border: '#fcd34d', text: '#d97706' };
-  if (color === '#dc2626') return { bg: '#fee2e2', border: '#fca5a5', text: '#dc2626' };
-  return { bg: '#f1f5f9', border: '#e2e8f0', text: '#334155' };
+/** Días ISO para «Generar huecos»: 1 = lunes … 7 = domingo. */
+const DIAS_SEMANA_GEN: { dia: number; letra: string; nombre: string; plural: string }[] = [
+  { dia: 1, letra: 'L', nombre: 'lunes', plural: 'lunes' },
+  { dia: 2, letra: 'M', nombre: 'martes', plural: 'martes' },
+  { dia: 3, letra: 'X', nombre: 'miércoles', plural: 'miércoles' },
+  { dia: 4, letra: 'J', nombre: 'jueves', plural: 'jueves' },
+  { dia: 5, letra: 'V', nombre: 'viernes', plural: 'viernes' },
+  { dia: 6, letra: 'S', nombre: 'sábado', plural: 'sábados' },
+  { dia: 7, letra: 'D', nombre: 'domingo', plural: 'domingos' },
+];
+const TODOS_DIAS_GEN = [1, 2, 3, 4, 5, 6, 7];
+
+function diaSemanaIso(fechaIso: string): number {
+  return new Date(`${fechaIso}T12:00:00.000Z`).getUTCDay() || 7;
 }
 
-type FiltroChipActuacion = 'todos' | 'huecos' | 'pendientes' | 'asociadas' | 'firmadas';
+/** Fechas YYYY-MM-DD del rango [ini, fin] cuyo día de la semana está en `dias`. */
+function fechasGenerarHuecos(ini: string, fin: string, dias: number[]): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ini) || !/^\d{4}-\d{2}-\d{2}$/.test(fin) || ini > fin) return [];
+  const out: string[] = [];
+  let t = new Date(`${ini}T12:00:00.000Z`).getTime();
+  const end = new Date(`${fin}T12:00:00.000Z`).getTime();
+  while (t <= end && out.length < 1000) {
+    const f = new Date(t).toISOString().slice(0, 10);
+    if (dias.includes(diaSemanaIso(f))) out.push(f);
+    t += 864e5;
+  }
+  return out;
+}
 
-const FILTROS_CHIP: { id: FiltroChipActuacion; label: string }[] = [
-  { id: 'todos', label: 'Todos' },
-  { id: 'huecos', label: 'Huecos' },
-  { id: 'pendientes', label: 'Pendientes' },
-  { id: 'asociadas', label: 'Asociadas' },
-  { id: 'firmadas', label: 'Firmadas' },
+type FiltroLista = 'todas' | 'sinArtista' | 'sinFirmar';
+
+const FILTROS_LISTA: { id: FiltroLista; label: string }[] = [
+  { id: 'todas', label: 'Todas' },
+  { id: 'sinArtista', label: 'Sin artista' },
+  { id: 'sinFirmar', label: 'Sin firmar' },
 ];
 
-const CHIP_ACTUACION_PASTEL: Record<
-  FiltroChipActuacion,
-  { bg: string; bgSel: string; border: string; borderSel: string; text: string }
-> = {
-  todos: { bg: '#f8fafc', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
-  huecos: { bg: '#ffedd5', bgSel: '#fed7aa', border: '#fed7aa', borderSel: '#fdba74', text: '#9a3412' },
-  pendientes: { bg: '#fffbeb', bgSel: '#fde68a', border: '#fde68a', borderSel: '#fcd34d', text: '#92400e' },
-  asociadas: { bg: '#dcfce7', bgSel: '#bbf7d0', border: '#bbf7d0', borderSel: '#86efac', text: '#166534' },
-  firmadas: { bg: '#e0f2fe', bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
-};
-
-function KpiCard({
-  label,
-  value,
-  color,
-  compact,
-}: {
-  label: string;
-  value: string;
-  color?: string;
-  compact?: boolean;
-}) {
-  return (
-    <View style={compact ? styles.kpiCardCompact : styles.kpiCard}>
-      <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
-      <Text
-        style={[compact ? styles.kpiValueCompact : styles.kpiValue, color ? { color } : null]}
-        numberOfLines={1}
-      >
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function actuacionCoincideChip(a: Actuacion, chip: FiltroChipActuacion): boolean {
-  if (chip === 'todos') return true;
-  if (chip === 'huecos') return !a.id_artista;
-  if (chip === 'pendientes') return String(a.estado || '').trim().toLowerCase() === 'pendiente';
-  if (chip === 'asociadas') return String(a.estado || '').trim().toLowerCase() === 'asociada';
-  if (chip === 'firmadas') return !!a.firma_artista_key?.trim();
+function actuacionCoincideFiltro(a: Actuacion, filtro: FiltroLista): boolean {
+  if (filtro === 'sinArtista') return !a.id_artista;
+  if (filtro === 'sinFirmar') return !!a.id_artista && !a.firma_artista_key?.trim();
   return true;
 }
 
@@ -262,8 +279,6 @@ type ConflictoOtro = {
 
 function getValorCeldaActuacion(a: Actuacion, col: string): string {
   switch (col) {
-    case 'Sel':
-      return '';
     case 'Fecha':
       return a.fecha ? formatFecha(a.fecha) : '—';
     case 'Hora':
@@ -271,7 +286,7 @@ function getValorCeldaActuacion(a: Actuacion, col: string): string {
     case 'Local':
       return a.local_nombre_snapshot?.trim() || a.id_local || '—';
     case 'Artista':
-      return a.artista_nombre_snapshot?.trim() || (a.id_artista ? '—' : '(hueco)');
+      return a.artista_nombre_snapshot?.trim() || (a.id_artista ? '—' : 'Sin artista');
     case 'Importe':
       return a.importe_final != null ? String(a.importe_final) : a.importe_previsto != null ? String(a.importe_previsto) : '—';
     case 'Estado':
@@ -283,11 +298,6 @@ function getValorCeldaActuacion(a: Actuacion, col: string): string {
     default:
       return '—';
   }
-}
-
-function getValorCeldaFila(item: FilaTablaProgramacion, col: string): string {
-  if (esFilaGrupo(item)) return '';
-  return getValorCeldaActuacion(item, col);
 }
 
 /** Texto usuario → "HH:MM" válido (24 h) o null */
@@ -312,23 +322,33 @@ export default function ProgramacionScreen() {
   const puedeFacturacion = puedeFacturacionActuaciones(hasPermiso);
   const puedeFirmar = puedeFirmarActuacion(hasPermiso);
   const { show: showToast, ToastView } = useLocalToast();
-  const { shouldStackToolbar } = useBreakpoint();
+  const { confirmar, ConfirmarView } = useConfirmar();
+  const { shouldStackToolbar, shouldStackPanels, isDesktop, isPhone } = useBreakpoint();
+  const altoControl = isDesktop ? 36 : MIN_TOUCH;
   const [actuaciones, setActuaciones] = useState<Actuacion[]>([]);
   const [artistas, setArtistas] = useState<{ id_artista: string; nombre_artistico: string }[]>([]);
   const [localesParipe, setLocalesParipe] = useState<LocalOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
-  const [filtroChip, setFiltroChip] = useState<FiltroChipActuacion>('todos');
-  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
+  const [filtroLista, setFiltroLista] = useState<FiltroLista>('todas');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  /** Modo «Seleccionar para pago»: muestra checkboxes en filas con artista. */
+  const [modoSeleccion, setModoSeleccion] = useState(false);
 
-  const filtrosDefecto = useMemo(() => filtrosFechaPorDefecto(), []);
-  const [anioFiltro, setAnioFiltro] = useState(filtrosDefecto.anio);
-  const [mesFiltro, setMesFiltro] = useState(filtrosDefecto.mes);
-  const [fechaDesde, setFechaDesde] = useState(filtrosDefecto.desde);
-  const [fechaHasta, setFechaHasta] = useState(filtrosDefecto.hasta);
   const jornadaHoy = useMemo(() => fechaJornadaNegocioIso(), []);
+  const periodoInicial = useMemo(() => rangoPeriodo('semana', jornadaHoy), [jornadaHoy]);
+  const [modoPeriodo, setModoPeriodo] = useState<ModoPeriodo>('semana');
+  const [fechaDesde, setFechaDesde] = useState(periodoInicial.desde);
+  const [fechaHasta, setFechaHasta] = useState(periodoInicial.hasta);
+  /** Rango `desde|hasta` de los datos ya cargados (evita hacer scroll sobre datos del periodo anterior). */
+  const [rangoCargado, setRangoCargado] = useState('');
+  /** Día elegido en el calendario. */
+  const [diaSeleccionado, setDiaSeleccionado] = useState<string | undefined>(undefined);
+  /** Día al que hay que desplazar la lista cuando haya datos y medidas. */
+  const [diaScrollPendiente, setDiaScrollPendiente] = useState<string | null>(null);
+  const listaScrollRef = useRef<ScrollView>(null);
+  const offsetsTarjetasRef = useRef<Record<string, number>>({});
   /** Vacío = todos los locales; si no, solo actuaciones de esos ids */
   const [filtroLocalesIds, setFiltroLocalesIds] = useState<string[]>([]);
 
@@ -338,6 +358,7 @@ export default function ProgramacionScreen() {
   /** Locales seleccionados para generar huecos (multi-selección). */
   const [localesN, setLocalesN] = useState<string[]>([]);
   const [horasN, setHorasN] = useState<string[]>(['22:00']);
+  const [diasSemanaN, setDiasSemanaN] = useState<number[]>(TODOS_DIAS_GEN);
   /** Texto del campo antes de pulsar «Añadir» (chips de horas en modal generar base). */
   const [horaBorradorN, setHoraBorradorN] = useState('');
   const [generando, setGenerando] = useState(false);
@@ -365,6 +386,12 @@ export default function ProgramacionScreen() {
   const [modalBorrarMultipleOpen, setModalBorrarMultipleOpen] = useState(false);
   const [borrando, setBorrando] = useState(false);
   const [modalFirma, setModalFirma] = useState(false);
+  /** «Firmar» desde la lista: abrir la firma en cuanto el modal de edición tenga la actuación cargada. */
+  const [firmaPendiente, setFirmaPendiente] = useState(false);
+  /** El modal de edición se abrió desde «Firmar» de la lista (se cierra al guardar la firma). */
+  const firmaDesdeListaRef = useRef(false);
+  /** Solo se aplica la respuesta de la última llamada a fetchAll. */
+  const reqIdRef = useRef(0);
   const [firmaSubiendo, setFirmaSubiendo] = useState(false);
 
   const [conflictoOpen, setConflictoOpen] = useState(false);
@@ -380,14 +407,14 @@ export default function ProgramacionScreen() {
   const listaFiltrada = useMemo(() => {
     const q = filtroBusqueda.trim().toLowerCase();
     let list = actuaciones;
-    if (filtroChip !== 'todos') {
-      list = list.filter((a) => actuacionCoincideChip(a, filtroChip));
+    if (filtroLista !== 'todas') {
+      list = list.filter((a) => actuacionCoincideFiltro(a, filtroLista));
     }
     if (!q) return list;
     return list.filter((a) =>
       CAMPOS_BUSQUEDA.some((col) => getValorCeldaActuacion(a, col).toLowerCase().includes(q))
     );
-  }, [actuaciones, filtroBusqueda, filtroChip]);
+  }, [actuaciones, filtroBusqueda, filtroLista]);
 
   /** Lista ordenada por fecha ↑ → local (alfabético) ↑ → hora ↑ (base del «merge» visual por grupo). */
   const listaOrdenada = useMemo(() => {
@@ -409,36 +436,26 @@ export default function ProgramacionScreen() {
     });
   }, [listaFiltrada]);
 
-  const countPorClaveOrdenada = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const a of listaOrdenada) {
-      const k = claveFechaLocal(a.fecha, a.id_local);
-      m.set(k, (m.get(k) ?? 0) + 1);
-    }
-    return m;
-  }, [listaOrdenada]);
-
-  const filasTabla = useMemo((): FilaTablaProgramacion[] => {
-    const out: FilaTablaProgramacion[] = [];
-    let prevKey = '';
+  /** Una tarjeta por fecha|local, en el orden de `listaOrdenada`. */
+  const gruposLista = useMemo((): GrupoDiaLocal[] => {
+    const out: GrupoDiaLocal[] = [];
+    let actual: GrupoDiaLocal | null = null;
     for (const a of listaOrdenada) {
       const key = claveFechaLocal(a.fecha, a.id_local);
-      if (key !== prevKey) {
-        out.push({
-          _tipo: 'grupo',
+      if (!actual || actual.clave !== key) {
+        actual = {
           clave: key,
           fecha: String(a.fecha || '').slice(0, 10),
-          fechaLabel: a.fecha ? formatFecha(a.fecha) : '—',
           localNombre: a.local_nombre_snapshot?.trim() || a.id_local || 'Sin local',
           idLocal: String(a.id_local || '').trim(),
-          count: countPorClaveOrdenada.get(key) ?? 1,
-        });
-        prevKey = key;
+          items: [],
+        };
+        out.push(actual);
       }
-      out.push({ _tipo: 'actuacion', ...a });
+      actual.items.push(a);
     }
     return out;
-  }, [listaOrdenada, countPorClaveOrdenada]);
+  }, [listaOrdenada]);
 
   /** Gasto real (suma de importes) por grupo fecha|local, sobre TODAS las actuaciones (no solo filtradas). */
   const gastoPorClave = useMemo(() => {
@@ -474,36 +491,23 @@ export default function ProgramacionScreen() {
     return m;
   }, [localesParipe]);
 
-  const conteoPorChip = useMemo(() => {
-    const counts: Record<FiltroChipActuacion, number> = {
-      todos: actuaciones.length,
-      huecos: 0,
-      pendientes: 0,
-      asociadas: 0,
-      firmadas: 0,
-    };
-    for (const a of actuaciones) {
-      if (!a.id_artista) counts.huecos++;
-      if (String(a.estado || '').trim().toLowerCase() === 'pendiente') counts.pendientes++;
-      if (String(a.estado || '').trim().toLowerCase() === 'asociada') counts.asociadas++;
-      if (a.firma_artista_key?.trim()) counts.firmadas++;
-    }
-    return counts;
-  }, [actuaciones]);
-
   const resumenKpi = useMemo(() => {
     let importe = 0;
+    let huecos = 0;
+    let firmadas = 0;
     for (const a of actuaciones) {
       const v = a.importe_final ?? a.importe_previsto;
       if (v != null && !Number.isNaN(Number(v))) importe += Number(v);
+      if (!a.id_artista) huecos++;
+      if (a.firma_artista_key?.trim()) firmadas++;
     }
     return {
       total: actuaciones.length,
-      huecos: conteoPorChip.huecos,
-      firmadas: conteoPorChip.firmadas,
+      huecos,
+      firmadas,
       importe: Math.round(importe * 100) / 100,
     };
-  }, [actuaciones, conteoPorChip]);
+  }, [actuaciones]);
 
   const mostrarSeccionFirma = useMemo(
     () =>
@@ -520,6 +524,24 @@ export default function ProgramacionScreen() {
     if (!mostrarSeccionFirma && modalFirma) setModalFirma(false);
   }, [mostrarSeccionFirma, modalFirma]);
 
+  useEffect(() => {
+    if (!firmaPendiente) return;
+    if (!modalEdit) {
+      setFirmaPendiente(false);
+      return;
+    }
+    if (!mostrarSeccionFirma) return;
+    // iOS no presenta un segundo Modal mientras el primero aún se está mostrando.
+    const t = setTimeout(
+      () => {
+        setFirmaPendiente(false);
+        setModalFirma(true);
+      },
+      Platform.OS === 'ios' ? 450 : 0
+    );
+    return () => clearTimeout(t);
+  }, [firmaPendiente, modalEdit, mostrarSeccionFirma]);
+
   const resumenLocalesGen = useMemo(() => {
     if (localesN.length === 0) return '';
     if (localesN.length === 1) {
@@ -528,6 +550,38 @@ export default function ProgramacionScreen() {
     }
     return `${localesN.length} locales seleccionados`;
   }, [localesN, localesParipe]);
+
+  const fechasGenN = useMemo(
+    () => fechasGenerarHuecos(fechaIniN, fechaFinN, diasSemanaN),
+    [fechaIniN, fechaFinN, diasSemanaN]
+  );
+
+  const resumenGenerarHuecos = useMemo(() => {
+    if (diasSemanaN.length === 0) return 'Marca al menos un día de la semana.';
+    if (!fechaIniN || !fechaFinN || fechaIniN > fechaFinN) return 'Indica un rango de fechas válido.';
+    if (fechasGenN.length === 0) return 'El rango no contiene ninguno de los días marcados.';
+    const porDia = new Map<number, number>();
+    for (const f of fechasGenN) {
+      const d = diaSemanaIso(f);
+      porDia.set(d, (porDia.get(d) ?? 0) + 1);
+    }
+    const partes = DIAS_SEMANA_GEN.filter((d) => porDia.has(d.dia)).map((d) => {
+      const n = porDia.get(d.dia) ?? 0;
+      return `${n} ${n === 1 ? d.nombre : d.plural}`;
+    });
+    const detalleDias =
+      diasSemanaN.length === 7
+        ? `${fechasGenN.length} día${fechasGenN.length !== 1 ? 's' : ''}`
+        : partes.length > 1
+          ? `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
+          : partes[0];
+    const nHoras = horasN.length;
+    const nLocales = localesN.length;
+    const total = fechasGenN.length * nHoras * nLocales;
+    return `Se crearán ${total} hueco${total !== 1 ? 's' : ''}: ${detalleDias}, ${nHoras} hora${
+      nHoras !== 1 ? 's' : ''
+    }, ${nLocales} local${nLocales !== 1 ? 'es' : ''}.`;
+  }, [diasSemanaN, fechaIniN, fechaFinN, fechasGenN, horasN.length, localesN.length]);
 
   const textoFiltroLocal = useMemo(() => {
     if (filtroLocalesIds.length === 0) return 'Todos los locales';
@@ -574,42 +628,62 @@ export default function ProgramacionScreen() {
     });
   }
 
-  const aplicarRangoFechas = useCallback((desde: string, hasta: string) => {
-    setFechaDesde(desde);
-    setFechaHasta(hasta);
-    const detectado = detectarAnioMesDesdeRango(desde, hasta);
-    if (detectado) {
-      setAnioFiltro(detectado.anio);
-      setMesFiltro(detectado.mes);
+  function aplicarPeriodo(r: { desde: string; hasta: string }) {
+    setFechaDesde(r.desde);
+    setFechaHasta(r.hasta);
+  }
+
+  function cambiarModoPeriodo(modo: ModoPeriodo) {
+    if (modo === modoPeriodo) return;
+    const ancla = jornadaHoy >= fechaDesde && jornadaHoy <= fechaHasta ? jornadaHoy : fechaDesde;
+    setModoPeriodo(modo);
+    aplicarPeriodo(rangoPeriodo(modo, ancla));
+  }
+
+  function moverPeriodo(delta: number) {
+    aplicarPeriodo(desplazarPeriodo(modoPeriodo, fechaDesde, delta));
+  }
+
+  function irAHoy() {
+    aplicarPeriodo(rangoPeriodo(modoPeriodo, jornadaHoy));
+  }
+
+  const textoPeriodo = useMemo(
+    () => etiquetaPeriodo(modoPeriodo, fechaDesde, fechaHasta),
+    [modoPeriodo, fechaDesde, fechaHasta]
+  );
+
+  const seleccionarDiaCalendario = useCallback(
+    (iso: string) => {
+      setDiaSeleccionado(iso);
+      if (iso < fechaDesde || iso > fechaHasta) {
+        const r = rangoPeriodo(modoPeriodo, iso);
+        setFechaDesde(r.desde);
+        setFechaHasta(r.hasta);
+      }
+      setDiaScrollPendiente(iso);
+    },
+    [fechaDesde, fechaHasta, modoPeriodo]
+  );
+
+  /** Desplaza la lista a la primera tarjeta del día pendiente cuando los datos del periodo y su medida están listos. */
+  const intentarScrollDia = useCallback(() => {
+    const iso = diaScrollPendiente;
+    if (!iso || loading || rangoCargado !== `${fechaDesde}|${fechaHasta}`) return;
+    const grupo = gruposLista.find((g) => g.fecha === iso) ?? gruposLista.find((g) => g.fecha > iso);
+    if (!grupo) {
+      setDiaScrollPendiente(null);
+      return;
     }
-  }, []);
+    const y = offsetsTarjetasRef.current[grupo.clave];
+    if (y == null) return;
+    listaScrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
+    setDiaScrollPendiente(null);
+  }, [diaScrollPendiente, loading, rangoCargado, fechaDesde, fechaHasta, gruposLista]);
 
-  const onAnioFiltroChange = useCallback((anio: string) => {
-    setAnioFiltro(anio);
-    const r = rangoMesCalendario(parseInt(anio, 10), parseInt(mesFiltro, 10));
-    setFechaDesde(r.from);
-    setFechaHasta(r.to);
-  }, [mesFiltro]);
-
-  const onMesFiltroChange = useCallback((mes: string) => {
-    setMesFiltro(mes);
-    const r = rangoMesCalendario(parseInt(anioFiltro, 10), parseInt(mes, 10));
-    setFechaDesde(r.from);
-    setFechaHasta(r.to);
-  }, [anioFiltro]);
-
-  const aniosFiltroOpciones = useMemo(() => {
-    const set = new Set<number>();
-    set.add(parseInt(anioFiltro, 10));
-    set.add(new Date().getFullYear());
-    for (const a of actuaciones) {
-      const y = parseInt(String(a.fecha || '').slice(0, 4), 10);
-      if (Number.isFinite(y) && y >= 2000 && y <= 2100) set.add(y);
-    }
-    return [...set]
-      .sort((a, b) => b - a)
-      .map((y) => ({ id: String(y), titulo: String(y), icono: 'calendar-today' as const }));
-  }, [actuaciones, anioFiltro]);
+  useEffect(() => {
+    intentarScrollDia();
+  }, [intentarScrollDia]);
 
   /** Rojo = importe editado mayor al sugerido; verde = menor; neutro = igual o sin sugerido. */
   const importeComparacion = useMemo(() => {
@@ -625,6 +699,8 @@ export default function ProgramacionScreen() {
   }, [form.importe_previsto, form.importe_final]);
 
   const fetchAll = useCallback(() => {
+    const reqId = ++reqIdRef.current;
+    const vigente = () => reqId === reqIdRef.current;
     setLoading(true);
     setError(null);
     const qs = new URLSearchParams();
@@ -637,8 +713,10 @@ export default function ProgramacionScreen() {
       apiFetch('/api/locales?grupoParipe=1').then((r) => r.json()),
     ])
       .then(([a, ar, locP]) => {
+        if (!vigente()) return;
         if (a.error) setError(a.error);
         setActuaciones(a.actuaciones || []);
+        setRangoCargado(`${fechaDesde}|${fechaHasta}`);
         setArtistas(
           (ar.artistas || []).map((x: { id_artista: string; nombre_artistico: string }) => ({
             id_artista: x.id_artista,
@@ -647,9 +725,39 @@ export default function ProgramacionScreen() {
         );
         setLocalesParipe(locP.locales || []);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Error de red'))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (vigente()) setError(e instanceof Error ? e.message : 'Error de red');
+      })
+      .finally(() => {
+        if (vigente()) setLoading(false);
+      });
   }, [fechaDesde, fechaHasta, filtroLocalesIds]);
+
+  /** Cambiar periodo o local invalida la selección. */
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setModoSeleccion(false);
+  }, [fechaDesde, fechaHasta, filtroLocalesIds]);
+
+  /** La selección nunca incluye filas ocultas por filtro, búsqueda o recarga. */
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visibles = new Set(listaFiltrada.map((a) => a.id_actuacion));
+      let cambia = false;
+      const n = new Set<string>();
+      for (const id of prev) {
+        if (visibles.has(id)) n.add(id);
+        else cambia = true;
+      }
+      return cambia ? n : prev;
+    });
+  }, [listaFiltrada]);
+
+  const seleccionTieneHuecos = useMemo(
+    () => actuaciones.some((a) => selectedIds.has(a.id_actuacion) && !a.id_artista),
+    [actuaciones, selectedIds]
+  );
 
   const buscarFacturas = useCallback(async () => {
     if (!empresaAsocId.trim()) {
@@ -813,7 +921,11 @@ export default function ProgramacionScreen() {
 
   async function confirmarAsociacion() {
     if (!elegida || selectedIds.size === 0) {
-      showToast('Selección', 'Elige actuaciones (columna Sel) y una factura.', 'warning');
+      showToast('Selección', 'Marca actuaciones en la lista y elige una factura.', 'warning');
+      return;
+    }
+    if (seleccionTieneHuecos) {
+      showToast('Selección', 'Quita los huecos para asociar pago.', 'warning');
       return;
     }
     try {
@@ -831,6 +943,7 @@ export default function ProgramacionScreen() {
       showToast('Asociado', `${d.actualizadas} actuaciones actualizadas.`, 'success');
       cerrarModalAsoc();
       setSelectedIds(new Set());
+      setModoSeleccion(false);
       fetchAll();
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'Error', 'error');
@@ -1031,11 +1144,12 @@ export default function ProgramacionScreen() {
   }
 
   function abrirNuevosRegistros() {
-    setFechaIniN(new Date().toISOString().slice(0, 10));
-    setFechaFinN(new Date().toISOString().slice(0, 10));
+    setFechaIniN(jornadaHoy);
+    setFechaFinN(jornadaHoy);
     setLocalesN([]);
     setLocalesGenDropdownOpen(false);
     setHorasN(['22:00']);
+    setDiasSemanaN(TODOS_DIAS_GEN);
     setHoraBorradorN('');
     setModalNuevos(true);
   }
@@ -1066,9 +1180,23 @@ export default function ProgramacionScreen() {
     setLocalesN([]);
   }
 
+  function toggleDiaSemanaGen(dia: number) {
+    setDiasSemanaN((prev) =>
+      prev.includes(dia) ? prev.filter((d) => d !== dia) : [...prev, dia].sort((a, b) => a - b)
+    );
+  }
+
   async function confirmarGenerarBase() {
     if (localesN.length === 0 || !fechaIniN || !fechaFinN || horasN.length === 0) {
       showToast('Datos incompletos', 'Indica fechas, al menos un local y al menos una hora.', 'warning');
+      return;
+    }
+    if (diasSemanaN.length === 0) {
+      showToast('Datos incompletos', 'Marca al menos un día de la semana.', 'warning');
+      return;
+    }
+    if (fechasGenN.length === 0) {
+      showToast('Sin días', 'El rango no contiene ninguno de los días de la semana marcados.', 'warning');
       return;
     }
     setGenerando(true);
@@ -1080,6 +1208,7 @@ export default function ProgramacionScreen() {
           fecha_fin: fechaFinN,
           id_locales: localesN,
           horas: horasN.map((h) => h.trim()).filter(Boolean),
+          dias_semana: diasSemanaN,
         }),
       });
       const d = await r.json();
@@ -1097,13 +1226,35 @@ export default function ProgramacionScreen() {
   function abrirEditar(item: Actuacion) {
     setForm({ ...item });
     skipImporteCalcOnceRef.current = !!(item.id_artista && item.fecha);
+    firmaDesdeListaRef.current = false;
     setModalEdit(true);
   }
 
   function cerrarModalEdit() {
+    firmaDesdeListaRef.current = false;
     setModalFirma(false);
     setModalDesasocConfirmOpen(false);
     setModalEdit(false);
+  }
+
+  /** Tras firmar: refleja la firma en el formulario (para que Guardar no pise el estado) o cierra si se vino de «Firmar». */
+  function aplicarFirmaGuardada(idAct: string, d: { firma_artista_key?: string; actuacion?: Partial<Actuacion> }) {
+    if (firmaDesdeListaRef.current) {
+      cerrarModalEdit();
+      setForm({});
+      return;
+    }
+    const act = d.actuacion;
+    setForm((f) =>
+      f.id_actuacion !== idAct
+        ? f
+        : {
+            ...f,
+            firma_artista_key: act?.firma_artista_key ?? d.firma_artista_key ?? f.firma_artista_key,
+            fecha_firma: act?.fecha_firma ?? f.fecha_firma,
+            estado: act?.estado ?? f.estado,
+          }
+    );
   }
 
   async function subirFirmaArchivo(idAct: string) {
@@ -1121,6 +1272,7 @@ export default function ProgramacionScreen() {
     if (!r.ok) showToast('Error', d.error || 'No se pudo subir', 'error');
     else {
       showToast('OK', 'Firma guardada', 'success');
+      aplicarFirmaGuardada(idAct, d);
       fetchAll();
     }
   }
@@ -1135,6 +1287,7 @@ export default function ProgramacionScreen() {
       else {
         showToast('OK', 'Firma guardada', 'success');
         setModalFirma(false);
+        aplicarFirmaGuardada(idAct, d);
         fetchAll();
       }
     } catch (e: unknown) {
@@ -1150,12 +1303,54 @@ export default function ProgramacionScreen() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Error');
       showToast('Eliminado', 'Actuación eliminada.', 'success');
-      setSelectedRowIndex(null);
-      setSelectedIds(new Set());
+      setSelectedIds((prev) => {
+        if (!prev.has(item.id_actuacion)) return prev;
+        const n = new Set(prev);
+        n.delete(item.id_actuacion);
+        return n;
+      });
       fetchAll();
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'Error', 'error');
     }
+  }
+
+  async function pedirBorrarActuacion(item: Actuacion) {
+    const hora = item.hora_inicio?.trim();
+    const local = item.local_nombre_snapshot?.trim() || item.id_local || '';
+    const quien = item.artista_nombre_snapshot?.trim();
+    const detalle = [
+      item.fecha ? cabeceraDia(String(item.fecha).slice(0, 10)) : '',
+      hora ? `a las ${hora}` : '',
+      local ? `en ${local}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const ok = await confirmar(
+      'Eliminar actuación',
+      `Se eliminará ${quien ? `la actuación de ${quien}` : 'el hueco'}${detalle ? ` del ${detalle}` : ''}. Esta acción no se puede deshacer.`,
+      { confirmarLabel: 'Eliminar', variant: 'danger' }
+    );
+    if (ok) void borrarActuacion(item);
+  }
+
+  function firmarDesdeLista(item: Actuacion) {
+    abrirEditar(item);
+    firmaDesdeListaRef.current = true;
+    setFirmaPendiente(true);
+  }
+
+  function cancelarSeleccion() {
+    setSelectedIds(new Set());
+    setModoSeleccion(false);
+  }
+
+  function marcarHuecosVisibles() {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      for (const a of listaFiltrada) if (!a.id_artista) n.add(a.id_actuacion);
+      return n;
+    });
   }
 
   async function confirmarBorrarMultiple() {
@@ -1174,8 +1369,8 @@ export default function ProgramacionScreen() {
       const n = ids.length;
       showToast('Eliminado', n === 1 ? 'Actuación eliminada.' : `${n} actuaciones eliminadas.`, 'success');
       setModalBorrarMultipleOpen(false);
-      setSelectedRowIndex(null);
       setSelectedIds(new Set());
+      setModoSeleccion(false);
       fetchAll();
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'Error', 'error');
@@ -1183,6 +1378,26 @@ export default function ProgramacionScreen() {
       setBorrando(false);
     }
   }
+
+  /** Spinner de sección solo al cambiar de periodo o sin datos; al refrescar se mantiene la lista visible. */
+  const cargandoPeriodo = loading && (rangoCargado !== `${fechaDesde}|${fechaHasta}` || actuaciones.length === 0);
+
+  const calendario = (
+    <ActuacionesCalendario
+      actuaciones={actuaciones}
+      locales={localesParipe}
+      diaSeleccionado={diaSeleccionado}
+      onSeleccionarDia={seleccionarDiaCalendario}
+      mesReferencia={
+        diaSeleccionado && diaSeleccionado >= fechaDesde && diaSeleccionado <= fechaHasta
+          ? diaSeleccionado
+          : jornadaHoy >= fechaDesde && jornadaHoy <= fechaHasta
+            ? jornadaHoy
+            : fechaDesde
+      }
+      notaPie={modoPeriodo === 'semana' ? 'Solo se marcan los días de la semana cargada' : undefined}
+    />
+  );
 
   return (
     <View style={styles.screenWrap}>
@@ -1194,22 +1409,27 @@ export default function ProgramacionScreen() {
         </View>
       ) : (
       <>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBackBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Actuaciones — planificación</Text>
-      </View>
+      <View style={[styles.topBar, shouldStackToolbar && styles.topBarStack]}>
+        <View style={styles.topBarGrupo}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[styles.iconBtn, { width: altoControl, height: altoControl }]}
+            accessibilityLabel="Volver"
+          >
+            <MaterialIcons name="arrow-back" size={22} color="#0f172a" />
+          </TouchableOpacity>
+          <Text style={styles.topBarTitle}>Planificación</Text>
+        </View>
 
-      <View style={styles.toolbar}>
-        <View style={[styles.filtersRowFecha, shouldStackToolbar && styles.filtersColStack]}>
-          <Text style={styles.filterLabelInline}>Local</Text>
+        <View style={[styles.topBarGrupo, styles.topBarFiltros, shouldStackToolbar && styles.topBarFiltrosStack]}>
           <View style={styles.filterLocalDropdownWrap}>
             <TouchableOpacity
-              style={styles.filterToolbarTrigger}
+              style={[styles.filterToolbarTrigger, { minHeight: altoControl }]}
               onPress={() => setFiltroLocalDropdownOpen((v) => !v)}
               activeOpacity={0.7}
+              accessibilityLabel="Filtrar por local"
             >
+              <MaterialIcons name="place" size={16} color="#64748b" />
               <Text style={styles.filterToolbarTriggerText} numberOfLines={1}>
                 {textoFiltroLocal}
               </Text>
@@ -1253,322 +1473,370 @@ export default function ProgramacionScreen() {
             ) : null}
           </View>
 
-          <SelectorDesplegable
-            compact
-            sinIconoTrigger
-            style={styles.filtroAnioSelector}
-            placeholder="Año"
-            tituloLista="Filtrar por año"
-            iconoLista="calendar-today"
-            valorId={anioFiltro}
-            opciones={aniosFiltroOpciones}
-            onSeleccionar={onAnioFiltroChange}
-          />
-          <SelectorDesplegable
-            compact
-            sinIconoTrigger
-            style={styles.filtroMesSelector}
-            placeholder="Mes"
-            tituloLista="Filtrar por mes"
-            iconoLista="date-range"
-            valorId={mesFiltro}
-            opciones={MESES_FILTRO_OPCIONES}
-            onSeleccionar={onMesFiltroChange}
-          />
-
-          <RangoFechas
-            modoToolbar
-            desdeIso={fechaDesde}
-            hastaIso={fechaHasta}
-            onChangeDesde={(d) => aplicarRangoFechas(d, fechaHasta)}
-            onChangeHasta={(h) => aplicarRangoFechas(fechaDesde, h)}
-            cellWidth={132}
-          />
-        </View>
-
-        <View style={styles.filtersRowSemana}>
-          <SelectorRangoSemana from={fechaDesde} to={fechaHasta} onChange={aplicarRangoFechas} />
-        </View>
-
-        <View style={[styles.filtersRowBottom, shouldStackToolbar && styles.filtersColStack]}>
-          <View style={[styles.kpiRowInline, !shouldStackToolbar && styles.kpiRowInlineFlex]}>
-            <KpiCard compact label="Actuaciones" value={String(resumenKpi.total)} />
-            <KpiCard compact label="Huecos" value={String(resumenKpi.huecos)} color="#d97706" />
-            <KpiCard compact label="Firmadas" value={String(resumenKpi.firmadas)} color="#16a34a" />
-            <KpiCard compact label="Importe prev." value={formatMoneda(resumenKpi.importe)} color="#0ea5e9" />
+          <View style={styles.periodoNav}>
+            <View style={styles.segmentado}>
+              {(['semana', 'mes'] as const).map((m) => {
+                const on = modoPeriodo === m;
+                return (
+                  <TouchableOpacity
+                    key={m}
+                    style={[styles.segmentoOpt, { minHeight: altoControl - 4 }, on && styles.segmentoOptOn]}
+                    onPress={() => cambiarModoPeriodo(m)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                  >
+                    <Text style={[styles.segmentoText, on && styles.segmentoTextOn]}>
+                      {m === 'semana' ? 'Semana' : 'Mes'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TouchableOpacity
+              style={[styles.iconBtn, { width: altoControl, height: altoControl }]}
+              onPress={() => moverPeriodo(-1)}
+              accessibilityLabel={modoPeriodo === 'semana' ? 'Semana anterior' : 'Mes anterior'}
+            >
+              <MaterialIcons name="chevron-left" size={22} color="#0f172a" />
+            </TouchableOpacity>
+            <Text style={styles.periodoTexto} numberOfLines={1}>
+              {textoPeriodo}
+            </Text>
+            <TouchableOpacity
+              style={[styles.iconBtn, { width: altoControl, height: altoControl }]}
+              onPress={() => moverPeriodo(1)}
+              accessibilityLabel={modoPeriodo === 'semana' ? 'Semana siguiente' : 'Mes siguiente'}
+            >
+              <MaterialIcons name="chevron-right" size={22} color="#0f172a" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.hoyLink, { minHeight: altoControl }]} onPress={irAHoy}>
+              <Text style={styles.hoyLinkText}>Hoy</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.chipRowEstado}>
-          {FILTROS_CHIP.map((f) => {
-            const pastel = CHIP_ACTUACION_PASTEL[f.id];
-            const sel = filtroChip === f.id;
-            const n = conteoPorChip[f.id] ?? 0;
+        <View style={[styles.topBarGrupo, !shouldStackToolbar && styles.topBarAcciones]}>
+          {puedeCrear ? (
+            <TouchableOpacity
+              style={[styles.btnSecundario, { minHeight: altoControl }]}
+              onPress={abrirNuevosRegistros}
+              disabled={generando}
+            >
+              <MaterialIcons name="add" size={18} color="#0f172a" />
+              <Text style={styles.btnSecundarioText}>Generar huecos</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.iconBtn, styles.iconBtnBorde, { width: altoControl, height: altoControl }]}
+            onPress={fetchAll}
+            disabled={loading}
+            accessibilityLabel="Actualizar"
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color="#0ea5e9" />
+            ) : (
+              <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.resumen}>
+        <View>
+          <Text style={styles.resumenHuecos}>
+            {resumenKpi.huecos} {resumenKpi.huecos === 1 ? 'hueco' : 'huecos'}
+          </Text>
+          <Text style={styles.resumenSub}>
+            de {resumenKpi.total} {resumenKpi.total === 1 ? 'actuación' : 'actuaciones'}
+          </Text>
+        </View>
+        <Text style={styles.resumenItem}>
+          <Text style={styles.resumenCifra}>{resumenKpi.firmadas}</Text>
+          <Text style={styles.resumenEtiqueta}> {resumenKpi.firmadas === 1 ? 'firmada' : 'firmadas'}</Text>
+        </Text>
+        <Text style={styles.resumenItem}>
+          <Text style={styles.resumenCifra}>{formatMoneda(resumenKpi.importe)}</Text>
+          <Text style={styles.resumenEtiqueta}> importe previsto</Text>
+        </Text>
+      </View>
+
+      {error ? (
+        <View style={styles.errorBar}>
+          <Text style={styles.errorBarText}>{error}</Text>
+          <TouchableOpacity onPress={fetchAll} disabled={loading} hitSlop={8}>
+            <Text style={styles.errorBarRetry}>Reintentar</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      <View style={[styles.herramientas, shouldStackToolbar && styles.herramientasStack]}>
+        <View style={[styles.buscador, { height: altoControl }]}>
+          <MaterialIcons name="search" size={18} color="#94a3b8" />
+          <TextInput
+            style={styles.buscadorInput}
+            value={filtroBusqueda}
+            onChangeText={setFiltroBusqueda}
+            placeholder="Buscar artista, local, hora…"
+            placeholderTextColor="#94a3b8"
+          />
+        </View>
+        <View style={styles.segmentado}>
+          {FILTROS_LISTA.map((f) => {
+            const on = filtroLista === f.id;
             return (
               <TouchableOpacity
                 key={f.id}
-                style={[
-                  styles.estadoChip,
-                  { backgroundColor: sel ? pastel.bgSel : pastel.bg, borderColor: sel ? pastel.borderSel : pastel.border },
-                ]}
-                onPress={() => setFiltroChip(f.id)}
-                activeOpacity={0.75}
+                style={[styles.segmentoOpt, styles.segmentoOptPeq, { minHeight: altoControl - 4 }, on && styles.segmentoOptOn]}
+                onPress={() => setFiltroLista(f.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
               >
-                <Text style={[styles.estadoChipText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
-                  {f.label}
-                </Text>
-                <View style={[styles.estadoChipCount, sel && styles.estadoChipCountSel]}>
-                  <Text style={[styles.estadoChipCountText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
-                    {n}
-                  </Text>
-                </View>
+                <Text style={[styles.segmentoText, on && styles.segmentoTextOn]}>{f.label}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
+        {puedeFacturacion || puedeBorrar ? (
+          <View style={[styles.herramientasAcciones, !shouldStackToolbar && styles.herramientasAccionesDer]}>
+            {modoSeleccion ? (
+              <>
+                {puedeBorrar ? (
+                  <TouchableOpacity style={[styles.btnTexto, { minHeight: altoControl }]} onPress={marcarHuecosVisibles}>
+                    <Text style={styles.btnTextoEnlace}>Marcar huecos visibles</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {puedeFacturacion && seleccionTieneHuecos ? (
+                  <Text style={styles.ayudaSeleccion}>Quita los huecos para asociar pago</Text>
+                ) : null}
+                {puedeFacturacion ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.btnPrimario,
+                      { minHeight: altoControl },
+                      (selectedIds.size === 0 || seleccionTieneHuecos) && styles.btnOff,
+                    ]}
+                    disabled={selectedIds.size === 0 || seleccionTieneHuecos}
+                    onPress={() => setModalAsoc(true)}
+                  >
+                    <MaterialIcons name="link" size={18} color="#fff" />
+                    <Text style={styles.btnPrimarioText}>Asociar pago ({selectedIds.size})</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {puedeBorrar ? (
+                  <TouchableOpacity
+                    style={[styles.btnPeligro, { minHeight: altoControl }, selectedIds.size === 0 && styles.btnOff]}
+                    disabled={selectedIds.size === 0 || borrando}
+                    onPress={() => setModalBorrarMultipleOpen(true)}
+                  >
+                    <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                    <Text style={styles.btnPeligroText}>Borrar ({selectedIds.size})</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity style={[styles.btnTexto, { minHeight: altoControl }]} onPress={cancelarSeleccion}>
+                  <Text style={styles.btnTextoText}>Cancelar</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity
+                style={[styles.btnSecundario, { minHeight: altoControl }]}
+                onPress={() => setModoSeleccion(true)}
+              >
+                <MaterialIcons name="check-box-outline-blank" size={18} color="#0f172a" />
+                <Text style={styles.btnSecundarioText}>Seleccionar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
       </View>
 
-      {error ? (
-        <View style={styles.errorBar}><Text style={styles.errorBarText}>{error}</Text></View>
-      ) : null}
-
-      <View style={styles.tablaWrap}>
-      <TablaBasica<FilaTablaProgramacion>
-        title="Actuaciones — planificación"
-        hideHeader
-        onBack={() => router.back()}
-        columnas={[...COLUMNAS]}
-        datos={filasTabla}
-        getValorCelda={getValorCeldaFila}
-        isBandRow={esFilaGrupo}
-        getRowKey={(item) => (esFilaGrupo(item) ? `grupo-${item.clave}` : item.id_actuacion)}
-        renderBandRow={(item) => {
-          if (!esFilaGrupo(item)) return null;
-          const objetivo = objetivosPorClave[item.clave];
-          const gasto = gastoPorClave.get(item.clave) ?? null;
-          const pct = objetivo != null && objetivo > 0 && gasto != null ? (gasto / objetivo) * 100 : null;
-          const ratio = ratioPorLocalId[item.idLocal] ?? null;
-          const semaforo = pct != null ? estiloBadgePctGasto(pct, ratio) : null;
-          const borderColor = pct != null ? colorPctGasto(pct, ratio) : '#cbd5e1';
-          const esJornada = item.fecha === jornadaHoy;
-
-          return (
-            <View style={[styles.grupoBand, esJornada && styles.grupoBandJornada, { borderLeftColor: borderColor }]}>
-              <View style={styles.grupoBandMain}>
-                <MaterialIcons name="event" size={14} color={esJornada ? '#be185d' : '#0369a1'} />
-                <Text
-                  style={[styles.grupoBandFecha, esJornada && styles.grupoBandFechaJornada]}
-                  numberOfLines={1}
-                >
-                  {item.fechaLabel}
-                </Text>
-                <Text style={styles.grupoBandSep}>·</Text>
-                <MaterialIcons name="place" size={14} color="#0369a1" />
-                <Text style={styles.grupoBandLocal} numberOfLines={1}>
-                  {item.localNombre}
-                </Text>
-                <Text style={styles.grupoBandSep}>·</Text>
-                {objetivo === undefined && loadingObjetivos ? (
-                  <Text style={styles.grupoBandObjMuted}>Objetivo …</Text>
-                ) : objetivo != null ? (
-                  <Text style={styles.grupoBandObj} numberOfLines={1}>
-                    Objetivo {formatMoneda(objetivo)}
-                  </Text>
-                ) : (
-                  <Text style={styles.grupoBandObjMuted}>Objetivo —</Text>
-                )}
-                {pct != null && semaforo ? (
-                  <View
-                    style={[
-                      styles.grupoBandPctBadge,
-                      { backgroundColor: semaforo.bg, borderColor: semaforo.border },
-                    ]}
-                    accessibilityLabel={`Gasto sobre objetivo: ${pct.toFixed(1)} por ciento`}
-                  >
-                    <Text style={[styles.grupoBandPctText, { color: semaforo.text }]}>
-                      {pct.toFixed(1)}%
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.grupoBandPctMuted}>
-                    <Text style={styles.grupoBandPctMutedText}>—</Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.grupoBandRight}>
-                {gasto != null ? (
-                  <Text style={styles.grupoBandGasto} numberOfLines={1}>
-                    {formatMoneda(gasto)}
-                  </Text>
-                ) : (
-                  <Text style={styles.grupoBandGastoMuted}>—</Text>
-                )}
-                <Text style={styles.grupoBandCount}>
-                  {item.count} actuación{item.count !== 1 ? 'es' : ''}
-                </Text>
-              </View>
+      <View style={[styles.cuerpo, shouldStackPanels && styles.cuerpoStack]}>
+        <View style={shouldStackPanels ? styles.listaColStack : styles.listaCol}>
+        <ScrollView
+          ref={listaScrollRef}
+          style={styles.listaScrollInner}
+          contentContainerStyle={styles.listaContenido}
+          keyboardShouldPersistTaps="handled"
+        >
+          {cargandoPeriodo ? (
+            <View style={styles.estadoBox}>
+              <ActivityIndicator color="#0ea5e9" />
             </View>
-          );
-        }}
-        loading={loading}
-        error={error}
-        onRetry={fetchAll}
-        filtroBusqueda={filtroBusqueda}
-        onFiltroChange={setFiltroBusqueda}
-        selectedRowIndex={selectedRowIndex}
-        onSelectRow={setSelectedRowIndex}
-        toolbarCrearLabel="Nuevos registros base"
-        onCrear={() => { if (puedeCrear) abrirNuevosRegistros(); }}
-        onEditar={(item) => {
-          const a = actuacionDeFila(item);
-          if (a && puedeEditar) abrirEditar(a);
-        }}
-        onBorrar={(item) => {
-          const a = actuacionDeFila(item);
-          if (a && puedeBorrar) void borrarActuacion(a);
-        }}
-        hideToolbarActions={!(puedeCrear || puedeEditar || puedeBorrar)}
-        borrarSeleccionExternaCount={puedeBorrar ? selectedIds.size : 0}
-        onBorrarSeleccionExterna={() => { if (puedeBorrar) setModalBorrarMultipleOpen(true); }}
-        guardando={saving || generando || borrando}
-        emptyMessage="No hay actuaciones. Pulsa + para nuevos registros base."
-        emptyFilterMessage="Ningún resultado con el filtro"
-        defaultColWidth={90}
-        columnasMoneda={['Importe']}
-        getColumnCellStyle={(col) => {
-          if (col === 'Sel') return { cell: { width: 44, minWidth: 44, maxWidth: 48 } };
-          if (col === 'Firma') return { cell: { width: 56, minWidth: 52, maxWidth: 60 } };
-          return undefined;
-        }}
-        renderCell={(item, col) => {
-          const act = actuacionDeFila(item);
-          if (!act) return null;
-          if (col === 'Sel') {
-            if (!puedeFacturacion) return null;
-            const on = selectedIds.has(act.id_actuacion);
-            return (
-              <TouchableOpacity
-                onPress={() => toggleSel(act.id_actuacion)}
-                style={styles.selCell}
-                hitSlop={8}
-                accessibilityLabel="Seleccionar para asociar factura"
-              >
-                <MaterialIcons name={on ? 'check-box' : 'check-box-outline-blank'} size={20} color={on ? '#0ea5e9' : '#94a3b8'} />
-              </TouchableOpacity>
-            );
-          }
-          if (col === 'Artista') {
-            const nombre = act.artista_nombre_snapshot?.trim();
-            if (!act.id_artista) {
-              return (
-                <TouchableOpacity
-                  style={styles.huecoBadge}
-                  onPress={() => puedeEditar && abrirEditar(act)}
-                  activeOpacity={0.75}
-                  hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                  accessibilityLabel="Hueco: editar actuación"
-                >
-                  <Text style={styles.huecoBadgeText}>(hueco)</Text>
-                </TouchableOpacity>
-              );
-            }
-            return (
-              <Text style={erpListTableStyles.cellText}>
-                {nombre || '—'}
-              </Text>
-            );
-          }
-          if (col === 'Importe') {
-            const v = act.importe_final ?? act.importe_previsto;
-            return (
-              <Text style={[erpListTableStyles.cellText, styles.cellTextRight, v == null && styles.cellMuted]}>
-                {v != null ? formatMoneda(v) : '—'}
-              </Text>
-            );
-          }
-          if (col === 'Estado') {
-            const raw = (act.estado || '').trim();
-            if (raw.toLowerCase() === 'asociada') {
-              return (
-                <View style={styles.estadoBadgeAsociada} accessibilityRole="text" accessibilityLabel="Estado asociada">
-                  <Text style={styles.estadoBadgeAsociadaText}>Asociada</Text>
-                </View>
-              );
-            }
-            return (
-              <Text style={erpListTableStyles.cellText}>
-                {raw || '—'}
-              </Text>
-            );
-          }
-          if (col === 'Firma') {
-            const ok = !!act.firma_artista_key?.trim();
-            return (
-              <View style={styles.firmaCell}>
-                <MaterialIcons
-                  name={ok ? 'check-circle' : 'radio-button-unchecked'}
-                  size={11}
-                  color={ok ? '#16a34a' : '#cbd5e1'}
-                />
-                <Text style={[erpListTableStyles.cellText, ok ? styles.firmaSi : styles.firmaNo]}>
-                  {ok ? 'Sí' : 'No'}
+          ) : actuaciones.length === 0 ? (
+            error ? null : (
+              <View style={styles.tarjetaVacia}>
+                <MaterialIcons name="event-busy" size={28} color="#94a3b8" />
+                <Text style={styles.tarjetaVaciaText}>
+                  No hay actuaciones en este periodo. Pulsa «Generar huecos» para crear las horas.
                 </Text>
               </View>
-            );
-          }
-          if (col === 'Pago') {
-            const t = act.pago_asociado_numero_factura || act.id_factura_gasto;
-            return (
-              <Text style={erpListTableStyles.cellText}>
-                {t ? String(t) : '—'}
-              </Text>
-            );
-          }
-          return null;
-        }}
-        hideSearch
-        extraToolbarLeft={
-          <View style={styles.filtersWrap}>
-            <View style={styles.filtersRowTop}>
-              <View style={styles.toolbarSearchWrap}>
-                <MaterialIcons name="search" size={18} color="#64748b" style={styles.toolbarSearchIcon} />
-                <TextInput
-                  style={styles.toolbarSearchInput}
-                  value={filtroBusqueda}
-                  onChangeText={setFiltroBusqueda}
-                  placeholder="Buscar en la tabla…"
-                  placeholderTextColor="#94a3b8"
-                />
-              </View>
-              {puedeFacturacion ? (
-              <TouchableOpacity
-                style={[styles.asocBtn, selectedIds.size === 0 && styles.asocBtnOff]}
-                disabled={selectedIds.size === 0}
-                onPress={() => setModalAsoc(true)}
-              >
-                <MaterialIcons name="link" size={ICON_SIZE - 2} color="#fff" />
-                <Text style={styles.asocBtnText}>Asociar ({selectedIds.size})</Text>
-              </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity style={styles.refreshBtn} onPress={fetchAll} disabled={loading}>
-                {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />}
-              </TouchableOpacity>
+            )
+          ) : gruposLista.length === 0 ? (
+            <View style={styles.tarjetaVacia}>
+              <MaterialIcons name="filter-list-off" size={28} color="#94a3b8" />
+              <Text style={styles.tarjetaVaciaText}>Ningún resultado con el filtro</Text>
             </View>
-          </View>
-        }
-        rightPanel={
-          <View style={styles.panelCalendario}>
-            <ActuacionesCalendario actuaciones={actuaciones} locales={localesParipe} />
-          </View>
-        }
-      />
+          ) : (
+            gruposLista.map((g) => {
+              const objetivo = objetivosPorClave[g.clave];
+              const gasto = gastoPorClave.get(g.clave) ?? null;
+              const pct = objetivo != null && objetivo > 0 && gasto != null ? (gasto / objetivo) * 100 : null;
+              const ratio = ratioPorLocalId[g.idLocal] ?? null;
+              const esHoy = g.fecha === jornadaHoy;
+              const objetivoCargando = objetivo === undefined && loadingObjetivos;
+              return (
+                <BloqueMedido key={g.clave} clave={g.clave} offsets={offsetsTarjetasRef} onMedido={intentarScrollDia}>
+                  <View style={[styles.tarjeta, esHoy && styles.tarjetaHoy]}>
+                    <View style={styles.tarjetaCab}>
+                      <View style={styles.tarjetaCabIzq}>
+                        <Text style={styles.tarjetaDia}>{cabeceraDia(g.fecha)}</Text>
+                        {esHoy ? (
+                          <View style={styles.etiquetaHoy}>
+                            <Text style={styles.etiquetaHoyText}>Hoy</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={styles.tarjetaLocal} numberOfLines={1}>
+                        {g.localNombre}
+                      </Text>
+                    </View>
+                    {objetivoCargando || objetivo != null || gasto != null ? (
+                      <View style={styles.tarjetaSub}>
+                        <Text style={styles.tarjetaSubText} numberOfLines={1}>
+                          {objetivoCargando ? (
+                            'Objetivo …'
+                          ) : objetivo != null ? (
+                            <>
+                              Objetivo del día {formatMoneda(objetivo)}
+                              {pct != null ? (
+                                <>
+                                  {' · gasto artistas '}
+                                  <Text style={[styles.tarjetaSubPct, { color: colorPctGasto(pct, ratio) }]}>
+                                    {pct.toFixed(1).replace('.', ',')}%
+                                  </Text>
+                                </>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </Text>
+                        {gasto != null ? <Text style={styles.tarjetaGasto}>{formatMoneda(gasto)}</Text> : null}
+                      </View>
+                    ) : null}
+                    {g.items.map((act) => {
+                      const conArtista = !!act.id_artista;
+                      const firmada = !!act.firma_artista_key?.trim();
+                      const asociada = String(act.estado || '').trim().toLowerCase() === 'asociada';
+                      const sel = selectedIds.has(act.id_actuacion);
+                      const mostrarCheck = modoSeleccion;
+                      const puedeFirmarFila =
+                        puedeFirmar && conArtista && !firmada && fechaActuacionPermiteFirma(act.fecha);
+                      const importe = act.importe_final ?? act.importe_previsto;
+                      const pago = act.pago_asociado_numero_factura?.trim();
+                      return (
+                        <Pressable
+                          key={act.id_actuacion}
+                          style={({ pressed }) => [
+                            styles.fila,
+                            sel && styles.filaSel,
+                            pressed && (puedeEditar || mostrarCheck) && styles.filaPressed,
+                          ]}
+                          onPress={() => {
+                            if (mostrarCheck) toggleSel(act.id_actuacion);
+                            else if (puedeEditar) abrirEditar(act);
+                          }}
+                          disabled={!puedeEditar && !mostrarCheck}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            conArtista
+                              ? `${act.hora_inicio || ''} ${act.artista_nombre_snapshot || ''}`.trim()
+                              : `${act.hora_inicio || ''} sin artista`.trim()
+                          }
+                        >
+                          {mostrarCheck ? (
+                            <View style={styles.filaCheck}>
+                              <MaterialIcons
+                                name={sel ? 'check-box' : 'check-box-outline-blank'}
+                                size={22}
+                                color={sel ? '#0ea5e9' : '#94a3b8'}
+                              />
+                            </View>
+                          ) : null}
+                          <Text style={styles.filaHora}>{act.hora_inicio?.trim() || '—'}</Text>
+                          {conArtista ? (
+                            <View style={styles.filaCentro}>
+                              <View style={styles.filaLinea}>
+                                <Text style={styles.filaNombre} numberOfLines={1}>
+                                  {act.artista_nombre_snapshot?.trim() || '—'}
+                                </Text>
+                                <Text style={styles.filaImporte}>
+                                  {importe != null ? formatMoneda(importe) : '—'}
+                                </Text>
+                                {firmada ? (
+                                  <View style={[styles.pastilla, styles.pastillaFirmada]}>
+                                    <Text style={[styles.pastillaText, styles.pastillaFirmadaText]}>Firmada</Text>
+                                  </View>
+                                ) : asociada ? (
+                                  <View style={[styles.pastilla, styles.pastillaAsociada]}>
+                                    <Text style={[styles.pastillaText, styles.pastillaAsociadaText]}>Asociada</Text>
+                                  </View>
+                                ) : (
+                                  <View style={[styles.pastilla, styles.pastillaPendiente]}>
+                                    <Text style={[styles.pastillaText, styles.pastillaPendienteText]}>Pendiente</Text>
+                                  </View>
+                                )}
+                              </View>
+                              {pago ? <Text style={styles.filaPago}>Pago {pago}</Text> : null}
+                            </View>
+                          ) : (
+                            <View style={styles.filaCentro}>
+                              <Text style={styles.filaSinArtista}>Sin artista</Text>
+                            </View>
+                          )}
+                          <View style={styles.filaAcciones}>
+                            {!conArtista && puedeEditar ? (
+                              <TouchableOpacity
+                                style={[styles.btnAsignar, isPhone && { minHeight: MIN_TOUCH }]}
+                                onPress={() => abrirEditar(act)}
+                              >
+                                <Text style={styles.btnAsignarText}>Asignar artista</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {puedeFirmarFila ? (
+                              <TouchableOpacity
+                                style={[styles.accionTexto, isPhone && { minHeight: MIN_TOUCH }]}
+                                onPress={() => firmarDesdeLista(act)}
+                              >
+                                <Text style={styles.accionTextoFirmar}>Firmar</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {puedeBorrar ? (
+                              <TouchableOpacity
+                                style={[styles.iconBtn, { width: isPhone ? MIN_TOUCH : 32, height: isPhone ? MIN_TOUCH : 32 }]}
+                                onPress={() => void pedirBorrarActuacion(act)}
+                                accessibilityLabel="Eliminar actuación"
+                              >
+                                <MaterialIcons name="delete-outline" size={18} color="#94a3b8" />
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </BloqueMedido>
+              );
+            })
+          )}
+          {shouldStackPanels ? <View style={[styles.panelCalendario, styles.panelCalendarioStack]}>{calendario}</View> : null}
+        </ScrollView>
+        </View>
+        {!shouldStackPanels ? <View style={styles.panelCalendario}>{calendario}</View> : null}
       </View>
 
       <Modal visible={modalNuevos} transparent animationType="fade" onRequestClose={() => setModalNuevos(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Nuevos registros base</Text>
+              <Text style={styles.modalTitle}>Generar huecos</Text>
               <TouchableOpacity onPress={() => setModalNuevos(false)}>
                 <MaterialIcons name="close" size={22} color="#64748b" />
               </TouchableOpacity>
@@ -1578,6 +1846,37 @@ export default function ProgramacionScreen() {
               <InputFecha style={styles.input} valueIso={fechaIniN} onChangeIso={setFechaIniN} />
               <Text style={styles.label}>Fecha final</Text>
               <InputFecha style={styles.input} valueIso={fechaFinN} onChangeIso={setFechaFinN} />
+              <Text style={styles.label}>Días de la semana</Text>
+              <View style={styles.diasSemanaRow}>
+                {DIAS_SEMANA_GEN.map((d) => {
+                  const on = diasSemanaN.includes(d.dia);
+                  return (
+                    <Pressable
+                      key={d.dia}
+                      style={[styles.diaSemanaBtn, on && styles.diaSemanaBtnOn]}
+                      onPress={() => toggleDiaSemanaGen(d.dia)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      accessibilityLabel={d.nombre}
+                    >
+                      <Text style={[styles.diaSemanaBtnText, on && styles.diaSemanaBtnTextOn]}>{d.letra}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <View style={styles.diasSemanaAtajos}>
+                <TouchableOpacity onPress={() => setDiasSemanaN(TODOS_DIAS_GEN)}>
+                  <Text style={styles.localesGenLink}>Todos</Text>
+                </TouchableOpacity>
+                <Text style={styles.localesGenSep}>·</Text>
+                <TouchableOpacity onPress={() => setDiasSemanaN([1, 2, 3, 4, 5])}>
+                  <Text style={styles.localesGenLink}>Entre semana</Text>
+                </TouchableOpacity>
+                <Text style={styles.localesGenSep}>·</Text>
+                <TouchableOpacity onPress={() => setDiasSemanaN([6, 7])}>
+                  <Text style={styles.localesGenLink}>Fin de semana</Text>
+                </TouchableOpacity>
+              </View>
               <Text style={styles.label}>Locales (GRUPO PARIPE)</Text>
               {localesParipe.length === 0 ? (
                 <Text style={styles.hint}>No hay locales con sede grupo Paripe. Revisa Locales / Sede.</Text>
@@ -1684,10 +1983,13 @@ export default function ProgramacionScreen() {
                   </Pressable>
                 </View>
               </View>
+              <View style={styles.resumenGenBox}>
+                <Text style={styles.resumenGenText}>{resumenGenerarHuecos}</Text>
+              </View>
               <Pressable
-                style={[styles.saveBtn, generando && styles.saveBtnDis]}
+                style={[styles.saveBtn, (generando || fechasGenN.length === 0) && styles.saveBtnDis]}
                 onPress={confirmarGenerarBase}
-                disabled={generando}
+                disabled={generando || fechasGenN.length === 0}
               >
                 {generando ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Generar registros</Text>}
               </Pressable>
@@ -1777,7 +2079,7 @@ export default function ProgramacionScreen() {
               <View style={styles.asocCompareBox}>
                 <Text style={styles.asocCompareTitle}>Importes seleccionados</Text>
                 <View style={styles.asocCompareRow}>
-                  <Text style={styles.asocCompareLabel}>Suma actuaciones (Sel)</Text>
+                  <Text style={styles.asocCompareLabel}>Suma actuaciones seleccionadas</Text>
                   <Text style={styles.asocCompareVal}>
                     {sumaImportesSeleccionadas != null ? formatMoneda(sumaImportesSeleccionadas) : '—'}
                   </Text>
@@ -1828,7 +2130,7 @@ export default function ProgramacionScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Editar actuación</Text>
+              <Text style={styles.modalTitle}>{puedeEditar ? 'Editar actuación' : 'Actuación'}</Text>
               <TouchableOpacity onPress={cerrarModalEdit}>
                 <MaterialIcons name="close" size={22} color="#64748b" />
               </TouchableOpacity>
@@ -1842,6 +2144,7 @@ export default function ProgramacionScreen() {
                 iconoLista="person"
                 buscador
                 buscadorPlaceholder="Buscar artista…"
+                disabled={!puedeEditar}
                 valorId={form.id_artista || ''}
                 opciones={[
                   { id: '', titulo: '(sin asignar)' },
@@ -1876,11 +2179,13 @@ export default function ProgramacionScreen() {
               <InputFecha
                 style={styles.input}
                 valueIso={form.fecha || ''}
+                editable={puedeEditar}
                 onChangeIso={(iso) => setForm((f) => ({ ...f, fecha: iso }))}
               />
               <Text style={styles.label}>Hora inicio</Text>
               <TextInput
                 style={styles.input}
+                editable={puedeEditar}
                 value={form.hora_inicio || ''}
                 onChangeText={(t) => setForm((f) => ({ ...f, hora_inicio: t }))}
               />
@@ -1901,6 +2206,7 @@ export default function ProgramacionScreen() {
                   importeComparacion === 'menor' && styles.importeInputMenor,
                 ]}
                 keyboardType="decimal-pad"
+                editable={puedeEditar}
                 value={
                   form.importe_final != null
                     ? String(form.importe_final)
@@ -1927,10 +2233,11 @@ export default function ProgramacionScreen() {
               <TextInput
                 style={[styles.input, { minHeight: 64 }]}
                 multiline
+                editable={puedeEditar}
                 value={form.observaciones || ''}
                 onChangeText={(t) => setForm((f) => ({ ...f, observaciones: t }))}
               />
-              {actuacionTieneFacturaAsociada ? (
+              {actuacionTieneFacturaAsociada && puedeFacturacion ? (
                 <View style={styles.desasocBox}>
                   <View style={styles.desasocRow}>
                     <View style={styles.desasocTextCol}>
@@ -2007,9 +2314,11 @@ export default function ProgramacionScreen() {
                     : 'La firma solo está disponible cuando la fecha de la actuación sea hoy o una fecha pasada (no futura).'}
                 </Text>
               ) : null}
-              <Pressable style={[styles.saveBtn, saving && styles.saveBtnDis]} onPress={guardarEdicion} disabled={saving}>
-                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Guardar</Text>}
-              </Pressable>
+              {puedeEditar ? (
+                <Pressable style={[styles.saveBtn, saving && styles.saveBtnDis]} onPress={guardarEdicion} disabled={saving}>
+                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Guardar</Text>}
+                </Pressable>
+              ) : null}
             </ScrollView>
           </View>
         </View>
@@ -2060,7 +2369,7 @@ export default function ProgramacionScreen() {
               <Text style={{ fontWeight: '700' }}>
                 {selectedIds.size} {selectedIds.size === 1 ? 'actuación' : 'actuaciones'}
               </Text>{' '}
-              seleccionada{selectedIds.size === 1 ? '' : 's'} en la columna Sel. Esta acción no se puede deshacer.
+              seleccionada{selectedIds.size === 1 ? '' : 's'}. Esta acción no se puede deshacer.
             </Text>
             <View style={styles.desasocConfirmBtns}>
               <TouchableOpacity
@@ -2148,6 +2457,7 @@ export default function ProgramacionScreen() {
           if (form.id_actuacion) void enviarFirmaDesdePantalla(form.id_actuacion, base64Png);
         }}
       />
+      {ConfirmarView}
       </>
       )}
     </View>
@@ -2159,185 +2469,288 @@ const styles = StyleSheet.create({
   sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 },
   sinPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
 
-  header: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    flexWrap: 'wrap',
     gap: 12,
-  },
-  headerBackBtn: { padding: 4 },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
-
-  toolbar: {
-    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
-    zIndex: 20,
+    position: 'relative',
+    zIndex: 30,
+    elevation: 30,
   },
-  filtersColStack: { flexDirection: 'column', alignItems: 'stretch' },
-  chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  estadoChip: {
+  topBarStack: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
+  topBarGrupo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topBarTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  topBarFiltros: { flexWrap: 'wrap', gap: 12, position: 'relative', zIndex: 31 },
+  topBarFiltrosStack: { alignItems: 'stretch' },
+  topBarAcciones: { marginLeft: 'auto' },
+  iconBtn: { alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  iconBtnBorde: { borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#ffffff' },
+  periodoNav: { flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' },
+  periodoTexto: { fontSize: 14, fontWeight: '600', color: '#0f172a', minWidth: 150, textAlign: 'center' },
+  hoyLink: { justifyContent: 'center', paddingHorizontal: 8 },
+  hoyLinkText: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
+  segmentado: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingLeft: 10,
-    paddingRight: 6,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  estadoChipText: { fontSize: 11, fontWeight: '600' },
-  estadoChipTextSel: { fontWeight: '800' },
-  estadoChipCount: {
-    minWidth: 20,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
+    backgroundColor: '#f1f5f9',
     borderRadius: 8,
-    backgroundColor: 'rgba(15,23,42,0.06)',
+    padding: 2,
+  },
+  segmentoOpt: {
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
-  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
-  kpiRowInline: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'stretch' },
-  kpiRowInlineFlex: { flex: 1, minWidth: 160 },
-  kpiCard: {
-    flex: 1,
-    minWidth: 88,
-    backgroundColor: '#f8fafc',
+  segmentoOptPeq: { paddingHorizontal: 10 },
+  segmentoOptOn: { backgroundColor: '#ffffff', borderColor: '#e2e8f0' },
+  segmentoText: { fontSize: 13, fontWeight: '500', color: '#64748b' },
+  segmentoTextOn: { color: '#0f172a', fontWeight: '600' },
+  btnSecundario: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    backgroundColor: '#ffffff',
   },
-  kpiCardCompact: {
-    flex: 1,
-    minWidth: 72,
-    backgroundColor: '#f8fafc',
+  btnSecundarioText: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
+  btnPrimario: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+  },
+  btnPrimarioText: { fontSize: 13, fontWeight: '600', color: '#ffffff' },
+  btnPeligro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderColor: '#fecaca',
+    backgroundColor: '#ffffff',
   },
-  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
-  kpiValueCompact: { fontSize: 13, fontWeight: '800', color: '#0f172a', marginTop: 1 },
+  btnPeligroText: { fontSize: 13, fontWeight: '600', color: '#dc2626' },
+  btnTexto: { justifyContent: 'center', paddingHorizontal: 8 },
+  btnTextoText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  btnTextoEnlace: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
+  ayudaSeleccion: { fontSize: 12, color: '#d97706' },
+  btnOff: { opacity: 0.45 },
+
+  resumen: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 28,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  resumenHuecos: { fontSize: 26, fontWeight: '700', color: '#d97706', fontVariant: ['tabular-nums'] },
+  resumenSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  resumenItem: { paddingBottom: 2 },
+  resumenCifra: { fontSize: 17, fontWeight: '600', color: '#0f172a', fontVariant: ['tabular-nums'] },
+  resumenEtiqueta: { fontSize: 13, color: '#64748b' },
 
   errorBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     marginHorizontal: 16,
     marginTop: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  errorBarText: { fontSize: 12, color: '#dc2626' },
+  errorBarText: { flex: 1, fontSize: 12, color: '#dc2626' },
+  errorBarRetry: { fontSize: 12, fontWeight: '700', color: '#dc2626' },
 
-  tablaWrap: { flex: 1, minHeight: 0, minWidth: 0, width: '100%' },
-  panelCalendario: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-    alignSelf: 'stretch',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    padding: 10,
-    minWidth: 0,
-    overflow: 'hidden',
-  },
-
-  filtersWrap: { flexDirection: 'column', gap: 8, flex: 1, minWidth: 0, width: '100%', overflow: 'visible' },
-  filtersRowTop: {
+  herramientas: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 8,
-    width: '100%',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
-  toolbarSearchWrap: {
-    flex: 1,
+  herramientasStack: { flexDirection: 'column', alignItems: 'stretch' },
+  herramientasAcciones: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  herramientasAccionesDer: { marginLeft: 'auto' },
+  buscador: {
     flexDirection: 'row',
     alignItems: 'center',
-    minWidth: 140,
-    maxWidth: 320,
-    height: 32,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-  },
-  toolbarSearchIcon: { marginRight: 6 },
-  toolbarSearchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
-  filtersRowFecha: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 8,
-    width: '100%',
-    zIndex: 9998,
-  },
-  filtersRowSemana: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
     gap: 6,
-    width: '100%',
-    marginTop: 4,
-  },
-  filtroAnioSelector: { width: 88, minWidth: 80, maxWidth: 100 },
-  filtroMesSelector: { width: 120, minWidth: 108, maxWidth: 140 },
-  filterLabelInline: { fontSize: 11, fontWeight: '700', color: '#64748b', marginRight: -2 },
-  /** Ancho fijo mínimo solo para campos de fecha (dd/mm/aaaa + icono). */
-  filterToolbarFieldFecha: {
-    width: 96,
-    minWidth: 96,
-    maxWidth: 96,
-    flexGrow: 0,
-    flexShrink: 0,
-  },
-  filterLocalDropdownWrap: {
-    minWidth: 140,
-    maxWidth: 220,
+    minWidth: 200,
+    maxWidth: 320,
     flexGrow: 1,
     flexShrink: 1,
-    zIndex: 9999,
-    elevation: 24,
-    overflow: 'visible',
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
   },
-  filtersRowBottom: {
+  buscadorInput: { flex: 1, minWidth: 0, fontSize: 13, color: '#0f172a', paddingVertical: 0 },
+
+  cuerpo: {
+    flex: 1,
+    minHeight: 0,
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    position: 'relative',
+    zIndex: 0,
+  },
+  cuerpoStack: { flexDirection: 'column' },
+  listaCol: { flexGrow: 62, flexShrink: 1, flexBasis: 0, minWidth: 0 },
+  listaColStack: { flex: 1, minHeight: 0 },
+  listaScrollInner: { flex: 1 },
+  listaContenido: { paddingTop: 4, paddingBottom: 16 },
+  estadoBox: { paddingVertical: 48, alignItems: 'center', justifyContent: 'center' },
+  tarjetaVacia: {
     alignItems: 'center',
-    gap: 6,
-    width: '100%',
-    marginTop: 4,
+    gap: 10,
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+  },
+  tarjetaVaciaText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
+  tarjeta: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  tarjetaHoy: { borderColor: '#0ea5e9' },
+  tarjetaCab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  tarjetaCabIzq: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
+  tarjetaDia: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
+  etiquetaHoy: { backgroundColor: '#e0f2fe', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  etiquetaHoyText: { fontSize: 11, fontWeight: '600', color: '#0369a1' },
+  tarjetaLocal: { flexShrink: 1, fontSize: 13, fontWeight: '600', color: '#64748b', textAlign: 'right' },
+  tarjetaSub: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 2,
+  },
+  tarjetaSubText: { flex: 1, minWidth: 0, fontSize: 12, color: '#64748b' },
+  tarjetaSubPct: { fontWeight: '600' },
+  tarjetaGasto: { fontSize: 12, fontWeight: '600', color: '#0f172a', fontVariant: ['tabular-nums'] },
+  fila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  filaSel: { backgroundColor: '#f0f9ff' },
+  filaPressed: { backgroundColor: '#f8fafc' },
+  filaCheck: { width: 24, alignItems: 'center' },
+  filaHora: { width: 44, fontSize: 13, color: '#64748b', fontVariant: ['tabular-nums'] },
+  filaCentro: { flex: 1, minWidth: 0 },
+  filaLinea: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: 10, rowGap: 4 },
+  filaNombre: { flexShrink: 1, fontSize: 15, fontWeight: '600', color: '#0f172a' },
+  filaImporte: { fontSize: 13, color: '#64748b', fontVariant: ['tabular-nums'] },
+  filaPago: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  filaSinArtista: { fontSize: 14, color: '#94a3b8' },
+  filaAcciones: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 },
+  pastilla: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  pastillaText: { fontSize: 11, fontWeight: '600' },
+  pastillaFirmada: { backgroundColor: '#dcfce7' },
+  pastillaFirmadaText: { color: '#16a34a' },
+  pastillaAsociada: { backgroundColor: '#e0f2fe' },
+  pastillaAsociadaText: { color: '#0369a1' },
+  pastillaPendiente: { backgroundColor: '#f1f5f9' },
+  pastillaPendienteText: { color: '#475569' },
+  btnAsignar: {
+    justifyContent: 'center',
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d97706',
+    backgroundColor: '#ffffff',
+  },
+  btnAsignarText: { fontSize: 13, fontWeight: '600', color: '#d97706' },
+  accionTexto: { justifyContent: 'center', minHeight: 34, paddingHorizontal: 8 },
+  accionTextoFirmar: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
+
+  panelCalendario: {
+    flexGrow: 38,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 12,
+    overflow: 'hidden',
+  },
+  panelCalendarioStack: { flex: 0, height: 560, marginTop: 4 },
+
+  filterLocalDropdownWrap: {
+    minWidth: 180,
+    maxWidth: 260,
+    flexGrow: 1,
+    flexShrink: 1,
+    position: 'relative',
+    zIndex: 40,
+    elevation: 40,
+    overflow: 'visible',
   },
   filterToolbarTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
+    gap: 6,
     paddingHorizontal: 10,
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
-    minHeight: 34,
   },
-  filterToolbarTriggerText: { fontSize: 12, color: '#334155', flex: 1, paddingRight: 6 },
+  filterToolbarTriggerText: { fontSize: 13, color: '#0f172a', flex: 1 },
   filterToolbarList: {
     position: 'absolute',
     left: 0,
@@ -2347,151 +2760,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
-    backgroundColor: '#fff',
-    maxHeight: 220,
-    zIndex: 10000,
-    elevation: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
+    backgroundColor: '#ffffff',
+    maxHeight: 260,
+    zIndex: 41,
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' } as object)
+      : { elevation: 41, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.08, shadowRadius: 16 }),
   },
-  filterToolbarScroll: { maxHeight: 200 },
+  filterToolbarScroll: { maxHeight: 250 },
   filterToolbarOpt: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    minHeight: MIN_TOUCH,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#f1f5f9',
   },
   filterToolbarOptOn: { backgroundColor: '#f0f9ff' },
-  filterToolbarOptText: { fontSize: 12, color: '#334155', flex: 1, paddingRight: 8 },
-  filterChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    marginRight: 6,
-    backgroundColor: '#fff',
-  },
-  filterChipOn: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
-  filterChipText: { fontSize: 11, color: '#334155', maxWidth: 120 },
-  fInputFecha: {
-    paddingHorizontal: 4,
-    fontSize: 11,
-  },
-  fInput: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    paddingHorizontal: 8,
-    paddingVertical: Platform.OS === 'ios' ? 8 : 4,
-    fontSize: 12,
-  },
-  fBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  fBtnText: { color: '#0369a1', fontWeight: '600', fontSize: 12 },
-  fBtnPrimary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#0ea5e9',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  fBtnPrimaryText: { color: '#fff', fontWeight: '600', fontSize: 12 },
-  asocBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#059669', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
-  asocBtnOff: { opacity: 0.45 },
-  asocBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
-  refreshBtn: { padding: 6, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' },
-  selCell: { alignItems: 'center', justifyContent: 'center' },
-  cellTextRight: { textAlign: 'right', alignSelf: 'stretch' },
-  cellMuted: { color: '#94a3b8' },
-  grupoBand: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#f8fafc',
-    borderLeftWidth: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  grupoBandJornada: {
-    backgroundColor: '#fdf2f8',
-  },
-  grupoBandMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-    minWidth: 0,
-    flexWrap: 'wrap',
-  },
-  grupoBandRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flexShrink: 0,
-  },
-  grupoBandFecha: { fontSize: 12, fontWeight: '700', color: '#334155', flexShrink: 0 },
-  grupoBandFechaJornada: {
-    color: '#be185d',
-    backgroundColor: '#fce7f3',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  grupoBandLocal: { fontSize: 12, fontWeight: '800', color: '#0369a1', textTransform: 'uppercase', letterSpacing: 0.3, flexShrink: 1 },
-  grupoBandSep: { fontSize: 12, color: '#cbd5e1', flexShrink: 0 },
-  grupoBandObj: { fontSize: 11, fontWeight: '700', color: '#475569', flexShrink: 0 },
-  grupoBandObjMuted: { fontSize: 11, color: '#cbd5e1', flexShrink: 0 },
-  grupoBandPctBadge: {
-    flexShrink: 0,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  grupoBandPctText: { fontSize: 10, fontWeight: '800', textAlign: 'center' },
-  grupoBandPctMuted: { flexShrink: 0, paddingHorizontal: 6, paddingVertical: 3, minWidth: 36, alignItems: 'center' },
-  grupoBandPctMutedText: { fontSize: 10, fontWeight: '600', color: '#cbd5e1' },
-  grupoBandGasto: { fontSize: 12, fontWeight: '700', color: '#0ea5e9', flexShrink: 0 },
-  grupoBandGastoMuted: { fontSize: 12, color: '#94a3b8', flexShrink: 0 },
-  grupoBandCount: { fontSize: 10, fontWeight: '600', color: '#94a3b8', flexShrink: 0 },
-  huecoBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#ffedd5',
-    borderWidth: 1,
-    borderColor: '#fdba74',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  huecoBadgeText: { fontSize: 10, fontWeight: '700', color: '#9a3412', lineHeight: 13 },
-  /** Estado «asociada» en planificación */
-  estadoBadgeAsociada: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#d1fae5',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#a7f3d0',
-  },
-  estadoBadgeAsociadaText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#166534',
-    lineHeight: 13,
-  },
+  filterToolbarOptText: { fontSize: 13, color: '#334155', flex: 1, paddingRight: 8 },
   firmaRow: {
     flexDirection: 'row',
     gap: 10,
@@ -2524,9 +2812,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontStyle: 'italic',
   },
-  firmaCell: { flexDirection: 'row', alignItems: 'center', gap: 3, justifyContent: 'center' },
-  firmaSi: { color: '#15803d', fontWeight: '600' },
-  firmaNo: { color: '#94a3b8' },
   hintImporte: { fontSize: 10, color: '#94a3b8', lineHeight: 14, marginTop: 6, marginBottom: 2 },
   importeSugeridoLine: { fontSize: 11, color: '#64748b', marginBottom: 4, marginTop: 2 },
   importeSugeridoVal: { fontWeight: '700', color: '#334155' },
@@ -2620,6 +2905,30 @@ const styles = StyleSheet.create({
   dropdownOptionTextSelected: { color: '#0369a1', fontWeight: '600' },
   localesGenLink: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
   localesGenSep: { color: '#94a3b8', fontSize: 12 },
+  diasSemanaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  diaSemanaBtn: {
+    width: MIN_TOUCH,
+    height: MIN_TOUCH,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  diaSemanaBtnOn: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
+  diaSemanaBtnText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  diaSemanaBtnTextOn: { color: '#0369a1' },
+  diasSemanaAtajos: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, marginBottom: 4 },
+  resumenGenBox: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    marginTop: 12,
+  },
+  resumenGenText: { fontSize: 13, color: '#0f172a' },
   chipOn: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
   chipText: { fontSize: 11, color: '#334155' },
   horasSectionBox: {

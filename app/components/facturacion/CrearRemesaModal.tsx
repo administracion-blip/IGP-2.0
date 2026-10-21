@@ -25,6 +25,7 @@ import {
   type ResultadoCrearRemesas,
 } from '../../lib/remesas';
 import { listProveedoresNoTransferenciaRemesa, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
+import { AvisoCreditoRemesa, useAvisoCreditoRemesa } from './AvisoCreditoRemesa';
 
 export type FacturaRemesaSeleccion = FacturaRemesaAgrupable & {
   empresa_id?: string | null;
@@ -68,12 +69,19 @@ export function CrearRemesaModal({ visible, facturas, empresasCatalogo, onClose,
     [facturas, empresasCatalogo],
   );
 
+  const creditoRemesa = useAvisoCreditoRemesa(
+    visible,
+    facturas.map((f) => f.id_factura),
+  );
+  const comprobandoCreditoRemesa = creditoRemesa.fase === 'cargando';
+
   const cerrar = () => {
     if (procesando) return;
     onClose();
   };
 
   const crearRemesa = async () => {
+    if (comprobandoCreditoRemesa) return;
     if (gruposRemesaPorSociedad.length === 0 || facturas.length === 0) return;
     const nombreBase = remesaNombre.trim();
     if (!nombreBase) {
@@ -144,6 +152,10 @@ export function CrearRemesaModal({ visible, facturas, empresasCatalogo, onClose,
                 ))}
               </View>
             ) : null}
+            <AvisoCreditoRemesa
+              estado={creditoRemesa}
+              mostrarSociedad={gruposRemesaPorSociedad.length > 1}
+            />
             {proveedoresNoTransferenciaRemesa.length > 0 ? (
               <View style={styles.modalAvisoTipoRecibo}>
                 <MaterialIcons name="warning-amber" size={18} color="#b45309" />
@@ -182,9 +194,9 @@ export function CrearRemesaModal({ visible, facturas, empresasCatalogo, onClose,
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtnConfirm, procesando && styles.modalBtnDisabled]}
+                style={[styles.modalBtnConfirm, (procesando || comprobandoCreditoRemesa) && styles.modalBtnDisabled]}
                 onPress={crearRemesa}
-                disabled={procesando}
+                disabled={procesando || comprobandoCreditoRemesa}
               >
                 {procesando ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -217,7 +229,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 20,
     width: '90%',
-    maxWidth: 400,
+    maxWidth: 520,
   },
   modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 8 },
   modalLabel: { fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 18 },

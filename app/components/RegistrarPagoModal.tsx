@@ -48,6 +48,11 @@ export type RegistrarPagoPayloadFactura = {
   observaciones: string;
   /** Obligatorio si metodo_pago === 'compensacion' */
   facturas_compensar?: string[];
+  /**
+   * Factura en negativo pagada con «Otro»: el importe salda el abono
+   * en vez de sumarse como un cobro normal.
+   */
+  saldar_abono?: boolean;
 };
 
 export type RegistrarPagoPayloadRemesa = {
@@ -504,6 +509,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
           return;
         }
       }
+      const saldarAbono = metodo === 'otro' && Number(saldoOrigen) < -0.001 && !esCompensacion;
       props.onSubmit({
         fecha: fechaIso,
         importe: importeNum,
@@ -511,6 +517,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
         referencia: esCompensacion ? '' : referencia,
         observaciones,
         ...(metodoEnvio === 'compensacion' ? { facturas_compensar: facturasCompensar } : {}),
+        ...(saldarAbono ? { saldar_abono: true } : {}),
       });
       return;
     }

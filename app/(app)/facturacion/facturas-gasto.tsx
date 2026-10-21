@@ -35,6 +35,7 @@ import {
   importeExcesoPendiente,
   labelFormaPago,
   mapTipoReciboToFormaPago,
+  saldoParaPago,
   tieneExcesoPendiente,
 } from '../../utils/facturacion';
 import type { FacturaListado } from '../../types/factura';
@@ -102,6 +103,7 @@ import {
 } from '../../lib/registroMasivo';
 import IconoSugerenciaConciliacion from '../../components/conciliacion/IconoSugerenciaConciliacion';
 import { BarraSeleccionFacturas } from '../../components/facturacion/BarraSeleccionFacturas';
+import { AvisoCreditoRemesa, useAvisoCreditoRemesa } from '../../components/facturacion/AvisoCreditoRemesa';
 import { DeudaProveedoresModal } from '../../components/facturacion/DeudaProveedoresModal';
 import ModalElegirMovimientoConciliacion from '../../components/conciliacion/ModalElegirMovimientoConciliacion';
 import ConciliarMovimientoModal, {
@@ -1266,7 +1268,7 @@ export default function FacturasGastoScreen() {
       return;
     }
     setSelectedId(f.id_factura);
-    const saldo = Number(f.saldo_pendiente ?? 0);
+    const saldo = saldoParaPago(f);
     const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, f.empresa_id);
     const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
     const hoy = hoyISO();
@@ -1544,6 +1546,12 @@ export default function FacturasGastoScreen() {
     [facturasSeleccionadasRemesa, empresasCatalogo],
   );
 
+  const creditoRemesa = useAvisoCreditoRemesa(
+    modalRemesa,
+    facturasSeleccionadasRemesa.map((f) => f.id_factura),
+  );
+  const comprobandoCreditoRemesa = creditoRemesa.fase === 'cargando';
+
   const toggleSeleccionMulti = (id: string) => {
     const yaSeleccionada = selectedMultiIds.has(id);
     setSelectedMultiIds((prev) => {
@@ -1610,6 +1618,7 @@ export default function FacturasGastoScreen() {
   };
 
   const crearRemesa = async () => {
+    if (comprobandoCreditoRemesa) return;
     if (gruposRemesaPorSociedad.length === 0 || facturasSeleccionadasRemesa.length === 0) return;
     const nombreBase = remesaNombre.trim();
     if (!nombreBase) {
@@ -2526,6 +2535,7 @@ export default function FacturasGastoScreen() {
                               styles.cellText,
                               isMoneda && styles.cellTextRight,
                               col === 'total_factura' && styles.cellTextBold,
+                              col === 'total_factura' && Number(f.total_factura) < 0 && { color: '#dc2626' },
                               col === 'empresa_nombre' && styles.cellTextBold,
                               col === 'numero_factura_proveedor' && styles.cellTextBold,
                               col === 'fecha_emision' && styles.cellTextBold,
@@ -2596,7 +2606,7 @@ export default function FacturasGastoScreen() {
       {/* Modal crear remesa */}
       <Modal visible={modalRemesa} transparent animationType="fade" onRequestClose={() => !procesando && setModalRemesa(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => !procesando && setModalRemesa(false)}>
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+          <Pressable style={[styles.modalContent, styles.modalCrearRemesa]} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Crear remesa de pago</Text>
             <Text style={styles.modalLabel}>
               {facturasSeleccionadasRemesa.length} factura(s)
@@ -2613,6 +2623,10 @@ export default function FacturasGastoScreen() {
                 ))}
               </View>
             ) : null}
+            <AvisoCreditoRemesa
+              estado={creditoRemesa}
+              mostrarSociedad={gruposRemesaPorSociedad.length > 1}
+            />
             {proveedoresNoTransferenciaRemesa.length > 0 ? (
               <View style={styles.modalAvisoTipoRecibo}>
                 <MaterialIcons name="warning-amber" size={18} color="#b45309" />
@@ -2651,9 +2665,9 @@ export default function FacturasGastoScreen() {
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtnConfirm, procesando && styles.modalBtnDisabled]}
+                style={[styles.modalBtnConfirm, (procesando || comprobandoCreditoRemesa) && styles.modalBtnDisabled]}
                 onPress={crearRemesa}
-                disabled={procesando}
+                disabled={procesando || comprobandoCreditoRemesa}
               >
                 {procesando ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -2740,7 +2754,7 @@ export default function FacturasGastoScreen() {
         }
         habilitarCompensacion
         facturaId={selectedFactura?.id_factura}
-        saldoOrigen={Number(selectedFactura?.saldo_pendiente ?? 0)}
+        saldoOrigen={saldoParaPago(selectedFactura)}
         avisoSobrepago={selectedFactura?.estado === 'pagada'}
         habilitarAplicacionExceso={
           !!selectedFactura
@@ -3404,6 +3418,9 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '90%',
     maxWidth: 400,
+  },
+  modalCrearRemesa: {
+    maxWidth: 520,
   },
   modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 8 },
   modalEmpresaChipRow: {

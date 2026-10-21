@@ -293,6 +293,28 @@ export function importeExcesoPendiente(
   return round2(Math.max(0, cobrado - total));
 }
 
+/**
+ * Saldo con signo para pagar. El campo guardado se recorta a 0 y esconde un
+ * abono (total − cobrado negativo). En ese caso manda el cálculo.
+ */
+export function saldoParaPago(
+  f: {
+    total_factura?: number | null;
+    total_cobrado?: number | null;
+    saldo_pendiente?: number | null;
+  } | null | undefined,
+): number {
+  if (!f) return 0;
+  const total = Number(f.total_factura);
+  const cobrado = Number(f.total_cobrado ?? 0);
+  if (Number.isFinite(total)) {
+    const real = round2(total - (Number.isFinite(cobrado) ? cobrado : 0));
+    if (real < -0.001) return real;
+  }
+  const guardado = Number(f.saldo_pendiente ?? 0);
+  return Number.isFinite(guardado) ? guardado : 0;
+}
+
 /** True si la factura tiene crédito de sobrepago pendiente de aplicar. */
 export function tieneExcesoPendiente(
   f: {

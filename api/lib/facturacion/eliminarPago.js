@@ -22,6 +22,7 @@ import {
   recalcularExcesoPendiente,
 } from './excesoPago.js';
 import { conReintentoFactura, putFacturaVersionada } from './versionFactura.js';
+import { estadoTrasSaldoFirmado, excesoSegunSigno } from './registrarPago.js';
 
 function now() {
   return new Date().toISOString();
@@ -158,13 +159,23 @@ async function eliminarPagoUnaVez({
   await assertSinAplicacionesExcesoEnFactura(idFactura);
 
   const versionLeida = factura.version;
-  const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) - (Number(pago.importe) || 0)));
+  const importePago = round2(Number(pago.importe) || 0);
+  const saldar = pago.saldar_abono === true;
+  // Un saldado de abono restó el importe al cobrado: al borrarlo se suma de nuevo.
+  const nuevoTotalCobrado = saldar
+    ? round2((Number(factura.total_cobrado) || 0) + importePago)
+    : round2(Math.max(0, (Number(factura.total_cobrado) || 0) - importePago));
   const nuevoSaldo = round2((Number(factura.total_factura) || 0) - nuevoTotalCobrado);
 
   factura.total_cobrado = nuevoTotalCobrado;
-  factura.saldo_pendiente = Math.max(0, nuevoSaldo);
-  factura.estado = estadoTrasQuitarPago(factura, nuevoTotalCobrado, nuevoSaldo);
-  recalcularExcesoPendiente(factura);
+  factura.saldo_pendiente = saldar || nuevoSaldo < -0.001
+    ? (Math.abs(nuevoSaldo) <= 0.001 ? 0 : nuevoSaldo)
+    : Math.max(0, nuevoSaldo);
+  factura.estado = saldar
+    ? estadoTrasSaldoFirmado(factura, nuevoTotalCobrado, nuevoSaldo)
+    : estadoTrasQuitarPago(factura, nuevoTotalCobrado, nuevoSaldo);
+  if (saldar) factura.exceso_pendiente = excesoSegunSigno(factura.total_factura, nuevoTotalCobrado);
+  else recalcularExcesoPendiente(factura);
   factura.modificado_en = now();
 
   // Borrado y saldo juntos: dos borrados del mismo pago no restan dos veces.
