@@ -25,6 +25,15 @@ import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
 import { formatMoneda } from '../../utils/facturacion';
 import { apiFetch } from '../../utils/api';
 import { useAuth } from '../../contexts/AuthContext';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { puedeGestionarArtistas } from '../../lib/permisosModulos';
 
 const ESTILOS_OPTS = [
@@ -546,7 +555,7 @@ export default function ArtistasScreen() {
       {ToastView}
       {!puedeGestionar ? (
         <View style={styles.sinPermisoBox}>
-          <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+          <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
           <Text style={styles.sinPermisoText}>No tienes permiso para gestionar artistas.</Text>
         </View>
       ) : (
@@ -589,7 +598,7 @@ export default function ArtistasScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Ver imagen del artista"
               >
-                <MaterialIcons name="photo-camera" size={20} color="#0ea5e9" />
+                <MaterialIcons name="photo-camera" size={20} color={colors.accent} />
               </TouchableOpacity>
             );
           }
@@ -605,7 +614,7 @@ export default function ArtistasScreen() {
         }}
         extraToolbarRight={
           <TouchableOpacity style={styles.refreshBtn} onPress={fetchLista} disabled={loading} accessibilityLabel="Refrescar">
-            {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />}
+            {loading ? <ActivityIndicator size="small" color={colors.accent} /> : <MaterialIcons name="refresh" size={ICON_SIZE} color={colors.accent} />}
           </TouchableOpacity>
         }
       />
@@ -622,7 +631,7 @@ export default function ArtistasScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editing?.id_artista ? 'Editar artista' : 'Nuevo artista'}</Text>
               <TouchableOpacity onPress={cerrarModal}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
@@ -657,7 +666,7 @@ export default function ArtistasScreen() {
                 >
                   {resumenSeleccion(editing?.estilos_musicales, 'Seleccionar estilos…')}
                 </Text>
-                <MaterialIcons name="arrow-drop-down" size={24} color="#64748b" />
+                <MaterialIcons name="arrow-drop-down" size={24} color={colors.textMuted} />
               </TouchableOpacity>
               <Text style={styles.label}>Tipo artista</Text>
               <TouchableOpacity
@@ -673,7 +682,7 @@ export default function ArtistasScreen() {
                 >
                   {resumenSeleccion(editing?.tipo_artista, 'Seleccionar tipos…')}
                 </Text>
-                <MaterialIcons name="arrow-drop-down" size={24} color="#64748b" />
+                <MaterialIcons name="arrow-drop-down" size={24} color={colors.textMuted} />
               </TouchableOpacity>
               <View style={styles.rowBetween}>
                 <Text style={styles.label}>Activo</Text>
@@ -729,26 +738,26 @@ export default function ArtistasScreen() {
                     <Image source={{ uri: imagenPreviewUri }} style={styles.imgPreview} resizeMode="cover" />
                   ) : imagenUrlServidorLoading ? (
                     <View style={styles.imgPreviewPlaceholder}>
-                      <ActivityIndicator size="large" color="#0ea5e9" />
+                      <ActivityIndicator size="large" color={colors.accent} />
                       <Text style={styles.imgPreviewPlaceholderHint}>Cargando imagen…</Text>
                     </View>
                   ) : imagenUrlServidor ? (
                     <Image source={{ uri: imagenUrlServidor }} style={styles.imgPreview} resizeMode="cover" />
                   ) : editing?.imagen_key ? (
                     <View style={styles.imgPreviewPlaceholder}>
-                      <MaterialIcons name="broken-image" size={40} color="#94a3b8" />
+                      <MaterialIcons name="broken-image" size={40} color={colors.textMuted} />
                       <Text style={styles.imgPreviewPlaceholderText}>No se pudo cargar la vista previa</Text>
                       <Text style={styles.imgPreviewPlaceholderHint}>Pulsa para sustituir</Text>
                     </View>
                   ) : (
                     <View style={styles.imgPreviewPlaceholder}>
-                      <MaterialIcons name="add-photo-alternate" size={52} color="#94a3b8" />
+                      <MaterialIcons name="add-photo-alternate" size={52} color={colors.textMuted} />
                       <Text style={styles.imgPreviewPlaceholderText}>Toca para elegir imagen</Text>
                     </View>
                   )}
                   {imagenSubiendo ? (
                     <View style={styles.imgPreviewLoading}>
-                      <ActivityIndicator size="large" color="#fff" />
+                      <ActivityIndicator size="large" color={colors.surface} />
                     </View>
                   ) : null}
                 </Pressable>
@@ -788,7 +797,7 @@ export default function ArtistasScreen() {
                           style={styles.tarifaCellInput}
                           keyboardType="decimal-pad"
                           placeholder="0,00 €"
-                          placeholderTextColor="#94a3b8"
+                          placeholderTextColor={colors.textMuted}
                           value={
                             editingCell && focusedTarifa?.key === cellKey
                               ? focusedTarifa.text
@@ -822,7 +831,7 @@ export default function ArtistasScreen() {
 
               {modalError ? (
                 <View style={styles.errorBanner}>
-                  <MaterialIcons name="error-outline" size={18} color="#b91c1c" />
+                  <MaterialIcons name="error-outline" size={18} color={statusColors.danger.text} />
                   <Text style={styles.errorBannerText}>{modalError}</Text>
                 </View>
               ) : null}
@@ -834,7 +843,7 @@ export default function ArtistasScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Guardar artista"
               >
-                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Guardar</Text>}
+                {saving ? <ActivityIndicator color={colors.surface} /> : <Text style={styles.saveBtnText}>Guardar</Text>}
               </Pressable>
             </ScrollView>
           </View>
@@ -850,16 +859,16 @@ export default function ArtistasScreen() {
                 {vistaImagenTitulo}
               </Text>
               <TouchableOpacity onPress={cerrarVistaImagen} accessibilityLabel="Cerrar">
-                <MaterialIcons name="close" size={26} color="#fff" />
+                <MaterialIcons name="close" size={26} color={colors.surface} />
               </TouchableOpacity>
             </View>
             {vistaImagenLoading ? (
               <View style={styles.vistaImagenBody}>
-                <ActivityIndicator size="large" color="#0ea5e9" />
+                <ActivityIndicator size="large" color={colors.accent} />
               </View>
             ) : vistaImagenError ? (
               <View style={styles.vistaImagenBody}>
-                <MaterialIcons name="error-outline" size={40} color="#f87171" />
+                <MaterialIcons name="error-outline" size={40} color={colors.danger} />
                 <Text style={styles.vistaImagenError}>{vistaImagenError}</Text>
               </View>
             ) : vistaImagenUrl ? (
@@ -881,14 +890,14 @@ export default function ArtistasScreen() {
             <MaterialIcons name="warning" size={36} color="#f59e0b" style={{ alignSelf: 'center' }} />
             <Text style={styles.confirmTitle}>Eliminar artista</Text>
             <Text style={styles.confirmText}>
-              ¿Eliminar <Text style={{ fontWeight: '700' }}>{artistaToDelete?.nombre_artistico || 'este artista'}</Text>? Esta acción no se puede deshacer.
+              ¿Eliminar <Text style={{ fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight }}>{artistaToDelete?.nombre_artistico || 'este artista'}</Text>? Esta acción no se puede deshacer.
             </Text>
             <View style={styles.confirmButtons}>
               <TouchableOpacity style={styles.confirmBtn} onPress={cancelarBorrado} disabled={deleting}>
                 <Text style={styles.confirmBtnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.confirmBtn, styles.confirmBtnDanger]} onPress={confirmarBorrado} disabled={deleting}>
-                {deleting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.confirmBtnTextDanger}>Eliminar</Text>}
+                {deleting ? <ActivityIndicator size="small" color={colors.surface} /> : <Text style={styles.confirmBtnTextDanger}>Eliminar</Text>}
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -910,7 +919,7 @@ export default function ArtistasScreen() {
                     onPress={() => toggleEstilo(e)}
                     activeOpacity={0.7}
                   >
-                    <MaterialIcons name={on ? 'check-box' : 'check-box-outline-blank'} size={22} color={on ? '#0ea5e9' : '#94a3b8'} />
+                    <MaterialIcons name={on ? 'check-box' : 'check-box-outline-blank'} size={22} color={on ? colors.accent : colors.textMuted} />
                     <Text style={[styles.dropdownRowText, on && styles.dropdownRowTextOn]}>{e}</Text>
                   </TouchableOpacity>
                 );
@@ -938,7 +947,7 @@ export default function ArtistasScreen() {
                     onPress={() => toggleTipo(e)}
                     activeOpacity={0.7}
                   >
-                    <MaterialIcons name={on ? 'check-box' : 'check-box-outline-blank'} size={22} color={on ? '#0ea5e9' : '#94a3b8'} />
+                    <MaterialIcons name={on ? 'check-box' : 'check-box-outline-blank'} size={22} color={on ? colors.accent : colors.textMuted} />
                     <Text style={[styles.dropdownRowText, on && styles.dropdownRowTextOn]}>{e}</Text>
                   </TouchableOpacity>
                 );
@@ -956,17 +965,23 @@ export default function ArtistasScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screenWrap: { flex: 1, backgroundColor: '#f8fafc' },
-  sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 },
-  sinPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
 
-  cellImagenBtn: { alignItems: 'center', justifyContent: 'center', padding: 4 },
+const styles = StyleSheet.create({
+  screenWrap: { flex: 1, backgroundColor: colors.bg },
+  sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, padding: SPACING.xl },
+  sinPermisoText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
+
+  cellImagenBtn: { alignItems: 'center', justifyContent: 'center', padding: SPACING.xs },
   vistaImagenOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  /** Más oscuro que colors.overlay. */
   vistaImagenBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15, 23, 42, 0.92)',
@@ -976,46 +991,47 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     maxHeight: '90%',
     zIndex: 2,
-    borderRadius: 12,
+    borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1e293b', // Cromo oscuro del visor; no es colors.textStrong.
   },
   vistaImagenHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: '#0f172a',
+    paddingVertical: SPACING.md,
+    backgroundColor: colors.textStrong,
   },
-  vistaImagenTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: '#f8fafc', marginRight: 8 },
+  vistaImagenTitle: { flex: 1, fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.bg, marginRight: SPACING.sm },
   vistaImagenBody: {
     minHeight: 180,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
-    gap: 12,
+    padding: SPACING.xl,
+    gap: SPACING.md,
   },
-  vistaImagenError: { color: '#fecaca', fontSize: 14, textAlign: 'center' },
+  vistaImagenError: { color: '#fecaca', fontFamily: fontFamily.regular, fontSize: fontSizes[14], textAlign: 'center' },
   vistaImagenImgWrap: {
     width: '100%',
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.textStrong,
     alignItems: 'center',
   },
-  vistaImagenImg: { width: '100%', height: 380, backgroundColor: '#0f172a' },
+  vistaImagenImg: { width: '100%', height: 380, backgroundColor: colors.textStrong },
   refreshBtn: {
     padding: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
   },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, alignSelf: 'flex-start' },
-  badgeText: { fontWeight: '600' },
-  badgeActivo: { backgroundColor: '#dcfce7' },
-  badgeInactivo: { backgroundColor: '#fee2e2' },
-  badgeTextActivo: { color: '#16a34a' },
-  badgeTextInactivo: { color: '#dc2626' },
+  badge: { paddingHorizontal: SPACING.sm, paddingVertical: 2, borderRadius: radius.sm, alignSelf: 'flex-start' },
+  badgeText: { fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  badgeActivo: { backgroundColor: statusColors.success.bg },
+  badgeInactivo: { backgroundColor: statusColors.danger.bg },
+  badgeTextActivo: { color: colors.success },
+  badgeTextInactivo: { color: colors.danger },
+  /** Más oscuro que colors.overlay. */
   confirmOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -1026,24 +1042,26 @@ const styles = StyleSheet.create({
   confirmCard: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_TARJETA,
     padding: 20,
   },
-  confirmTitle: { fontSize: 17, fontWeight: '700', color: '#334155', textAlign: 'center', marginTop: 8 },
-  confirmText: { fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 10, lineHeight: 20 },
+  /** 17 px: entre fontSizes[16] y fontSizes[18]. */
+  confirmTitle: { fontSize: 17, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, textAlign: 'center', marginTop: SPACING.sm },
+  confirmText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center', marginTop: 10, lineHeight: 20 },
   confirmButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 20 },
-  confirmBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  confirmBtnDanger: { backgroundColor: '#dc2626', borderColor: '#dc2626' },
-  confirmBtnText: { fontSize: 14, color: '#475569', fontWeight: '600' },
-  confirmBtnTextDanger: { fontSize: 14, color: '#fff', fontWeight: '700' },
+  confirmBtn: { paddingVertical: 10, paddingHorizontal: SPACING.lg, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border },
+  confirmBtnDanger: { backgroundColor: colors.danger, borderColor: colors.danger },
+  confirmBtnText: { fontSize: fontSizes[14], color: colors.textPrimary, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  confirmBtnTextDanger: { fontSize: fontSizes[14], color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingVertical: SPACING.xl,
   },
+  /** Más oscuro que colors.overlay. */
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15, 23, 42, 0.5)',
@@ -1052,33 +1070,34 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
     maxHeight: '88%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    paddingBottom: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    paddingBottom: SPACING.lg,
     overflow: 'hidden',
-    shadowColor: '#0f172a',
+    shadowColor: colors.textStrong,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.25,
     shadowRadius: 24,
     elevation: 12,
   },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  modalScroll: { padding: 16 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 4, marginTop: 10 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  modalScroll: { padding: SPACING.lg },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs, marginTop: 10 },
   selectField: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
     paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     gap: 6,
   },
-  selectFieldText: { flex: 1, fontSize: 14, color: '#334155' },
-  selectFieldPlaceholder: { color: '#94a3b8' },
+  selectFieldText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary },
+  selectFieldPlaceholder: { color: colors.textMuted },
+  /** Más oscuro que colors.overlay. */
   dropdownOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -1090,51 +1109,51 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     maxHeight: '70%',
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_TARJETA,
+    padding: SPACING.lg,
     overflow: 'hidden',
   },
-  dropdownTitle: { fontSize: 17, fontWeight: '700', color: '#334155' },
-  dropdownSubtitle: { fontSize: 11, color: '#64748b', marginTop: 4, marginBottom: 8 },
+  dropdownTitle: { fontSize: 17, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  dropdownSubtitle: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: SPACING.xs, marginBottom: SPACING.sm },
   dropdownList: { maxHeight: 320 },
   dropdownRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  dropdownRowOn: { backgroundColor: '#f0f9ff' },
-  dropdownRowText: { flex: 1, fontSize: 14, color: '#334155' },
-  dropdownRowTextOn: { fontWeight: '600', color: '#0369a1' },
+  dropdownRowOn: { backgroundColor: colors.accentMuted },
+  dropdownRowText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary },
+  dropdownRowTextOn: { fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
   dropdownDone: {
-    marginTop: 12,
-    backgroundColor: '#0ea5e9',
-    borderRadius: 10,
-    paddingVertical: 12,
+    marginTop: SPACING.md,
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    paddingVertical: SPACING.md,
     alignItems: 'center',
   },
-  dropdownDoneText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  dropdownDoneText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[16] },
   imgSection: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    padding: 12,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    padding: SPACING.md,
     backgroundColor: '#fafafa',
   },
-  imgStatus: { fontSize: 13, color: '#475569', marginBottom: 8 },
+  imgStatus: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, marginBottom: SPACING.sm },
   imgPreviewTouchable: {
     width: '100%',
     minHeight: 180,
     maxHeight: 220,
-    borderRadius: 12,
+    borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: colors.borderStrong,
     borderStyle: 'dashed',
   },
   imgPreview: { width: '100%', minHeight: 180, maxHeight: 220 },
@@ -1142,97 +1161,98 @@ const styles = StyleSheet.create({
     minHeight: 180,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: SPACING.lg,
     gap: 6,
   },
-  imgPreviewPlaceholderText: { fontSize: 14, color: '#64748b', fontWeight: '600', textAlign: 'center' },
-  imgPreviewPlaceholderHint: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
+  imgPreviewPlaceholderText: { fontSize: fontSizes[14], color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, textAlign: 'center' },
+  imgPreviewPlaceholderHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, textAlign: 'center' },
+  /** Más oscuro que colors.overlay. */
   imgPreviewLoading: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  imgFormatHint: { fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 16 },
+  imgFormatHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: SPACING.sm, lineHeight: 16 },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
     paddingVertical: Platform.OS === 'ios' ? 10 : 6,
-    fontSize: 14,
-    color: '#334155',
-    backgroundColor: '#f8fafc',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textPrimary,
+    backgroundColor: colors.bg,
   },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SPACING.sm },
   tarifaHintBox: {
-    backgroundColor: '#f1f5f9',
-    borderRadius: 8,
+    backgroundColor: colors.navActive,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 8,
+    paddingVertical: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
-  tarifaHint: { fontSize: 10, color: '#64748b', lineHeight: 14 },
+  tarifaHint: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, lineHeight: 14 },
   tarifaTable: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
-  tarifaTableRow: { flexDirection: 'row', alignItems: 'stretch', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  tarifaTableRow: { flexDirection: 'row', alignItems: 'stretch', borderBottomWidth: 1, borderBottomColor: colors.border },
   tarifaTableRowLast: { borderBottomWidth: 0 },
-  tarifaTableCorner: { width: 72, minHeight: 36, borderRightWidth: 1, borderRightColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  tarifaTableCorner: { width: 72, minHeight: 36, borderRightWidth: 1, borderRightColor: colors.border, backgroundColor: colors.bg },
   tarifaTableHead: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#475569',
-    paddingVertical: 8,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textPrimary,
+    paddingVertical: SPACING.sm,
     borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
-    backgroundColor: '#f1f5f9',
+    borderRightColor: colors.border,
+    backgroundColor: colors.navActive,
   },
   tarifaFranjaLabel: {
     width: 72,
     justifyContent: 'center',
     paddingHorizontal: 6,
     borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderRightColor: colors.border,
+    backgroundColor: colors.bg,
   },
-  tarifaFranjaTitle: { fontSize: 12, fontWeight: '700', color: '#334155' },
+  tarifaFranjaTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   tarifaCellInput: {
     flex: 1,
     minWidth: 0,
     borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
+    borderRightColor: colors.border,
     paddingVertical: Platform.OS === 'ios' ? 10 : 8,
     paddingHorizontal: 6,
-    fontSize: 13,
-    color: '#334155',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textPrimary,
     textAlign: 'right',
     fontVariant: ['tabular-nums'],
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
-  saveBtn: { backgroundColor: '#0ea5e9', borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 12 },
+  saveBtn: { backgroundColor: colors.accent, borderRadius: radius.md, padding: 14, alignItems: 'center', marginTop: SPACING.md },
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnPressed: { opacity: 0.85 },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  inputError: { borderColor: '#f87171', backgroundColor: '#fff7ed' },
+  saveBtnText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[16] },
+  inputError: { borderColor: colors.danger, backgroundColor: '#fff7ed' },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 12,
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
     padding: 10,
-    borderRadius: 8,
-    backgroundColor: '#fef2f2',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  errorBannerText: { flex: 1, fontSize: 12, color: '#991b1b', lineHeight: 18 },
+  errorBannerText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#991b1b', lineHeight: 18 },
 });
