@@ -8,7 +8,6 @@ import {
   Modal,
   Pressable,
   ActivityIndicator,
-  useWindowDimensions,
   Image,
   ScrollView,
 } from 'react-native';
@@ -23,6 +22,7 @@ import { fetchImagenApp } from '../lib/personalizacion';
 import { MODULOS as MENU_ITEMS, moduloDeRuta } from '../constants/modulos';
 import { colors, iconSize, radius, shadowCard, sidebar, SPACING, typography } from '../constants/theme';
 import { SidebarNavItem } from '../components/ui/SidebarNavItem';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import { SidebarApiStatus } from '../components/ui/SidebarApiStatus';
 import { SoftPulseBorderWrap } from '../components/ui/SoftPulseBorderWrap';
 import { CampanaNotificaciones } from '../components/tasks/CampanaNotificaciones';
@@ -60,16 +60,16 @@ function rutaMenuActiva(pathname: string, itemRoute: string): boolean {
 function AppLayoutContent() {
   const router = useRouter();
   const pathname = usePathname();
-  const { width } = useWindowDimensions();
+  const { width, isPhone } = useBreakpoint();
   const insets = useSafeAreaInsets();
   const { user, loading, hasPermiso, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(Platform.OS === 'web');
   const didInitTabletSidebar = useRef(false);
   useEffect(() => {
-    if (Platform.OS === 'web' || didInitTabletSidebar.current || width < 768) return;
+    if (Platform.OS === 'web' || didInitTabletSidebar.current || isPhone) return;
     didInitTabletSidebar.current = true;
     setSidebarOpen(true);
-  }, [width]);
+  }, [isPhone]);
   const [configOpen, setConfigOpen] = useState(false);
   const [configLabelVisible, setConfigLabelVisible] = useState(false);
   const [imagenApp, setImagenApp] = useState<string | null>(null);

@@ -1,18 +1,13 @@
 import type { ComponentProps } from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { colors, iconSize, MIN_TOUCH, radius, sidebar, typography } from '../../constants/theme';
+import { colors, iconSize, MIN_TOUCH, radius, sidebar, SPACING, typography } from '../../constants/theme';
 import { SoftPulseBorderWrap } from './SoftPulseBorderWrap';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
+/** Rosa de Favoritos; no hay token de ese matiz. */
 const FAV_PINK = '#f9a8d4';
-/** Texto de módulos inactivos. */
-const MODULO_NAV_COLOR = '#0f172a';
-const MODULO_ICON_IDLE = '#94a3b8';
-const MODULO_ACTIVE_BG = '#e0f2fe';
-const MODULO_ACTIVE_FG = '#0369a1';
-const MODULO_HOVER_BG = '#f8fafc';
 
 type Props = {
   label: string;
@@ -37,12 +32,12 @@ export function SidebarNavItem({
   accessibilityLabel,
   accentFavoritos = false,
 }: Props) {
-  const iconColor = accentFavoritos
-    ? FAV_PINK
-    : active
-      ? MODULO_ACTIVE_FG
-      : MODULO_ICON_IDLE;
-  const textWeight = accentFavoritos ? (active ? '600' : typography.nav.fontWeight) : '400';
+  const iconColor = accentFavoritos ? FAV_PINK : active ? colors.accent : colors.textMuted;
+  const textWeight = accentFavoritos
+    ? active
+      ? typography.subtitulo.fontWeight
+      : typography.nav.fontWeight
+    : typography.cuerpo.fontWeight;
 
   const resolvedIcon = accentFavoritos ? 'star' : icon;
 
@@ -60,6 +55,7 @@ export function SidebarNavItem({
         !accentFavoritos && !active && (pressed || hovered) && styles.itemHover,
       ]}
     >
+      {!accentFavoritos && active ? <View style={styles.activeBar} /> : null}
       <View style={[styles.iconWrap, collapsed && styles.iconWrapCollapsed]}>
         <MaterialIcons name={resolvedIcon} size={iconSize.nav} color={iconColor} />
       </View>
@@ -95,12 +91,13 @@ export function SidebarNavItem({
 
 const styles = StyleSheet.create({
   item: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: sidebar.itemHeight,
     marginHorizontal: 6,
     marginVertical: 1,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     borderRadius: radius.sm,
   },
   itemCollapsed: {
@@ -111,10 +108,20 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   itemActive: {
-    backgroundColor: MODULO_ACTIVE_BG,
+    backgroundColor: colors.accentMuted,
+  },
+  /** Barra del ítem activo. Un solo uso: no hay token de 3 px. */
+  activeBar: {
+    position: 'absolute',
+    left: 0,
+    top: SPACING.sm,
+    bottom: SPACING.sm,
+    width: 3,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
   },
   itemHover: {
-    backgroundColor: MODULO_HOVER_BG,
+    backgroundColor: colors.bg,
   },
   iconWrap: {
     width: 28,
@@ -132,13 +139,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   labelModulo: {
-    color: MODULO_NAV_COLOR,
-    fontWeight: '400',
+    color: colors.textStrong,
+    fontWeight: typography.cuerpo.fontWeight,
   },
   labelActiveModulo: {
-    color: MODULO_ACTIVE_FG,
-    fontWeight: '500',
+    color: colors.accent,
+    fontWeight: typography.nav.fontWeight,
   },
+  /** Texto de Favoritos. Un solo uso: no hay token de ese rosa. */
   labelFavoritos: {
     color: '#be185d',
   },
