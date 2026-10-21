@@ -12,7 +12,6 @@ import {
   Modal,
   Pressable,
   Image,
-  useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,6 +21,15 @@ import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
 import { puedeVerArqueoCaja } from '../../lib/permisosModulos';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 
@@ -272,7 +280,7 @@ export default function ArqueoCajaScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ workplaceId?: string; posId?: string; posName?: string; businessDay?: string }>();
   const { hasPermiso, user, localPermitido } = useAuth();
-  const { shouldStackToolbar } = useBreakpoint();
+  const { shouldStackToolbar, width: windowWidth, height: windowHeight } = useBreakpoint();
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [saleCenters, setSaleCenters] = useState<{ Id?: number; Nombre?: string; Local?: string; Activo?: boolean }[]>([]);
@@ -321,7 +329,7 @@ export default function ArqueoCajaScreen() {
   /** Vista previa a pantalla completa al pulsar la miniatura. */
   const [tarjetaLightboxUri, setTarjetaLightboxUri] = useState<string | null>(null);
 
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // 480 no es un breakpoint del sistema (768 / 1024).
   const tarjetaCamposDosColumnas = windowWidth >= 480;
   /** Altura máxima del scroll del modal (~mitad de pantalla, acotada). */
   const tarjetaModalScrollMaxH = useMemo(
@@ -888,7 +896,7 @@ export default function ArqueoCajaScreen() {
         <View style={styles.formMax}>
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.title}>Arqueo de caja</Text>
         </View>
@@ -970,9 +978,9 @@ export default function ArqueoCajaScreen() {
             activeOpacity={0.7}
           >
             {syncingCloseouts ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <MaterialIcons name="sync" size={18} color="#0ea5e9" />
+              <MaterialIcons name="sync" size={18} color={colors.accent} />
             )}
             <Text
               style={[
@@ -1017,7 +1025,7 @@ export default function ArqueoCajaScreen() {
                       const sub = Math.round(q * den.value * 100) / 100;
                       return (
                         <View key={den.label} style={styles.conteoRow}>
-                          <MaterialIcons name="note" size={14} color="#94a3b8" style={styles.conteoRowMiniIcon} />
+                          <MaterialIcons name="note" size={14} color={colors.textMuted} style={styles.conteoRowMiniIcon} />
                           <Text style={styles.conteoDenomLabel} numberOfLines={1}>
                             {den.label}
                           </Text>
@@ -1035,7 +1043,7 @@ export default function ArqueoCajaScreen() {
                               }}
                               keyboardType="number-pad"
                               placeholder="0"
-                              placeholderTextColor="#94a3b8"
+                              placeholderTextColor={colors.textMuted}
                             />
                             <Text style={styles.conteoSub} numberOfLines={1}>
                               {q > 0 ? formatMoneda(sub) : '—'}
@@ -1048,7 +1056,7 @@ export default function ArqueoCajaScreen() {
                   <View style={styles.conteoCol}>
                     <View style={[styles.conteoColHeader, styles.conteoColHeaderMonedas]}>
                       <View style={[styles.conteoColIconCircle, styles.conteoColIconCircleMonedas]}>
-                        <MaterialIcons name="toll" size={22} color="#b45309" />
+                        <MaterialIcons name="toll" size={22} color={statusColors.warning.text} />
                       </View>
                       <Text style={styles.conteoColTitle}>Monedas</Text>
                     </View>
@@ -1060,7 +1068,7 @@ export default function ArqueoCajaScreen() {
                       const sub = Math.round(q * den.value * 100) / 100;
                       return (
                         <View key={den.label} style={styles.conteoRow}>
-                          <MaterialIcons name="lens" size={14} color="#d97706" style={styles.conteoRowMiniIcon} />
+                          <MaterialIcons name="lens" size={14} color={colors.warning} style={styles.conteoRowMiniIcon} />
                           <Text style={styles.conteoDenomLabel} numberOfLines={1}>
                             {den.label}
                           </Text>
@@ -1078,7 +1086,7 @@ export default function ArqueoCajaScreen() {
                               }}
                               keyboardType="number-pad"
                               placeholder="0"
-                              placeholderTextColor="#94a3b8"
+                              placeholderTextColor={colors.textMuted}
                             />
                             <Text style={styles.conteoSub} numberOfLines={1}>
                               {q > 0 ? formatMoneda(sub) : '—'}
@@ -1123,7 +1131,7 @@ export default function ArqueoCajaScreen() {
                   onPress={() => setTarjetaBoletasModalOpen(false)}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                  <MaterialIcons name="close" size={24} color="#64748b" />
+                  <MaterialIcons name="close" size={24} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <Text style={styles.tarjetaModalLead}>
@@ -1155,7 +1163,7 @@ export default function ArqueoCajaScreen() {
                           </TouchableOpacity>
                         ) : (
                           <View style={styles.tarjetaThumbPlaceholder}>
-                            <MaterialIcons name="image" size={22} color="#cbd5e1" />
+                            <MaterialIcons name="image" size={22} color={colors.borderStrong} />
                           </View>
                         )}
                         <View style={styles.tarjetaTableRowMain}>
@@ -1166,7 +1174,7 @@ export default function ArqueoCajaScreen() {
                             onChangeText={(text) => updateTarjetaLinea(line.id, { importe: text })}
                             keyboardType="decimal-pad"
                             placeholder="Importe"
-                            placeholderTextColor="#94a3b8"
+                            placeholderTextColor={colors.textMuted}
                           />
                           <Text style={styles.tarjetaTableBancoHint} numberOfLines={1}>
                             {line.banco ? etiquetaBanco(line.banco) : 'Sin banco'}
@@ -1177,7 +1185,7 @@ export default function ArqueoCajaScreen() {
                           onPress={() => setTarjetaLineaExpandidaId(expanded ? null : line.id)}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                          <MaterialIcons name={expanded ? 'expand-less' : 'expand-more'} size={24} color="#64748b" />
+                          <MaterialIcons name={expanded ? 'expand-less' : 'expand-more'} size={24} color={colors.textMuted} />
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.tarjetaRowDeleteBtn}
@@ -1187,7 +1195,7 @@ export default function ArqueoCajaScreen() {
                           }}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                          <MaterialIcons name="delete-outline" size={22} color="#b91c1c" />
+                          <MaterialIcons name="delete-outline" size={22} color={statusColors.danger.text} />
                         </TouchableOpacity>
                       </View>
                       <View style={styles.tarjetaTableIconRow}>
@@ -1197,7 +1205,7 @@ export default function ArqueoCajaScreen() {
                             onPress={() => capturarEscanearBoleta(line.id, 'camera')}
                             accessibilityLabel="Cámara"
                           >
-                            <MaterialIcons name="photo-camera" size={20} color="#0369a1" />
+                            <MaterialIcons name="photo-camera" size={20} color={statusColors.info.text} />
                           </TouchableOpacity>
                         ) : null}
                         <TouchableOpacity
@@ -1205,7 +1213,7 @@ export default function ArqueoCajaScreen() {
                           onPress={() => capturarEscanearBoleta(line.id, 'library')}
                           accessibilityLabel="Galería"
                         >
-                          <MaterialIcons name="photo-library" size={20} color="#0369a1" />
+                          <MaterialIcons name="photo-library" size={20} color={statusColors.info.text} />
                         </TouchableOpacity>
                         {imgUri ? (
                           <TouchableOpacity
@@ -1219,12 +1227,12 @@ export default function ArqueoCajaScreen() {
                             accessibilityLabel={line.ocrCompletado ? 'OCR completado' : 'Escanear OCR'}
                           >
                             {ocrLineId === line.id ? (
-                              <ActivityIndicator size="small" color={line.ocrCompletado ? '#15803d' : '#0369a1'} />
+                              <ActivityIndicator size="small" color={line.ocrCompletado ? statusColors.success.text : statusColors.info.text} />
                             ) : (
                               <MaterialIcons
                                 name="document-scanner"
                                 size={20}
-                                color={line.ocrCompletado ? '#15803d' : '#0369a1'}
+                                color={line.ocrCompletado ? statusColors.success.text : statusColors.info.text}
                               />
                             )}
                           </TouchableOpacity>
@@ -1237,7 +1245,7 @@ export default function ArqueoCajaScreen() {
                               style={styles.tarjetaSinFotoRow}
                               onPress={() => capturarEscanearBoleta(line.id, 'library')}
                             >
-                              <MaterialIcons name="add-a-photo" size={18} color="#0369a1" />
+                              <MaterialIcons name="add-a-photo" size={18} color={statusColors.info.text} />
                               <Text style={styles.tarjetaSinFotoText}>Añadir imagen (galería)</Text>
                             </TouchableOpacity>
                           ) : null}
@@ -1259,7 +1267,7 @@ export default function ArqueoCajaScreen() {
                                   value={line.numeroComercio}
                                   onChangeText={(text) => updateTarjetaLinea(line.id, { numeroComercio: text })}
                                   placeholder="Nº comercio"
-                                  placeholderTextColor="#94a3b8"
+                                  placeholderTextColor={colors.textMuted}
                                 />
                               </View>
                               <TextInput
@@ -1267,7 +1275,7 @@ export default function ArqueoCajaScreen() {
                                 value={line.fechaHora}
                                 onChangeText={(text) => updateTarjetaLinea(line.id, { fechaHora: text })}
                                 placeholder="Fecha y hora"
-                                placeholderTextColor="#94a3b8"
+                                placeholderTextColor={colors.textMuted}
                               />
                             </>
                           ) : (
@@ -1286,14 +1294,14 @@ export default function ArqueoCajaScreen() {
                                 value={line.numeroComercio}
                                 onChangeText={(text) => updateTarjetaLinea(line.id, { numeroComercio: text })}
                                 placeholder="Nº comercio / afiliación"
-                                placeholderTextColor="#94a3b8"
+                                placeholderTextColor={colors.textMuted}
                               />
                               <TextInput
                                 style={styles.tarjetaLineaInputCompact}
                                 value={line.fechaHora}
                                 onChangeText={(text) => updateTarjetaLinea(line.id, { fechaHora: text })}
                                 placeholder="Fecha y hora"
-                                placeholderTextColor="#94a3b8"
+                                placeholderTextColor={colors.textMuted}
                               />
                             </>
                           )}
@@ -1309,7 +1317,7 @@ export default function ArqueoCajaScreen() {
                   onPress={addTarjetaLinea}
                   disabled={tarjetaLineas.length >= 20}
                 >
-                  <MaterialIcons name="add-circle-outline" size={20} color="#0369a1" />
+                  <MaterialIcons name="add-circle-outline" size={20} color={statusColors.info.text} />
                   <Text style={styles.tarjetaModalFooterBtnText}>Añadir boleta</Text>
                 </TouchableOpacity>
                 {tarjetaLineas.length > 0 ? (
@@ -1337,7 +1345,7 @@ export default function ArqueoCajaScreen() {
               onPress={() => setTarjetaLightboxUri(null)}
               hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
             >
-              <MaterialIcons name="close" size={28} color="#f8fafc" />
+              <MaterialIcons name="close" size={28} color={colors.bg} />
             </TouchableOpacity>
             <Pressable style={styles.tarjetaLightboxInner} onPress={() => setTarjetaLightboxUri(null)}>
               {tarjetaLightboxUri ? (
@@ -1348,12 +1356,12 @@ export default function ArqueoCajaScreen() {
         </Modal>
 
         {loadingCompare && formLocal && formPosId && businessDayIso ? (
-          <ActivityIndicator style={{ marginVertical: 12 }} color="#0ea5e9" />
+          <ActivityIndicator style={{ marginVertical: 12 }} color={colors.accent} />
         ) : null}
 
         {error ? (
           <View style={styles.errBox}>
-            <MaterialIcons name="error-outline" size={18} color="#dc2626" />
+            <MaterialIcons name="error-outline" size={18} color={colors.danger} />
             <Text style={styles.errText}>{error}</Text>
           </View>
         ) : null}
@@ -1408,7 +1416,7 @@ export default function ArqueoCajaScreen() {
                               onPress={openTarjetaBoletasModal}
                               accessibilityLabel={`Gestionar boletas, ${tarjetaLineas.length} líneas`}
                             >
-                              <MaterialIcons name="receipt-long" size={18} color="#0ea5e9" />
+                              <MaterialIcons name="receipt-long" size={18} color={colors.accent} />
                               <Text style={styles.tarjetaModalOpenBtnText}>Boletas ({tarjetaLineas.length})</Text>
                             </TouchableOpacity>
                             <TextInput
@@ -1416,7 +1424,7 @@ export default function ArqueoCajaScreen() {
                               value={formatMoneda(totalTarjetaImporte).replace(' €', '')}
                               editable={false}
                               placeholder="0,00"
-                              placeholderTextColor="#94a3b8"
+                              placeholderTextColor={colors.textMuted}
                             />
                           </View>
                         ) : (
@@ -1426,7 +1434,7 @@ export default function ArqueoCajaScreen() {
                               onPress={openTarjetaBoletasModal}
                               accessibilityLabel="Abrir boletas por líneas"
                             >
-                              <MaterialIcons name="receipt-long" size={18} color="#0ea5e9" />
+                              <MaterialIcons name="receipt-long" size={18} color={colors.accent} />
                             </TouchableOpacity>
                             <TextInput
                               style={[styles.inputNum, styles.inputNumEfectivo]}
@@ -1434,7 +1442,7 @@ export default function ArqueoCajaScreen() {
                               onChangeText={setTarjetaReal}
                               keyboardType="decimal-pad"
                               placeholder="0,00"
-                              placeholderTextColor="#94a3b8"
+                              placeholderTextColor={colors.textMuted}
                             />
                           </View>
                         )}
@@ -1449,7 +1457,7 @@ export default function ArqueoCajaScreen() {
                     {tarjetaLineas.length > 0 ? (
                       <TouchableOpacity onPress={openTarjetaBoletasModal} style={styles.tarjetaHintUnderRow}>
                         <Text style={styles.tarjetaHintUnderRowText}>Editar boletas y fotos en el panel</Text>
-                        <MaterialIcons name="open-in-new" size={14} color="#0ea5e9" />
+                        <MaterialIcons name="open-in-new" size={14} color={colors.accent} />
                       </TouchableOpacity>
                     ) : null}
                   </View>
@@ -1469,12 +1477,12 @@ export default function ArqueoCajaScreen() {
                       {!row.arquear ? (
                         <View style={styles.agoraRealSync}>
                           <Text style={styles.agoraRealSyncText}>{formatMoneda(t)}</Text>
-                          <MaterialIcons name="sync" size={16} color="#64748b" />
+                          <MaterialIcons name="sync" size={16} color={colors.textMuted} />
                         </View>
                       ) : row.auto ? (
                         <View style={styles.agoraRealSync}>
                           <Text style={styles.agoraRealSyncText}>{formatMoneda(realDeGrupo(row.grupo, row))}</Text>
-                          <MaterialIcons name="swap-horiz" size={16} color="#0369a1" />
+                          <MaterialIcons name="swap-horiz" size={16} color={statusColors.info.text} />
                         </View>
                       ) : esEfectivo ? (
                         <View style={styles.efectivoRealRow}>
@@ -1483,7 +1491,7 @@ export default function ArqueoCajaScreen() {
                             onPress={() => setConteoEfectivoOpen(true)}
                             accessibilityLabel="Contar billetes y monedas"
                           >
-                            <MaterialIcons name="calculate" size={18} color="#0ea5e9" />
+                            <MaterialIcons name="calculate" size={18} color={colors.accent} />
                           </TouchableOpacity>
                           <TextInput
                             style={[styles.inputNum, styles.inputNumEfectivo]}
@@ -1491,7 +1499,7 @@ export default function ArqueoCajaScreen() {
                             onChangeText={setEfectivoReal}
                             keyboardType="decimal-pad"
                             placeholder="0,00"
-                            placeholderTextColor="#94a3b8"
+                            placeholderTextColor={colors.textMuted}
                           />
                         </View>
                       ) : (
@@ -1501,7 +1509,7 @@ export default function ArqueoCajaScreen() {
                           onChangeText={(text) => setOtroReal(row.grupo, text)}
                           keyboardType="decimal-pad"
                           placeholder="0,00"
-                          placeholderTextColor="#94a3b8"
+                          placeholderTextColor={colors.textMuted}
                         />
                       )}
                     </View>
@@ -1540,9 +1548,9 @@ export default function ArqueoCajaScreen() {
               }
               activeOpacity={0.8}
             >
-              <MaterialIcons name="swap-horiz" size={18} color="#0369a1" />
+              <MaterialIcons name="swap-horiz" size={18} color={statusColors.info.text} />
               <Text style={styles.movLinkBtnText}>Movimientos de caja (retiradas y transferencias)</Text>
-              <MaterialIcons name="chevron-right" size={18} color="#0369a1" />
+              <MaterialIcons name="chevron-right" size={18} color={statusColors.info.text} />
             </TouchableOpacity>
 
             <View style={styles.tpvEstadoRow}>
@@ -1553,7 +1561,7 @@ export default function ArqueoCajaScreen() {
                     <MaterialIcons
                       name={compare.estado === 'cerrado' ? 'lock' : 'edit'}
                       size={13}
-                      color={compare.estado === 'cerrado' ? '#15803d' : '#b45309'}
+                      color={compare.estado === 'cerrado' ? statusColors.success.text : statusColors.warning.text}
                     />
                     <Text style={[styles.estadoChipText, compare.estado === 'cerrado' ? styles.estadoChipTextCerrado : styles.estadoChipTextBorrador]}>
                       {compare.estado === 'cerrado' ? 'Cerrado' : 'Borrador'}
@@ -1581,10 +1589,10 @@ export default function ArqueoCajaScreen() {
             disabled={jornadaBusy || jornada?.estado === 'cerrada'}
           >
             {jornadaBusy ? (
-              <ActivityIndicator color="#b45309" />
+              <ActivityIndicator color={statusColors.warning.text} />
             ) : (
               <>
-                <MaterialIcons name="lock-open" size={20} color="#b45309" />
+                <MaterialIcons name="lock-open" size={20} color={statusColors.warning.text} />
                 <Text style={styles.reabrirBtnText}>Reabrir arqueo para editar</Text>
               </>
             )}
@@ -1596,10 +1604,10 @@ export default function ArqueoCajaScreen() {
             disabled={saving || !businessDayIso || !formLocal || !formPosId}
           >
             {saving ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={colors.surface} />
             ) : (
               <>
-                <MaterialIcons name="lock" size={20} color="#fff" />
+                <MaterialIcons name="lock" size={20} color={colors.surface} />
                 <Text style={styles.saveBtnText}>Guardar y cerrar arqueo</Text>
               </>
             )}
@@ -1614,14 +1622,14 @@ export default function ArqueoCajaScreen() {
           <View style={styles.jornadaCard}>
             <View style={styles.jornadaHeader}>
               <View style={styles.jornadaHeaderLeft}>
-                <MaterialIcons name="storefront" size={18} color="#334155" />
+                <MaterialIcons name="storefront" size={18} color={colors.textPrimary} />
                 <Text style={styles.jornadaTitle}>Jornada del local</Text>
               </View>
               <View style={[styles.estadoChip, jornada.estado === 'cerrada' ? styles.estadoChipCerrado : styles.estadoChipBorrador]}>
                 <MaterialIcons
                   name={jornada.estado === 'cerrada' ? 'lock' : 'lock-open'}
                   size={13}
-                  color={jornada.estado === 'cerrada' ? '#15803d' : '#b45309'}
+                  color={jornada.estado === 'cerrada' ? statusColors.success.text : statusColors.warning.text}
                 />
                 <Text style={[styles.estadoChipText, jornada.estado === 'cerrada' ? styles.estadoChipTextCerrado : styles.estadoChipTextBorrador]}>
                   {jornada.estado === 'cerrada' ? 'Cerrada' : 'Abierta'}
@@ -1637,7 +1645,7 @@ export default function ArqueoCajaScreen() {
                   <MaterialIcons
                     name={a.estado === 'cerrado' ? 'check-circle' : 'radio-button-unchecked'}
                     size={16}
-                    color={a.estado === 'cerrado' ? '#16a34a' : '#cbd5e1'}
+                    color={a.estado === 'cerrado' ? colors.success : colors.borderStrong}
                   />
                   <Text style={styles.jornadaTpvName} numberOfLines={1}>{a.posName || `TPV ${a.posId}`}</Text>
                   <Text
@@ -1677,7 +1685,7 @@ export default function ArqueoCajaScreen() {
                     onPress={() => cambiarEstadoJornada('reabrir')}
                     disabled={jornadaBusy}
                   >
-                    {jornadaBusy ? <ActivityIndicator size="small" color="#b45309" /> : <MaterialIcons name="lock-open" size={16} color="#b45309" />}
+                    {jornadaBusy ? <ActivityIndicator size="small" color={statusColors.warning.text} /> : <MaterialIcons name="lock-open" size={16} color={statusColors.warning.text} />}
                     <Text style={styles.estadoBtnReabrirText}>Reabrir jornada</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -1694,7 +1702,7 @@ export default function ArqueoCajaScreen() {
                   onPress={() => cambiarEstadoJornada('cerrar')}
                   disabled={!jornada.puedeCerrar || jornadaBusy}
                 >
-                  {jornadaBusy ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="lock" size={16} color="#fff" />}
+                  {jornadaBusy ? <ActivityIndicator size="small" color={colors.surface} /> : <MaterialIcons name="lock" size={16} color={colors.surface} />}
                   <Text style={styles.estadoBtnCerrarText}>Cerrar jornada del local</Text>
                 </TouchableOpacity>
               </>
@@ -1709,11 +1717,14 @@ export default function ArqueoCajaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: colors.bg },
   content: {
-    padding: 16,
+    padding: SPACING.lg,
     paddingBottom: 40,
     alignItems: 'center',
   },
@@ -1722,15 +1733,15 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 560,
   },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  lead: { fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 20 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: SPACING.sm },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  lead: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, marginBottom: SPACING.lg, lineHeight: 20 },
   filtrosRow: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
     alignItems: 'flex-end',
-    gap: 8,
+    gap: SPACING.sm,
     marginBottom: 18,
     width: '100%',
   },
@@ -1770,35 +1781,35 @@ const styles = StyleSheet.create({
   syncRow: {
     width: '100%',
     marginBottom: 14,
-    gap: 8,
+    gap: SPACING.sm,
   },
   syncBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 10,
     paddingHorizontal: 14,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 10,
+    backgroundColor: colors.accentMuted,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
   syncBtnDisabled: { opacity: 0.55 },
-  syncBtnText: { fontSize: 14, fontWeight: '600', color: '#0369a1' },
-  syncBtnTextDisabled: { color: '#94a3b8' },
-  syncHint: { fontSize: 11, color: '#64748b', lineHeight: 16 },
+  syncBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
+  syncBtnTextDisabled: { color: colors.textMuted },
+  syncHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 16 },
   labelFiltros: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#64748b',
-    marginBottom: 4,
+    fontSize: fontSizes.badge,
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textMuted,
+    marginBottom: SPACING.xs,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   inputFechaCompact: {
-    fontSize: 13,
-    paddingVertical: 8,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
     minHeight: 40,
   },
@@ -1813,32 +1824,32 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     maxHeight: '80%',
-    padding: 16,
+    padding: SPACING.lg,
     ...(Platform.OS === 'web'
       ? { boxShadow: '0 16px 48px rgba(0,0,0,0.2)', zIndex: 10000 } as object
       : { elevation: 12 }),
   },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 12 },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginBottom: SPACING.md },
   errBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     padding: 10,
-    backgroundColor: '#fef2f2',
-    borderRadius: 8,
-    marginTop: 12,
+    backgroundColor: statusColors.danger.bg,
+    borderRadius: RADIO_MEDIO,
+    marginTop: SPACING.md,
   },
-  errText: { flex: 1, fontSize: 12, color: '#b91c1c' },
+  errText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.danger.text },
   card: {
-    marginTop: 16,
+    marginTop: SPACING.lg,
     padding: 14,
-    backgroundColor: '#fff',
-    borderRadius: 10,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
   cardTitleRow: {
     flexDirection: 'row',
@@ -1846,63 +1857,64 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
-    marginBottom: 4,
+    marginBottom: SPACING.xs,
   },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: '#334155', flexShrink: 1 },
+  cardTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, flexShrink: 1 },
   descuadreBox: {
     alignItems: 'flex-end',
-    paddingVertical: 4,
+    paddingVertical: SPACING.xs,
     paddingHorizontal: 10,
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
+    backgroundColor: colors.bg,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
   descuadreLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#64748b',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     marginBottom: 2,
   },
-  descuadreVal: { fontSize: 15, fontWeight: '700' },
-  cardMeta: { fontSize: 11, color: '#94a3b8', marginBottom: 12 },
-  rowCompare: { marginBottom: 14, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12 },
-  rowLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 6 },
-  rowCols: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  descuadreVal: { fontVariant: ['tabular-nums'], fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  cardMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginBottom: SPACING.md },
+  rowCompare: { marginBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.navActive, paddingBottom: SPACING.md },
+  rowLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: 6 },
+  rowCols: { flexDirection: 'row', gap: SPACING.sm, flexWrap: 'wrap' },
   colTeo: { flex: 1, minWidth: 90 },
   colReal: { flex: 1, minWidth: 100 },
   colDiff: { width: 88 },
-  colHdr: { fontSize: 10, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' },
-  colVal: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  colHdr: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, marginBottom: 2, textTransform: 'uppercase' },
+  colVal: { fontVariant: ['tabular-nums'], fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   inputNum: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 6,
-    paddingHorizontal: 8,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.sm,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
-    fontSize: 14,
-    color: '#334155',
-    backgroundColor: '#f8fafc',
+    fontVariant: ['tabular-nums'],
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textPrimary,
+    backgroundColor: colors.bg,
   },
   /** AgoraPay real = teórico (sincronizado), no editable. */
   agoraRealSync: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#f1f5f9',
+    paddingVertical: SPACING.sm,
+    backgroundColor: colors.navActive,
     minHeight: 38,
   },
   agoraRealSyncText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#334155',
+    fontSize: fontSizes[14],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
     flex: 1,
   },
   efectivoRealRow: {
@@ -1914,10 +1926,10 @@ const styles = StyleSheet.create({
   inputNumEfectivo: { flex: 1, minWidth: 0 },
   conteoEfectivoBtn: {
     padding: 5,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
     flexShrink: 0,
   },
   tarjetaRealSumRow: {
@@ -1929,16 +1941,16 @@ const styles = StyleSheet.create({
   tarjetaModalOpenBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 6,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
     flexShrink: 0,
   },
-  tarjetaModalOpenBtnText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
+  tarjetaModalOpenBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
   tarjetaHintUnderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1946,13 +1958,13 @@ const styles = StyleSheet.create({
     marginTop: 6,
     alignSelf: 'flex-start',
   },
-  tarjetaHintUnderRowText: { fontSize: 11, color: '#64748b' },
+  tarjetaHintUnderRowText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
   tarjetaModalSheet: {
     maxWidth: 560,
     width: '100%',
     maxHeight: '92%',
-    padding: 16,
-    paddingBottom: 12,
+    padding: SPACING.lg,
+    paddingBottom: SPACING.md,
   },
   tarjetaModalHeader: {
     flexDirection: 'row',
@@ -1960,58 +1972,59 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 6,
   },
-  tarjetaModalTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a', flex: 1, marginRight: 8 },
-  tarjetaModalLead: { fontSize: 11, color: '#64748b', lineHeight: 16, marginBottom: 8 },
+  /** 17 px: entre fontSizes[16] y fontSizes[18]. */
+  tarjetaModalTitle: { fontSize: 17, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flex: 1, marginRight: SPACING.sm },
+  tarjetaModalLead: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 16, marginBottom: SPACING.sm },
   tarjetaModalScroll: { flexGrow: 0 },
-  tarjetaModalScrollContent: { paddingBottom: 6, gap: 8 },
-  tarjetaModalEmpty: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginBottom: 4 },
+  tarjetaModalScrollContent: { paddingBottom: 6, gap: SPACING.sm },
+  tarjetaModalEmpty: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, fontStyle: 'italic', marginBottom: SPACING.xs },
   tarjetaModalLineCard: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 10,
+    backgroundColor: colors.bg,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 8,
+    borderColor: colors.border,
+    padding: SPACING.sm,
     gap: 6,
   },
   tarjetaTableRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: SPACING.sm,
   },
   tarjetaThumb: {
     width: 48,
     height: 48,
-    borderRadius: 6,
-    backgroundColor: '#fff',
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
   tarjetaThumbPlaceholder: {
     width: 48,
     height: 48,
-    borderRadius: 6,
-    backgroundColor: '#f1f5f9',
+    borderRadius: radius.sm,
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tarjetaTableRowMain: { flex: 1, minWidth: 0 },
-  tarjetaTableBoleta: { fontSize: 11, fontWeight: '700', color: '#64748b', marginBottom: 2 },
+  tarjetaTableBoleta: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, marginBottom: 2 },
   tarjetaTableImporte: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#334155',
-    backgroundColor: '#fff',
+    borderColor: colors.borderStrong,
+    borderRadius: radius.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    fontSize: fontSizes[14],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
   },
-  tarjetaTableBancoHint: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
-  tarjetaExpandBtn: { padding: 2, marginTop: 4 },
-  tarjetaRowDeleteBtn: { padding: 2, marginTop: 4 },
+  tarjetaTableBancoHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 2 },
+  tarjetaExpandBtn: { padding: 2, marginTop: SPACING.xs },
+  tarjetaRowDeleteBtn: { padding: 2, marginTop: SPACING.xs },
   tarjetaTableIconRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2020,50 +2033,50 @@ const styles = StyleSheet.create({
     marginTop: 0,
   },
   tarjetaIconOnly: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#f0f9ff',
+    padding: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
   tarjetaIconOnlyOcrOk: {
-    backgroundColor: '#dcfce7',
+    backgroundColor: statusColors.success.bg,
     borderColor: '#86efac',
   },
-  tarjetaModalDetail: { gap: 6, marginTop: 2, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  tarjetaModalDetail: { gap: 6, marginTop: 2, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.border },
   tarjetaSinFotoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 6,
     marginBottom: 2,
   },
-  tarjetaSinFotoText: { fontSize: 12, color: '#0369a1', fontWeight: '600' },
-  tarjetaDetailRow2: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  tarjetaSinFotoText: { fontSize: fontSizes[12], color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  tarjetaDetailRow2: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'flex-start' },
   tarjetaLineaFieldGrow: { flex: 1, minWidth: 0 },
   tarjetaLineaInputCompact: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 6,
-    paddingHorizontal: 8,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.sm,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
-    fontSize: 13,
-    color: '#334155',
-    backgroundColor: '#fff',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
   },
   tarjetaLineaBtnDis: { opacity: 0.6 },
   tarjetaLightboxWrap: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.92)',
     justifyContent: 'center',
-    padding: 12,
+    padding: SPACING.md,
   },
   tarjetaLightboxClose: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 48 : 24,
     right: 16,
     zIndex: 2,
-    padding: 8,
+    padding: SPACING.sm,
   },
   tarjetaLightboxInner: {
     flex: 1,
@@ -2076,10 +2089,10 @@ const styles = StyleSheet.create({
     maxHeight: 720,
   },
   tarjetaModalFooter: {
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: SPACING.md,
+    paddingTop: SPACING.md,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: colors.navActive,
     gap: 10,
     alignItems: 'stretch',
   },
@@ -2087,20 +2100,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
     paddingHorizontal: 14,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 10,
+    backgroundColor: colors.accentMuted,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
   tarjetaModalFooterBtnDis: { opacity: 0.45 },
-  tarjetaModalFooterBtnText: { fontSize: 14, fontWeight: '600', color: '#0369a1' },
-  tarjetaModalFooterLink: { alignSelf: 'center', paddingVertical: 4 },
-  tarjetaModalFooterLinkText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
-  tarjetaModalCerrar: { alignSelf: 'center', paddingVertical: 8 },
-  tarjetaModalCerrarText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  tarjetaModalFooterBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
+  tarjetaModalFooterLink: { alignSelf: 'center', paddingVertical: SPACING.xs },
+  tarjetaModalFooterLinkText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  tarjetaModalCerrar: { alignSelf: 'center', paddingVertical: SPACING.sm },
+  tarjetaModalCerrarText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
   /** Más aire respecto a los bordes de pantalla que el backdrop genérico. */
   modalBackdropConteo: {
     flex: 1,
@@ -2111,7 +2124,7 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? { zIndex: 9999 } as object : {}),
   },
   modalSheetConteo: { maxWidth: 640, paddingHorizontal: 20, paddingVertical: 18 },
-  conteoIntro: { fontSize: 12, color: '#64748b', marginBottom: 10, lineHeight: 18 },
+  conteoIntro: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginBottom: 10, lineHeight: 18 },
   conteoScroll: { maxHeight: 320 },
   /** Aire entre el contenido y la barra de scroll (columna monedas / borde derecho). */
   conteoScrollContent: { paddingRight: 14 },
@@ -2134,8 +2147,8 @@ const styles = StyleSheet.create({
   conteoColHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
     paddingBottom: 8,
     borderBottomWidth: 2,
   },
@@ -2144,19 +2157,19 @@ const styles = StyleSheet.create({
   conteoColIconCircle: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: radius.md,
     backgroundColor: '#f0fdfa',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  conteoColIconCircleMonedas: { backgroundColor: '#fffbeb' },
-  conteoColTitle: { fontSize: 14, fontWeight: '700', color: '#334155', flex: 1 },
+  conteoColIconCircleMonedas: { backgroundColor: statusColors.warning.bg },
+  conteoColTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, flex: 1 },
   conteoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 5,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
     gap: 2,
   },
   conteoRowMiniIcon: { width: 14, marginRight: 0 },
@@ -2165,27 +2178,28 @@ const styles = StyleSheet.create({
     width: 56,
     flexShrink: 0,
     marginRight: 2,
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#475569',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
   },
   conteoQtyInput: {
     width: 48,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 6,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.sm,
     paddingHorizontal: 4,
     paddingVertical: 5,
-    fontSize: 13,
-    color: '#334155',
-    backgroundColor: '#fff',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     textAlign: 'center',
   },
   conteoSub: {
     width: 76,
     flexShrink: 0,
-    fontSize: 10,
-    color: '#64748b',
+    fontVariant: ['tabular-nums'],
+    fontFamily: fontFamily.regular, fontSize: fontSizes.badge,
+    color: colors.textMuted,
     textAlign: 'right',
   },
   conteoTotalBar: {
@@ -2195,111 +2209,111 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: colors.border,
   },
-  conteoTotalLabel: { fontSize: 14, fontWeight: '700', color: '#334155' },
-  conteoTotalVal: { fontSize: 16, fontWeight: '700', color: '#0ea5e9' },
+  conteoTotalLabel: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  conteoTotalVal: { fontVariant: ['tabular-nums'], fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent },
   conteoActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACING.sm,
     marginTop: 14,
     justifyContent: 'flex-end',
   },
   conteoBtnSecondary: {
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
   },
-  conteoBtnSecondaryText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  conteoBtnSecondaryText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
   conteoBtnPrimary: {
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    paddingHorizontal: SPACING.lg,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accent,
   },
-  conteoBtnPrimaryText: { fontSize: 14, fontWeight: '700', color: '#fff' },
-  movNota: { fontSize: 11, color: '#64748b', fontStyle: 'italic', marginTop: 6 },
+  conteoBtnPrimaryText: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
+  movNota: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontStyle: 'italic', marginTop: 6 },
   tpvEstadoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: SPACING.md,
+    paddingTop: SPACING.md,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: colors.navActive,
   },
-  tpvEstadoLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
-  tpvEstadoLabel: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  tpvEstadoHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
-  estadoChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 999, borderWidth: 1 },
-  estadoChipBorrador: { backgroundColor: '#fffbeb', borderColor: '#fcd34d' },
-  estadoChipCerrado: { backgroundColor: '#dcfce7', borderColor: '#86efac' },
-  estadoChipText: { fontSize: 11, fontWeight: '700' },
-  estadoChipTextBorrador: { color: '#b45309' },
-  estadoChipTextCerrado: { color: '#15803d' },
-  estadoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
-  estadoBtnCerrar: { backgroundColor: '#16a34a' },
-  estadoBtnCerrarText: { fontSize: 13, fontWeight: '700', color: '#fff' },
-  estadoBtnReabrir: { backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fcd34d' },
-  estadoBtnReabrirText: { fontSize: 13, fontWeight: '700', color: '#b45309' },
+  tpvEstadoLeft: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexShrink: 1 },
+  tpvEstadoLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  tpvEstadoHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic' },
+  estadoChip: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: 3, paddingHorizontal: SPACING.sm, borderRadius: radius.pill, borderWidth: 1 },
+  estadoChipBorrador: { backgroundColor: statusColors.warning.bg, borderColor: '#fcd34d' },
+  estadoChipCerrado: { backgroundColor: statusColors.success.bg, borderColor: '#86efac' },
+  estadoChipText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  estadoChipTextBorrador: { color: statusColors.warning.text },
+  estadoChipTextCerrado: { color: statusColors.success.text },
+  estadoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md, borderRadius: RADIO_MEDIO },
+  estadoBtnCerrar: { backgroundColor: colors.success },
+  estadoBtnCerrarText: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
+  estadoBtnReabrir: { backgroundColor: statusColors.warning.bg, borderWidth: 1, borderColor: '#fcd34d' },
+  estadoBtnReabrirText: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.warning.text },
   jornadaCard: {
-    marginTop: 16,
+    marginTop: SPACING.lg,
     padding: 14,
-    backgroundColor: '#fff',
-    borderRadius: 10,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
   jornadaHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  jornadaHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  jornadaTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  jornadaEmpty: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', paddingVertical: 6 },
-  jornadaTpvRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  jornadaTpvName: { flex: 1, minWidth: 0, fontSize: 13, color: '#334155', fontWeight: '500' },
-  jornadaTpvDesc: { fontSize: 13, fontWeight: '700', width: 90, textAlign: 'right' },
-  jornadaTpvEstado: { fontSize: 11, fontWeight: '700', width: 64, textAlign: 'right' },
-  jornadaTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  jornadaTotalLabel: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  jornadaTotalVal: { fontSize: 16, fontWeight: '700' },
-  jornadaMeta: { fontSize: 11, color: '#94a3b8', marginTop: 4 },
-  jornadaWarn: { fontSize: 11, color: '#b45309', fontStyle: 'italic', marginTop: 10 },
-  jornadaActionBtn: { justifyContent: 'center', marginTop: 12 },
+  jornadaHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  jornadaTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  jornadaEmpty: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic', paddingVertical: 6 },
+  jornadaTpvRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.navActive },
+  jornadaTpvName: { flex: 1, minWidth: 0, fontSize: fontSizes[13], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  jornadaTpvDesc: { fontVariant: ['tabular-nums'], fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, width: 90, textAlign: 'right' },
+  jornadaTpvEstado: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, width: 64, textAlign: 'right' },
+  jornadaTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border },
+  jornadaTotalLabel: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  jornadaTotalVal: { fontVariant: ['tabular-nums'], fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  jornadaMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: SPACING.xs },
+  jornadaWarn: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: statusColors.warning.text, fontStyle: 'italic', marginTop: 10 },
+  jornadaActionBtn: { justifyContent: 'center', marginTop: SPACING.md },
   movLinkBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginTop: 6,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingHorizontal: SPACING.md,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
   },
-  movLinkBtnText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0369a1' },
+  movLinkBtnText: { flex: 1, fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
   diffOk: { color: '#059669' },
-  diffBad: { color: '#dc2626' },
-  hint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginTop: 8 },
+  diffBad: { color: colors.danger },
+  hint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic', marginTop: SPACING.sm },
   saveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginTop: 20,
     paddingVertical: 14,
-    backgroundColor: '#0ea5e9',
-    borderRadius: 10,
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
   },
   saveBtnDis: { opacity: 0.6 },
-  saveBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  reabrirBtn: { backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fcd34d' },
-  reabrirBtnText: { fontSize: 15, fontWeight: '700', color: '#b45309' },
-  hintCentro: { fontSize: 12, color: '#b45309', marginTop: 8, textAlign: 'center' },
-  okText: { fontSize: 13, color: '#059669', marginTop: 10, textAlign: 'center' },
-  errorText: { padding: 16, color: '#b91c1c' },
+  saveBtnText: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
+  reabrirBtn: { backgroundColor: statusColors.warning.bg, borderWidth: 1, borderColor: '#fcd34d' },
+  reabrirBtnText: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.warning.text },
+  hintCentro: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.warning.text, marginTop: SPACING.sm, textAlign: 'center' },
+  okText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: '#059669', marginTop: 10, textAlign: 'center' },
+  errorText: { padding: SPACING.lg, color: statusColors.danger.text },
 });
