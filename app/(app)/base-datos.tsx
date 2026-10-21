@@ -5,6 +5,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { HubNavCard, HubNavGrid } from '../components/ui/HubNavCard';
 import { useHubNavGrid } from '../hooks/useHubNavGrid';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 
 type TablaHub = {
   id: string;
@@ -17,8 +25,8 @@ type TablaHub = {
 };
 
 const TABLAS: TablaHub[] = [
-  { id: 'usuarios', label: 'Usuarios', icon: 'people', descripcion: 'Cuentas y permisos de acceso', permiso: 'usuarios.ver', accentBg: '#e0f2fe', accentFg: '#0ea5e9' },
-  { id: 'locales', label: 'Locales', icon: 'store', descripcion: 'Sedes y puntos de venta', permiso: 'locales.ver', accentBg: '#dcfce7', accentFg: '#16a34a' },
+  { id: 'usuarios', label: 'Usuarios', icon: 'people', descripcion: 'Cuentas y permisos de acceso', permiso: 'usuarios.ver', accentBg: colors.accentMuted, accentFg: colors.accent },
+  { id: 'locales', label: 'Locales', icon: 'store', descripcion: 'Sedes y puntos de venta', permiso: 'locales.ver', accentBg: statusColors.success.bg, accentFg: colors.success },
   { id: 'almacenes', label: 'Almacenes', icon: 'local-shipping', descripcion: 'Almacenes y depósitos', permiso: 'almacenes.ver', accentBg: '#ede9fe', accentFg: '#7c3aed' },
   { id: 'empresas', label: 'Empresas', icon: 'business', descripcion: 'Listado de empresas', permiso: 'empresas.ver', accentBg: '#ccfbf1', accentFg: '#0d9488' },
   { id: 'productos', label: 'Productos', icon: 'inventory', descripcion: 'Carta y stock', permiso: 'productos.ver', accentBg: '#e0e7ff', accentFg: '#4f46e5' },
@@ -26,10 +34,10 @@ const TABLAS: TablaHub[] = [
   { id: 'artistas', label: 'Artistas', icon: 'mic', descripcion: 'Actuaciones y programación', permiso: 'actuaciones.ver', accentBg: '#fce7f3', accentFg: '#db2777' },
   { id: 'personal', label: 'Personal', icon: 'badge', descripcion: 'Empleados (Factorial HR)', permiso: 'personal.ver', accentBg: '#d1fae5', accentFg: '#059669' },
   { id: 'usuarios-agora', label: 'Usuarios Ágora', icon: 'person-pin', descripcion: 'Maestro de usuarios de Ágora', permiso: 'usuarios_agora.ver', accentBg: '#dbeafe', accentFg: '#2563eb' },
-  { id: 'formas-pago', label: 'Formas de Pago', icon: 'account-balance-wallet', descripcion: 'Formas de pago de Ágora y arqueo', permiso: 'cierres.ver', accentBg: '#ffedd5', accentFg: '#d97706' },
+  { id: 'formas-pago', label: 'Formas de Pago', icon: 'account-balance-wallet', descripcion: 'Formas de pago de Ágora y arqueo', permiso: 'cierres.ver', accentBg: '#ffedd5', accentFg: colors.warning },
   // La lectura del maestro solo pide sesión, así que la tarjeta se filtra con el
   // mismo permiso que da acceso al hub.
-  { id: 'departamentos', label: 'Departamentos', icon: 'account-tree', descripcion: 'Departamentos y sus responsables', permiso: 'base_datos.ver', accentBg: '#fef3c7', accentFg: '#ca8a04' },
+  { id: 'departamentos', label: 'Departamentos', icon: 'account-tree', descripcion: 'Departamentos y sus responsables', permiso: 'base_datos.ver', accentBg: statusColors.warning.bg, accentFg: '#ca8a04' },
 ];
 
 export default function BaseDatosScreen() {
@@ -86,9 +94,20 @@ export default function BaseDatosScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: colors.surface },
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 24 },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#64748b', marginBottom: 16 },
+  scrollContent: { paddingBottom: SPACING.xl },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[20],
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.textStrong,
+    marginBottom: SPACING.xs,
+  },
+  subtitle: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[14],
+    color: colors.textMuted,
+    marginBottom: SPACING.lg,
+  },
 });
