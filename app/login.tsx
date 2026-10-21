@@ -7,7 +7,6 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
   Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,6 +17,17 @@ import { emailValido } from './utils/validation';
 import { fetchImagenApp } from './lib/personalizacion';
 import { apiFetch } from './utils/api';
 import { API_BASE_URL } from './utils/apiBaseUrl';
+import { Boton } from './components/ui/Boton';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  shadow,
+  typography,
+  MIN_TOUCH,
+  SPACING,
+} from './constants/theme';
 
 const AUTH_KEY = 'erp_user';
 // `API_BASE_URL` se conserva solo para los mensajes de error que muestran
@@ -129,7 +139,7 @@ export default function LoginScreen() {
         <TextInput
           style={styles.input}
           placeholder="Email"
-          placeholderTextColor="#888"
+          placeholderTextColor={colors.textMuted}
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
@@ -140,7 +150,7 @@ export default function LoginScreen() {
         <TextInput
           style={styles.input}
           placeholder="Password"
-          placeholderTextColor="#888"
+          placeholderTextColor={colors.textMuted}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -152,17 +162,9 @@ export default function LoginScreen() {
           <Text style={styles.errorText}>{error}</Text>
         ) : null}
 
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleLogin}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Entrar</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.entrar}>
+          <Boton titulo="Entrar" onPress={handleLogin} cargando={loading} />
+        </View>
 
         <TouchableOpacity
           onPress={() => router.push('/recuperar-password')}
@@ -181,25 +183,24 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
   card: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: SPACING.xl,
     width: '100%',
+    /** Ancho de la tarjeta de acceso; no se repite en otras pantallas. */
     maxWidth: 400,
     alignSelf: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
+    ...shadow.card,
   },
-  /** Anillo con gradiente; el padding es el grosor del aro. */
+  /** Anillo con gradiente; el padding es el grosor del aro. Medidas de un solo uso. */
   logoRingGradient: {
     width: 124,
     height: 124,
@@ -208,7 +209,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: SPACING.md,
     overflow: 'hidden',
   },
   /** Círculo interior: el padding reduce solo el área de la imagen, no el aro exterior. */
@@ -217,77 +218,68 @@ const styles = StyleSheet.create({
     height: 112,
     borderRadius: 56,
     overflow: 'hidden',
-    backgroundColor: '#ffffff',
-    padding: 12,
+    backgroundColor: colors.surface,
+    padding: SPACING.md,
   },
   logoLoginImage: {
     width: '100%',
     height: '100%',
   },
   title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#f8fafc',
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[24],
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.textStrong,
     textAlign: 'center',
-    marginBottom: 2,
+    marginBottom: SPACING.xs,
   },
   subtitle: {
-    fontSize: 14,
-    color: '#94a3b8',
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[14],
+    color: colors.textMuted,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: SPACING.lg,
   },
   input: {
-    backgroundColor: '#334155',
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 15,
-    color: '#f8fafc',
-    marginBottom: 10,
+    minHeight: MIN_TOUCH,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: SPACING.md,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[14],
+    color: colors.textStrong,
+    marginBottom: SPACING.sm,
   },
-  button: {
-    backgroundColor: '#0ea5e9',
-    borderRadius: 8,
-    padding: 10,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
+  entrar: { marginTop: SPACING.xs },
   errorText: {
-    color: '#f87171',
-    fontSize: 13,
-    marginBottom: 8,
+    color: colors.danger,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    marginBottom: SPACING.sm,
     textAlign: 'center',
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
-  },
   forgotLink: {
-    marginTop: 14,
+    marginTop: SPACING.md,
     alignSelf: 'center',
-    paddingVertical: 6,
+    minHeight: MIN_TOUCH,
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.sm,
   },
   forgotText: {
-    color: '#38bdf8',
-    fontSize: 13,
+    color: colors.accentPressed,
+    fontFamily: fontFamily.medium,
+    fontSize: fontSizes[13],
     textAlign: 'center',
   },
   poweredBy: {
-    marginTop: 22,
+    marginTop: SPACING.xl,
     alignSelf: 'center',
-    fontSize: 11,
-    color: '#64748b',
+    fontFamily: fontFamily.regular,
+    fontSize: typography.etiqueta.fontSize,
+    color: colors.textMuted,
     textAlign: 'center',
-    letterSpacing: 0.4,
-    ...Platform.select({
-      ios: { fontFamily: 'Courier' },
-      android: { fontFamily: 'monospace' },
-      web: { fontFamily: 'Courier New, Courier, Lucida Console, monospace' },
-      default: { fontFamily: 'monospace' },
-    }),
+    letterSpacing: typography.etiqueta.letterSpacing,
   },
 });
