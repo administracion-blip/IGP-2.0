@@ -2,7 +2,18 @@ import type { ComponentProps, ReactNode } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH } from '../../constants/layout';
-import { tasksUi } from '../../constants/tasksUiTokens';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
+
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
@@ -33,8 +44,8 @@ export function HubNavCard({
   label,
   description,
   icon,
-  accentBg = tasksUi.color.acentoSuave,
-  accentFg = tasksUi.color.acento,
+  accentBg = colors.accentMuted,
+  accentFg = colors.accent,
   variant = 'default',
   width,
   compact = false,
@@ -89,7 +100,7 @@ export function HubNavCard({
       </View>
       {trailing}
       {showChevron ? (
-        <MaterialIcons name="chevron-right" size={compact ? 20 : 22} color="#cbd5e1" />
+        <MaterialIcons name="chevron-right" size={compact ? 20 : 22} color={colors.borderStrong} />
       ) : null}
     </TouchableOpacity>
   );
@@ -99,26 +110,26 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: SPACING.md,
   },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    backgroundColor: tasksUi.color.superficie,
-    borderRadius: tasksUi.radius.contenedor,
-    padding: 16,
+    gap: 14, // sin token: entre SPACING.md (12) y SPACING.lg (16)
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
+    padding: SPACING.lg,
     borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    borderColor: colors.border,
   },
   cardAccent: {
-    backgroundColor: tasksUi.color.avisoSuave,
-    borderColor: '#fde68a',
+    backgroundColor: statusColors.warning.bg,
+    borderColor: '#fde68a', // borde ámbar, sin token
   },
   cardCompact: {
-    gap: 10,
-    padding: 12,
-    borderRadius: tasksUi.radius.contenedor,
+    gap: 10, // sin token
+    padding: SPACING.md,
+    borderRadius: RADIO_MEDIO,
   },
   cardDisabled: {
     opacity: 0.45,
@@ -126,7 +137,7 @@ const styles = StyleSheet.create({
   iconWrap: {
     width: 48,
     height: 48,
-    borderRadius: 12,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -135,7 +146,7 @@ const styles = StyleSheet.create({
   iconWrapCompact: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   badge: {
     position: 'absolute',
@@ -143,44 +154,50 @@ const styles = StyleSheet.create({
     right: -4,
     minWidth: 18,
     height: 18,
-    borderRadius: tasksUi.radius.pildora,
-    backgroundColor: '#fee2e2',
+    borderRadius: radius.pill,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
-    borderColor: '#ffffff',
+    borderColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
   },
   badgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#dc2626',
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes.badge,
+    fontWeight: typography.boton.fontWeight,
+    color: colors.danger,
   },
   body: {
     flex: 1,
     minWidth: 0,
   },
   title: {
-    ...tasksUi.tipo.tituloSeccion,
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[16],
+    fontWeight: typography.boton.fontWeight,
+    lineHeight: 20,
+    color: colors.textStrong,
     marginBottom: 2,
   },
   titleCompact: {
-    fontSize: 14,
+    fontSize: fontSizes[14],
     marginBottom: 1,
   },
   titleAccent: {
-    color: tasksUi.color.textoPrimario,
+    color: colors.textStrong,
   },
   desc: {
-    fontSize: 13,
-    color: '#64748b',
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textMuted,
     lineHeight: 18,
   },
   descCompact: {
-    fontSize: 12,
+    fontSize: fontSizes[12],
     lineHeight: 16,
   },
   descAccent: {
-    color: '#64748b',
+    color: colors.textMuted,
   },
 });
