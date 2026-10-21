@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -17,7 +16,17 @@ import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
 import { formatMoneda } from '../../utils/facturacion';
 import { formatId6 } from '../../utils/idFormat';
 import { apiFetch } from '../../utils/api';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAuth } from '../../contexts/AuthContext';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import {
   puedeProgramacionActuaciones,
   puedeGestionarArtistas,
@@ -88,7 +97,8 @@ function importeMusicoActuacion(a: ActuacionDia): number {
 export default function ActuacionesIndexScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
-  const { width: winWidth } = useWindowDimensions();
+  const { width: winWidth } = useBreakpoint();
+  // 900 no es un breakpoint del sistema (768 / 1024).
   const isNarrow = winWidth < 900;
   const puedeArtistas = puedeGestionarArtistas(hasPermiso);
   const puedeProgramacion = puedeProgramacionActuaciones(hasPermiso);
@@ -241,7 +251,7 @@ export default function ActuacionesIndexScreen() {
           style={styles.fechaNavBtn}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <MaterialIcons name="chevron-left" size={26} color="#0ea5e9" />
+          <MaterialIcons name="chevron-left" size={26} color={colors.accent} />
         </TouchableOpacity>
         <View style={styles.fechaNavCenter}>
           <Text style={styles.fechaNavTitulo} numberOfLines={2}>
@@ -256,7 +266,7 @@ export default function ActuacionesIndexScreen() {
           style={styles.fechaNavBtn}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <MaterialIcons name="chevron-right" size={26} color="#0ea5e9" />
+          <MaterialIcons name="chevron-right" size={26} color={colors.accent} />
         </TouchableOpacity>
       </View>
 
@@ -274,7 +284,7 @@ export default function ActuacionesIndexScreen() {
 
       {loadingActs ? (
         <View style={styles.panelLoading}>
-          <ActivityIndicator color="#0ea5e9" />
+          <ActivityIndicator color={colors.accent} />
         </View>
       ) : (
         <ScrollView
@@ -297,7 +307,7 @@ export default function ActuacionesIndexScreen() {
                 <View key={grupo.idKey} style={styles.bloqueLocal}>
                   <View style={styles.localHeaderRow}>
                     <View style={styles.localHeaderIzq}>
-                      <MaterialIcons name="place" size={18} color="#0ea5e9" />
+                      <MaterialIcons name="place" size={18} color={colors.accent} />
                       <Text style={styles.localNombre} numberOfLines={1}>
                         {grupo.nombreLocal.toUpperCase()}
                       </Text>
@@ -394,13 +404,13 @@ const styles = StyleSheet.create({
   outer: {
     flex: 1,
     minHeight: 0,
-    padding: 12,
-    backgroundColor: '#e2e8f0',
+    padding: SPACING.md,
+    backgroundColor: colors.border,
   },
   mainRow: {
     flex: 1,
     flexDirection: 'row',
-    gap: 12,
+    gap: SPACING.md,
     alignItems: 'stretch',
     minHeight: 0,
     width: '100%',
@@ -418,18 +428,18 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: '100%',
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155', marginBottom: 2 },
-  subtitle: { fontSize: 13, color: '#64748b', marginBottom: 12 },
-  menuCard: { marginBottom: 8 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, marginBottom: 2 },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, marginBottom: SPACING.md },
+  menuCard: { marginBottom: SPACING.sm },
   panelDerecha: {
     flex: 6,
     minWidth: 0,
     minHeight: 0,
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
   panelDerechaNarrow: { flex: 1, minHeight: 0 },
   fechaNav: {
@@ -437,45 +447,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 10,
-    gap: 4,
+    gap: SPACING.xs,
   },
-  fechaNavBtn: { padding: 4 },
+  fechaNavBtn: { padding: SPACING.xs },
   fechaNavCenter: { flex: 1, alignItems: 'center', minWidth: 0 },
   fechaNavTitulo: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#334155',
+    fontSize: fontSizes[14],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
     textAlign: 'center',
   },
   hoyLink: { marginTop: 2 },
-  hoyLinkText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
+  hoyLinkText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   totalDiaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    marginBottom: 8,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
+    marginBottom: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  totalDiaLabel: { fontSize: 13, fontWeight: '700', color: '#64748b' },
-  totalDiaValor: { fontSize: 18, fontWeight: '700', color: '#0ea5e9' },
-  panelError: { color: '#b91c1c', fontSize: 12, marginBottom: 6 },
-  panelLoading: { paddingVertical: 24, alignItems: 'center' },
+  totalDiaLabel: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted },
+  totalDiaValor: { fontVariant: ['tabular-nums'],  fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent },
+  panelError: { color: statusColors.danger.text, fontFamily: fontFamily.regular, fontSize: fontSizes[12], marginBottom: 6 },
+  panelLoading: { paddingVertical: SPACING.xl, alignItems: 'center' },
   listaScroll: { flex: 1, minHeight: 0 },
-  listaScrollContent: { paddingBottom: 12, flexGrow: 1 },
+  listaScrollContent: { paddingBottom: SPACING.md, flexGrow: 1 },
   listaVacia: {
-    fontSize: 13,
-    color: '#94a3b8',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textMuted,
     fontStyle: 'italic',
-    paddingVertical: 12,
+    paddingVertical: SPACING.md,
   },
   bloqueLocal: {
     marginBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    paddingBottom: 8,
+    borderBottomColor: colors.navActive,
+    paddingBottom: SPACING.sm,
   },
   localHeaderRow: {
     flexDirection: 'row',
@@ -487,33 +497,33 @@ const styles = StyleSheet.create({
   localHeaderIzq: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     flex: 1,
     minWidth: 120,
   },
-  localNombre: { fontSize: 13, fontWeight: '800', color: '#0369a1', flex: 1 },
-  localPrev: { fontSize: 12, fontWeight: '600', color: '#334155' },
+  localNombre: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, flex: 1 },
+  localPrev: { fontVariant: ['tabular-nums'],  fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   ratioBadge: {
-    backgroundColor: '#e0f2fe',
-    paddingHorizontal: 8,
+    backgroundColor: colors.accentMuted,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 3,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
-  ratioBadgeText: { fontSize: 11, fontWeight: '700', color: '#0369a1' },
+  ratioBadgeText: { fontVariant: ['tabular-nums'],  fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text },
   ratioBadgeMuted: {
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 3,
   },
-  ratioBadgeTextMuted: { fontSize: 11, color: '#94a3b8' },
-  localGasto: { fontSize: 14, fontWeight: '700', color: '#0ea5e9', marginLeft: 'auto' },
+  ratioBadgeTextMuted: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
+  localGasto: { fontVariant: ['tabular-nums'],  fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent, marginLeft: 'auto' },
   localSubLabel: {
-    fontSize: 9,
-    color: '#94a3b8',
+    fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize,
+    color: colors.textMuted,
     marginBottom: 6,
   },
   hintPrevision: {
-    fontSize: 10,
-    color: '#94a3b8',
+    fontFamily: fontFamily.regular, fontSize: fontSizes.badge,
+    color: colors.textMuted,
     fontStyle: 'italic',
     marginBottom: 6,
     textAlign: 'center',
@@ -521,28 +531,28 @@ const styles = StyleSheet.create({
   filaAct: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 6,
     paddingLeft: 2,
   },
-  filaHora: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#0ea5e9',
+  filaHora: { fontVariant: ['tabular-nums'], 
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.accent,
     width: 42,
     flexShrink: 0,
   },
   avatar: {
     width: 32,
     height: 32,
-    borderRadius: 16,
-    backgroundColor: '#e0f2fe',
+    borderRadius: radius.xl,
+    backgroundColor: colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  avatarText: { fontSize: 14, fontWeight: '700', color: '#0369a1' },
+  avatarText: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text },
   filaTextos: { flex: 1, minWidth: 0 },
-  filaArtista: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
-  filaImporte: { fontSize: 13, fontWeight: '700', color: '#0f172a', flexShrink: 0 },
+  filaArtista: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong },
+  filaImporte: { fontVariant: ['tabular-nums'],  fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flexShrink: 0 },
 });
