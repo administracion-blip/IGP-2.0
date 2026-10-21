@@ -11,7 +11,6 @@ import {
   Platform,
   KeyboardAvoidingView,
   Image,
-  useWindowDimensions,
   type ImageStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -23,6 +22,14 @@ import { formatId6 } from '../utils/idFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  typography,
+  SPACING,
+} from '../constants/theme';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { apiFetch, errorMessage } from '../utils/api';
 import {
@@ -144,7 +151,7 @@ function truncar(val: string): string {
 export default function LocalesScreen() {
   const router = useRouter();
   const { localPermitido } = useAuth();
-  const { isPhone, isDesktop, shouldStackPanels, shouldStackToolbar } = useBreakpoint();
+  const { isPhone, isDesktop, shouldStackPanels, shouldStackToolbar, height: windowHeight } = useBreakpoint();
   const formDosColumnas = !isPhone;
   const modalCasiFull = isPhone || shouldStackPanels;
   const [locales, setLocales] = useState<Local[]>([]);
@@ -640,7 +647,6 @@ export default function LocalesScreen() {
     [columnas, getColWidth]
   );
 
-  const { height: windowHeight } = useWindowDimensions();
   const scrollAreaHeight = Math.max(300, windowHeight - 280);
 
   const valorCelda = useCallback((local: Local, col: string) => {
@@ -768,7 +774,7 @@ export default function LocalesScreen() {
               onChangeText={onDireccionChange}
               onBlur={() => setTimeout(() => setDireccionDropdownOpen(false), 200)}
               placeholder="Escribe y elige una dirección…"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="words"
             />
             {formNuevo.Direccion ? (
@@ -777,13 +783,13 @@ export default function LocalesScreen() {
                 onPress={() => setFormNuevo((prev) => ({ ...prev, Direccion: '', lat: '', lng: '' }))}
                 activeOpacity={0.7}
               >
-                <MaterialIcons name="clear" size={18} color="#64748b" />
+                <MaterialIcons name="clear" size={18} color={colors.textMuted} />
               </TouchableOpacity>
             ) : null}
           </View>
           {direccionLoading && (
             <View style={styles.direccionLoadingWrap}>
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
               <Text style={styles.direccionLoadingText}>Buscando…</Text>
             </View>
           )}
@@ -797,7 +803,7 @@ export default function LocalesScreen() {
                     onPress={() => onDireccionSelect(p)}
                     activeOpacity={0.7}
                   >
-                    <MaterialIcons name="place" size={16} color="#64748b" style={styles.direccionOptionIcon} />
+                    <MaterialIcons name="place" size={16} color={colors.textMuted} style={styles.direccionOptionIcon} />
                     <Text style={styles.direccionOptionText} numberOfLines={2}>
                       {p.description}
                     </Text>
@@ -884,7 +890,7 @@ export default function LocalesScreen() {
                   style={styles.almacenChipRemove}
                   hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                 >
-                  <MaterialIcons name="close" size={14} color="#64748b" />
+                  <MaterialIcons name="close" size={14} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
             ))}
@@ -893,9 +899,9 @@ export default function LocalesScreen() {
               onPress={() => setAlmacenDropdownOpen((o) => !o)}
               activeOpacity={0.7}
             >
-              <MaterialIcons name="add" size={18} color="#0ea5e9" style={{ marginRight: 4 }} />
+              <MaterialIcons name="add" size={18} color={colors.accent} style={{ marginRight: SPACING.xs }} />
               <Text style={[styles.formInputText, styles.almacenAddText]}>Añadir almacén</Text>
-              <MaterialIcons name={almacenDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" style={styles.sedeChevron} />
+              <MaterialIcons name={almacenDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color={colors.textMuted} style={styles.sedeChevron} />
             </TouchableOpacity>
           </View>
           {almacenDropdownOpen && (
@@ -905,7 +911,7 @@ export default function LocalesScreen() {
                 value={almacenSearchFilter}
                 onChangeText={setAlmacenSearchFilter}
                 placeholder="Buscar almacén…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
               />
               <ScrollView style={styles.empresaDropdownScroll} keyboardShouldPersistTaps="handled">
                 {parseAlmacenesOrigen(formNuevo['Almacen origen']).length > 0 ? (
@@ -918,7 +924,7 @@ export default function LocalesScreen() {
                     }}
                     activeOpacity={0.7}
                   >
-                    <MaterialIcons name="clear" size={16} color="#94a3b8" style={{ marginRight: 6 }} />
+                    <MaterialIcons name="clear" size={16} color={colors.textMuted} style={{ marginRight: 6 }} />
                     <Text style={styles.dropdownVaciarText}>Vaciar todos</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -993,10 +999,10 @@ export default function LocalesScreen() {
             activeOpacity={0.7}
           >
             {imagenLoading ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
               <>
-                <MaterialIcons name="add-photo-alternate" size={22} color="#0ea5e9" />
+                <MaterialIcons name="add-photo-alternate" size={22} color={colors.accent} />
                 <Text style={styles.imagenButtonText}>Seleccionar foto</Text>
               </>
             )}
@@ -1005,7 +1011,7 @@ export default function LocalesScreen() {
             <View style={styles.imagenPreviewWrap}>
               <Image source={{ uri: formNuevo.Imagen }} style={styles.imagenPreview as ImageStyle} resizeMode="cover" />
               <TouchableOpacity style={styles.imagenQuitarBtn} onPress={quitarFoto} activeOpacity={0.7}>
-                <MaterialIcons name="close" size={18} color="#fff" />
+                <MaterialIcons name="close" size={18} color={colors.surface} />
                 <Text style={styles.imagenQuitarText}>Quitar</Text>
               </TouchableOpacity>
             </View>
@@ -1023,7 +1029,7 @@ export default function LocalesScreen() {
             value={formNuevo.km_desplazamiento ?? ''}
             onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, km_desplazamiento: t }))}
             placeholder="Ej. 12,5"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
             keyboardType="decimal-pad"
           />
           <Text style={styles.direccionHint}>
@@ -1043,7 +1049,7 @@ export default function LocalesScreen() {
             onChangeText={handleCpChange}
             onBlur={handleCpBlur}
             placeholder={`${campo.label}…`}
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
             autoCapitalize="words"
           />
         </View>
@@ -1058,7 +1064,7 @@ export default function LocalesScreen() {
           value={formNuevo[campo.key] ?? ''}
           onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, [campo.key]: t }))}
           placeholder={`${campo.label}…`}
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={colors.textMuted}
           autoCapitalize="words"
         />
       </View>
@@ -1068,7 +1074,7 @@ export default function LocalesScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando locales…</Text>
       </View>
     );
@@ -1077,7 +1083,7 @@ export default function LocalesScreen() {
   if (error) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="error-outline" size={48} color="#f87171" />
+        <MaterialIcons name="error-outline" size={48} color={colors.danger} />
         <Text style={styles.errorText}>{error}</Text>
       </View>
     );
@@ -1091,7 +1097,7 @@ export default function LocalesScreen() {
           style={[styles.backBtn, isPhone && styles.backBtnPhone]}
           accessibilityLabel="Volver"
         >
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Locales</Text>
       </View>
@@ -1104,7 +1110,7 @@ export default function LocalesScreen() {
             disabled={guardando}
             accessibilityLabel="Nuevo local"
           >
-            <MaterialIcons name={ICONS.add} size={18} color="#ffffff" />
+            <MaterialIcons name={ICONS.add} size={18} color={colors.surface} />
             <Text style={styles.btnCrearText}>Nuevo local</Text>
           </TouchableOpacity>
           {toolbarSecundarios.map((btn) => {
@@ -1138,20 +1144,20 @@ export default function LocalesScreen() {
                   disabled={disabled}
                   accessibilityLabel={btn.label}
                 >
-                  <MaterialIcons name={btn.icon} size={ICON_SIZE} color={disabled ? '#94a3b8' : '#64748b'} />
+                  <MaterialIcons name={btn.icon} size={ICON_SIZE} color={disabled ? colors.textMuted : colors.textMuted} />
                 </TouchableOpacity>
               </View>
             );
           })}
         </View>
         <View style={[styles.searchWrap, shouldStackToolbar && styles.searchWrapStacked]}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
             placeholder="Buscar en la tabla…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
       </View>
@@ -1214,7 +1220,7 @@ export default function LocalesScreen() {
                         <Image source={{ uri: imagenUri }} style={styles.thumbnailImg as ImageStyle} resizeMode="cover" />
                       ) : (
                         <View style={styles.thumbnailPlaceholder}>
-                          <MaterialIcons name="image-not-supported" size={20} color="#94a3b8" />
+                          <MaterialIcons name="image-not-supported" size={20} color={colors.textMuted} />
                         </View>
                       )}
                     </View>
@@ -1258,7 +1264,7 @@ export default function LocalesScreen() {
                     </Text>
                   </View>
                   <TouchableOpacity onPress={cerrarModalNuevo} style={styles.modalClose}>
-                    <MaterialIcons name="close" size={22} color="#64748b" />
+                    <MaterialIcons name="close" size={22} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
                 <ScrollView
@@ -1308,7 +1314,7 @@ export default function LocalesScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.modalBtnSave} onPress={guardarNuevo} disabled={guardando} accessibilityLabel="Guardar">
                     {guardando ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
+                      <ActivityIndicator size="small" color={colors.surface} />
                     ) : (
                       <Text style={styles.modalBtnSaveText}>Guardar</Text>
                     )}
@@ -1335,7 +1341,7 @@ export default function LocalesScreen() {
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Crear nueva empresa</Text>
                   <TouchableOpacity onPress={cerrarModalCrearEmpresa} style={styles.modalClose}>
-                    <MaterialIcons name="close" size={22} color="#64748b" />
+                    <MaterialIcons name="close" size={22} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.modalBodyEmpresa}>
@@ -1347,7 +1353,7 @@ export default function LocalesScreen() {
                         value={formCrearEmpresa.Nombre}
                         onChangeText={(t) => setFormCrearEmpresa((prev) => ({ ...prev, Nombre: t }))}
                         placeholder="Nombre de la empresa"
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor={colors.textMuted}
                         autoCapitalize="words"
                       />
                     </View>
@@ -1358,7 +1364,7 @@ export default function LocalesScreen() {
                         value={formCrearEmpresa.Cif}
                         onChangeText={(t) => setFormCrearEmpresa((prev) => ({ ...prev, Cif: t }))}
                         placeholder="CIF"
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor={colors.textMuted}
                         autoCapitalize="characters"
                       />
                     </View>
@@ -1376,7 +1382,7 @@ export default function LocalesScreen() {
                     activeOpacity={0.7}
                   >
                     {guardandoCrearEmpresa ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
+                      <ActivityIndicator size="small" color={colors.surface} />
                     ) : (
                       <Text style={styles.modalBtnSaveText}>Crear</Text>
                     )}
@@ -1391,22 +1397,25 @@ export default function LocalesScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 12, backgroundColor: '#f8fafc' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc' },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
+  container: { flex: 1, padding: SPACING.md, backgroundColor: colors.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10, backgroundColor: colors.bg },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, textAlign: 'center' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xs, gap: SPACING.sm },
   backBtn: {
     width: 36,
     height: 36,
     padding: 0,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#eef1f5',
+    borderColor: colors.border,
   },
   backBtnPhone: {
     width: MIN_TOUCH,
@@ -1414,21 +1423,21 @@ const styles = StyleSheet.create({
     minWidth: MIN_TOUCH,
     minHeight: MIN_TOUCH,
   },
-  title: { fontSize: 20, fontWeight: '600', lineHeight: 26, color: '#0f172a' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, lineHeight: 26, color: colors.textStrong },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.md, flexWrap: 'wrap' },
   toolbarRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   btnCrear: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: colors.accent,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
   },
   btnCrearPhone: { minHeight: MIN_TOUCH },
-  btnCrearText: { fontSize: 12, fontWeight: '600', color: '#ffffff' },
+  btnCrearText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
   searchWrap: {
     flex: 1,
     flexDirection: 'row',
@@ -1436,65 +1445,66 @@ const styles = StyleSheet.create({
     minWidth: 140,
     maxWidth: 280,
     height: 32,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.sm,
   },
   searchWrapStacked: { maxWidth: '100%', width: '100%', flexGrow: 1 },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 12, fontWeight: '400', color: '#0f172a', paddingVertical: 0 },
+  searchInput: { flex: 1, fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textStrong, paddingVertical: 0 },
   toolbarBtnWrap: { position: 'relative' },
+  /** El texto de 9 px sube al suelo de etiqueta (11). */
   tooltip: {
     position: 'absolute',
     bottom: '100%',
     alignSelf: 'center',
-    marginBottom: 4,
-    backgroundColor: '#334155',
-    paddingHorizontal: 4,
+    marginBottom: SPACING.xs,
+    backgroundColor: colors.textPrimary,
+    paddingHorizontal: SPACING.xs,
     paddingVertical: 2,
     borderRadius: 4,
     zIndex: 10,
   },
-  tooltipText: { fontSize: 9, color: '#f8fafc', fontWeight: '400' },
+  tooltipText: { fontSize: typography.etiqueta.fontSize, color: colors.bg, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight },
   toolbarBtn: {
     padding: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
   },
   toolbarBtnPhone: { minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
   toolbarBtnDisabled: { opacity: 0.6 },
-  subtitle: { fontSize: 12, color: '#64748b', marginBottom: 8 },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginBottom: SPACING.sm },
   scroll: { flex: 1 },
   scrollContentVertical: { paddingBottom: 20 },
   scrollContentHorizontal: { paddingBottom: 20 },
   scrollVertical: { flex: 1 },
-  tableWrapper: { borderWidth: 1, borderColor: '#eef1f5', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
+  tableWrapper: { borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, overflow: 'hidden', backgroundColor: colors.surface },
   rowHeader: {
     flexDirection: 'row',
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
+    borderBottomColor: colors.border,
     borderLeftWidth: 2,
     borderLeftColor: 'transparent',
   },
   cellHeader: {
     minWidth: MIN_COL_WIDTH,
     paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     borderRightWidth: 1,
-    borderRightColor: '#eef1f5',
+    borderRightColor: colors.border,
     position: 'relative',
   },
   cellHeaderText: {
-    fontSize: 11,
-    fontWeight: '400',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     lineHeight: 14,
     letterSpacing: 0.1,
-    color: '#94a3b8',
+    color: colors.textMuted,
     textTransform: 'none',
   },
   resizeHandle: {
@@ -1508,35 +1518,36 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
-    backgroundColor: '#fff',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
     borderLeftWidth: 2,
     borderLeftColor: 'transparent',
   },
   rowSelected: {
-    backgroundColor: '#e0f2fe',
+    backgroundColor: colors.accentMuted,
     borderLeftWidth: 2,
-    borderLeftColor: '#0ea5e9',
+    borderLeftColor: colors.accent,
   },
   cell: {
     minWidth: MIN_COL_WIDTH,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
     borderRightWidth: 1,
-    borderRightColor: '#eef1f5',
+    borderRightColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cellText: { fontSize: 12, fontWeight: '400', lineHeight: 16, color: '#475569', textAlign: 'center', alignSelf: 'stretch' },
+  cellText: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, lineHeight: 16, color: colors.textPrimary, textAlign: 'center', alignSelf: 'stretch' },
   cellThumbnail: { alignItems: 'center', justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 10 },
-  thumbnailImg: { width: 56, height: 56, borderRadius: 6, backgroundColor: '#e2e8f0' },
-  thumbnailPlaceholder: { width: 56, height: 56, borderRadius: 6, backgroundColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center' },
+  thumbnailImg: { width: 56, height: 56, borderRadius: radius.sm, backgroundColor: colors.border },
+  thumbnailPlaceholder: { width: 56, height: 56, borderRadius: radius.sm, backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  /** Más oscuro que colors.overlay. */
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
   modalWrap: { flex: 1, maxHeight: '100%', justifyContent: 'center' },
   modalWrapDesktop: { maxWidth: 720, width: '100%', padding: 24 },
   modalWrapTablet: { maxWidth: 640, width: '100%', padding: 20 },
-  modalWrapPhone: { maxWidth: '100%', width: '100%', padding: 12 },
-  modalWrapFull: { maxWidth: '100%', paddingHorizontal: 12 },
+  modalWrapPhone: { maxWidth: '100%', width: '100%', padding: SPACING.md },
+  modalWrapFull: { maxWidth: '100%', paddingHorizontal: SPACING.md },
   modalWrapEmpresa: { maxWidth: 520, width: '100%', padding: 20 },
   modalCardHost: { width: '100%', height: '88%', maxHeight: '88%' },
   modalCardHostFull: { height: '92%', maxHeight: '92%' },
@@ -1546,8 +1557,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     maxHeight: '100%',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
@@ -1557,8 +1568,8 @@ const styles = StyleSheet.create({
   },
   modalCardEmpresa: {
     width: '100%',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
@@ -1570,117 +1581,118 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
     flexShrink: 0,
   },
   modalHeaderLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
-  modalTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a', flexShrink: 1, minWidth: 0 },
-  modalIdChip: { fontSize: 11, fontWeight: '400', color: '#94a3b8', flexShrink: 0 },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, flexShrink: 1, minWidth: 0 },
+  modalIdChip: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted, flexShrink: 0 },
   modalClose: { padding: 4 },
-  modalBody: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingVertical: 12 },
+  modalBody: { flex: 1, minHeight: 0, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md },
   modalBodyContent: { paddingBottom: 4 },
-  modalBodyEmpresa: { paddingHorizontal: 16, paddingVertical: 12 },
-  formRow2: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  modalBodyEmpresa: { paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md },
+  formRow2: { flexDirection: 'row', gap: SPACING.md, alignItems: 'flex-start' },
   formCol1: { flexDirection: 'column' },
   formFieldCol: { flex: 1, minWidth: 0 },
   formFieldFull: { width: '100%' },
   formGroup: { marginBottom: 10 },
-  formLabel: { fontSize: 11, fontWeight: '400', color: '#64748b', marginBottom: 4 },
+  formLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted, marginBottom: SPACING.xs },
   formInput: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#334155',
+    paddingVertical: SPACING.sm,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
     minHeight: 36,
   },
   formInputPhone: { minHeight: MIN_TOUCH },
   formInputRow: { flexDirection: 'row', alignItems: 'center' },
-  formInputText: { fontSize: 12, fontWeight: '400', color: '#0f172a', flex: 1 },
-  formInputPlaceholder: { color: '#94a3b8' },
+  formInputText: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textStrong, flex: 1 },
+  formInputPlaceholder: { color: colors.textMuted },
   sedeChevron: { marginLeft: 4 },
-  sedeDropdown: { marginTop: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', maxHeight: 120 },
-  sedeOption: { paddingVertical: 8, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  sedeOptionText: { fontSize: 13, color: '#334155' },
+  sedeDropdown: { marginTop: SPACING.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, overflow: 'hidden', maxHeight: 120 },
+  sedeOption: { paddingVertical: SPACING.sm, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: colors.navActive },
+  sedeOptionText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
   empresaDropdownWrap: {
-    marginTop: 4,
-    backgroundColor: '#fff',
+    marginTop: SPACING.xs,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     overflow: 'hidden',
     maxHeight: 200,
     zIndex: 31,
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.12)' } as object) : { elevation: 16 }),
   },
-  empresaDropdownSearch: { paddingVertical: 6, paddingHorizontal: 8, fontSize: 11, color: '#334155', backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  empresaDropdownSearch: { paddingVertical: 6, paddingHorizontal: SPACING.sm, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary, backgroundColor: colors.bg, borderBottomWidth: 1, borderBottomColor: colors.border },
   empresaDropdownScroll: { maxHeight: 150 },
-  empresaDropdownOption: { paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  empresaDropdownOptionText: { fontSize: 11, color: '#334155' },
-  dropdownVaciarOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderBottomColor: '#e2e8f0' },
-  dropdownVaciarText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+  empresaDropdownOption: { paddingVertical: 5, paddingHorizontal: SPACING.sm, borderBottomWidth: 1, borderBottomColor: colors.navActive },
+  empresaDropdownOptionText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
+  dropdownVaciarOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, borderBottomColor: colors.border },
+  dropdownVaciarText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   dropdownAnchor: { position: 'relative', zIndex: 1, overflow: 'visible' },
   dropdownAnchorOnTop: { zIndex: 30, ...(Platform.OS !== 'web' ? { elevation: 12 } : {}) },
-  direccionInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  direccionVaciarBtn: { padding: 6, backgroundColor: '#f1f5f9', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  direccionLoadingWrap: { marginTop: 4, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  direccionLoadingText: { fontSize: 12, color: '#64748b' },
-  direccionHint: { marginTop: 4, fontSize: 11, color: '#64748b' },
-  empresaHintAviso: { color: '#d97706' },
+  direccionInputRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  direccionVaciarBtn: { padding: 6, backgroundColor: colors.navActive, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border },
+  direccionLoadingWrap: { marginTop: SPACING.xs, paddingVertical: SPACING.xs, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  direccionLoadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  direccionHint: { marginTop: SPACING.xs, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
+  empresaHintAviso: { color: colors.warning },
   direccionDropdown: {
-    marginTop: 4,
-    backgroundColor: '#fff',
+    marginTop: SPACING.xs,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     maxHeight: 200,
     overflow: 'hidden',
     zIndex: 31,
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.12)' } as object) : { elevation: 16 }),
   },
   direccionDropdownScroll: { maxHeight: 150 },
-  direccionOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  direccionOptionIcon: { marginRight: 8 },
-  direccionOptionText: { flex: 1, fontSize: 11, color: '#334155' },
+  direccionOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: SPACING.sm, borderBottomWidth: 1, borderBottomColor: colors.navActive },
+  direccionOptionIcon: { marginRight: SPACING.sm },
+  direccionOptionText: { flex: 1, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
   almacenChipsWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
-  almacenChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e0f2fe', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 8, paddingVertical: 4, paddingLeft: 8, paddingRight: 4, maxWidth: 180 },
-  almacenChipText: { fontSize: 11, color: '#0c4a6e', flex: 1 },
+  almacenChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accentMuted, borderWidth: 1, borderColor: '#bae6fd', borderRadius: RADIO_MEDIO, paddingVertical: SPACING.xs, paddingLeft: SPACING.sm, paddingRight: SPACING.xs, maxWidth: 180 },
+  almacenChipText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#0c4a6e', flex: 1 },
   almacenChipRemove: { padding: 2 },
   almacenAddBtn: { alignSelf: 'flex-start', minWidth: 140 },
-  almacenAddText: { color: '#0ea5e9', fontWeight: '500' },
-  imagenButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 8 },
-  imagenButtonText: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
-  imagenPreviewWrap: { marginTop: 8, position: 'relative', alignSelf: 'flex-start' },
-  imagenPreview: { width: 120, height: 120, borderRadius: 8, backgroundColor: '#e2e8f0' },
-  imagenQuitarBtn: { position: 'absolute', top: 4, right: 4, flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 6 },
-  imagenQuitarText: { fontSize: 11, color: '#fff', fontWeight: '500' },
-  modalError: { fontSize: 12, fontWeight: '400', color: '#f87171', paddingHorizontal: 16, paddingVertical: 4, flexShrink: 0 },
+  almacenAddText: { color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  imagenButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: 10, paddingHorizontal: SPACING.md, backgroundColor: colors.accentMuted, borderWidth: 1, borderColor: '#bae6fd', borderRadius: RADIO_MEDIO },
+  imagenButtonText: { fontSize: fontSizes[13], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  imagenPreviewWrap: { marginTop: SPACING.sm, position: 'relative', alignSelf: 'flex-start' },
+  imagenPreview: { width: 120, height: 120, borderRadius: RADIO_MEDIO, backgroundColor: colors.border },
+  /** Más oscuro que colors.overlay. */
+  imagenQuitarBtn: { position: 'absolute', top: 4, right: 4, flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: radius.sm },
+  imagenQuitarText: { fontSize: typography.etiqueta.fontSize, color: colors.surface, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  modalError: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.danger, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.xs, flexShrink: 0 },
   modalFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: colors.border,
     flexShrink: 0,
   },
-  modalBtnCancel: { paddingVertical: 10, paddingHorizontal: 16 },
-  modalBtnCancelText: { fontSize: 14, color: '#64748b' },
+  modalBtnCancel: { paddingVertical: 10, paddingHorizontal: SPACING.lg },
+  modalBtnCancelText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted },
   modalBtnSave: {
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: radius.sm,
     minWidth: 100,
     alignItems: 'center',
   },
-  modalBtnSaveText: { fontSize: 14, fontWeight: '600', color: '#ffffff' },
+  modalBtnSaveText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
 });
