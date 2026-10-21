@@ -22,6 +22,15 @@ import * as XLSX from 'xlsx-js-style';
 import { apiFetch } from '../../utils/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useConfirmar } from '../../hooks/useConfirmar';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 const REFETCH_INTERVAL_MS = 15_000;
 const PAGE_SIZE = 100;
@@ -1223,12 +1232,12 @@ export default function CierresTeoricosScreen() {
       <View style={styles.container}>
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.title}>Cierres de ventas teóricas</Text>
         </View>
         <View style={styles.loadingWrap}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Cargando cierres…</Text>
         </View>
       </View>
@@ -1240,14 +1249,14 @@ export default function CierresTeoricosScreen() {
       <View style={styles.container}>
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.title}>Cierres de ventas teóricas</Text>
         </View>
         <View style={styles.errorWrap}>
         <Text style={styles.errorText}>{error}</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={() => refetchCloseouts()}>
-          <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+          <MaterialIcons name="refresh" size={20} color={colors.accent} />
           <Text style={styles.retryBtnText}>Reintentar</Text>
         </TouchableOpacity>
         </View>
@@ -1259,14 +1268,14 @@ export default function CierresTeoricosScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Cierres de ventas teóricas</Text>
       </View>
 
       {syncing ? (
         <View style={styles.syncBanner}>
-          <ActivityIndicator size="small" color="#0369a1" />
+          <ActivityIndicator size="small" color={statusColors.info.text} />
           <View style={styles.syncBannerTextWrap}>
             <Text style={styles.syncBannerTitle}>Sincronizando con Ágora…</Text>
             <View style={styles.syncProgressBarBg}>
@@ -1284,13 +1293,13 @@ export default function CierresTeoricosScreen() {
 
       <View style={styles.toolbarRow}>
         <View style={styles.searchWrap}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusquedaInput}
             onChangeText={setFiltroBusquedaInput}
             placeholder="Buscar por local, TPV, fecha…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
         {puedeSincronizar ? (
@@ -1299,7 +1308,7 @@ export default function CierresTeoricosScreen() {
             onPress={() => setShowSyncModal(true)}
             disabled={syncing}
           >
-            <MaterialIcons name="sync" size={16} color="#0ea5e9" />
+            <MaterialIcons name="sync" size={16} color={colors.accent} />
             <Text style={styles.toolbarBtnText}>Sincronizar</Text>
           </TouchableOpacity>
         ) : null}
@@ -1307,7 +1316,7 @@ export default function CierresTeoricosScreen() {
           style={[styles.toolbarBtn, showFilterPanel && styles.toolbarBtnActive]}
           onPress={() => setShowFilterPanel((v) => !v)}
         >
-          <MaterialIcons name="filter-list" size={16} color={showFilterPanel ? '#fff' : '#64748b'} />
+          <MaterialIcons name="filter-list" size={16} color={showFilterPanel ? colors.surface : colors.textMuted} />
           <Text style={[styles.toolbarBtnText, showFilterPanel && styles.toolbarBtnTextActive]}>Filtro</Text>
         </TouchableOpacity>
         <View style={styles.downloadWrap}>
@@ -1316,7 +1325,7 @@ export default function CierresTeoricosScreen() {
             onPress={() => setShowDownloadMenu((v) => !v)}
             disabled={closeoutsFiltrados.length === 0}
           >
-            <MaterialIcons name="download" size={16} color={closeoutsFiltrados.length === 0 ? '#94a3b8' : '#0ea5e9'} />
+            <MaterialIcons name="download" size={16} color={closeoutsFiltrados.length === 0 ? colors.textMuted : colors.accent} />
             <Text style={[styles.toolbarBtnText, closeoutsFiltrados.length === 0 && styles.toolbarBtnTextDisabled]}>Descargar</Text>
           </TouchableOpacity>
           {showDownloadMenu && (
@@ -1324,12 +1333,12 @@ export default function CierresTeoricosScreen() {
               <Pressable style={styles.downloadOverlay} onPress={() => setShowDownloadMenu(false)} />
               <View style={styles.downloadMenu}>
                 <TouchableOpacity style={styles.downloadMenuItem} onPress={handleExportExcel}>
-                  <MaterialIcons name="table-chart" size={16} color="#16a34a" />
+                  <MaterialIcons name="table-chart" size={16} color={colors.success} />
                   <Text style={styles.downloadMenuText}>Excel (.xlsx)</Text>
                 </TouchableOpacity>
                 <View style={styles.downloadMenuDivider} />
                 <TouchableOpacity style={styles.downloadMenuItem} onPress={handleExportPDF}>
-                  <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
+                  <MaterialIcons name="picture-as-pdf" size={16} color={colors.danger} />
                   <Text style={styles.downloadMenuText}>PDF</Text>
         </TouchableOpacity>
       </View>
@@ -1338,7 +1347,7 @@ export default function CierresTeoricosScreen() {
           </View>
         {puedeCrear ? (
           <TouchableOpacity style={styles.toolbarBtnAdd} onPress={openAddModal}>
-            <MaterialIcons name="add" size={16} color="#fff" />
+            <MaterialIcons name="add" size={16} color={colors.surface} />
             <Text style={styles.toolbarBtnAddText}>Añadir</Text>
           </TouchableOpacity>
         ) : null}
@@ -1348,7 +1357,7 @@ export default function CierresTeoricosScreen() {
             onPress={openEditModal}
             disabled={!selectedItem}
           >
-            <MaterialIcons name="edit" size={16} color={selectedItem ? '#0ea5e9' : '#94a3b8'} />
+            <MaterialIcons name="edit" size={16} color={selectedItem ? colors.accent : colors.textMuted} />
             <Text style={[styles.toolbarBtnText, !selectedItem && styles.toolbarBtnTextDisabled]}>Editar</Text>
           </TouchableOpacity>
         ) : null}
@@ -1358,7 +1367,7 @@ export default function CierresTeoricosScreen() {
             onPress={openDeleteModal}
             disabled={!canDeleteSelection}
           >
-            <MaterialIcons name="delete" size={16} color={canDeleteSelection ? '#dc2626' : '#94a3b8'} />
+            <MaterialIcons name="delete" size={16} color={canDeleteSelection ? colors.danger : colors.textMuted} />
             <Text style={[styles.toolbarBtnText, !canDeleteSelection && styles.toolbarBtnTextDisabled]}>Borrar</Text>
           </TouchableOpacity>
         ) : null}
@@ -1369,9 +1378,9 @@ export default function CierresTeoricosScreen() {
             disabled={selectedRowIds.length === 0 || shiftSaving}
           >
             {shiftSaving ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <MaterialIcons name="today" size={16} color={selectedRowIds.length > 0 ? '#0ea5e9' : '#94a3b8'} />
+              <MaterialIcons name="today" size={16} color={selectedRowIds.length > 0 ? colors.accent : colors.textMuted} />
             )}
             <Text style={[styles.toolbarBtnText, (selectedRowIds.length === 0 || shiftSaving) && styles.toolbarBtnTextDisabled]}>
               −1 día
@@ -1390,8 +1399,8 @@ export default function CierresTeoricosScreen() {
           <Switch
             value={soloConFacturacion}
             onValueChange={setSoloConFacturacion}
-            trackColor={{ false: '#e2e8f0', true: '#86efac' }}
-            thumbColor={soloConFacturacion ? '#22c55e' : '#94a3b8'}
+            trackColor={{ false: colors.border, true: '#86efac' }}
+            thumbColor={soloConFacturacion ? colors.success : colors.textMuted}
           />
                 </View>
         <Text style={styles.soloFacturacionLabel}>Mostrar solo registros con facturación</Text>
@@ -1419,7 +1428,7 @@ export default function CierresTeoricosScreen() {
               />
               </View>
             <TouchableOpacity style={styles.filterClearBtn} onPress={limpiarFiltrosPanel}>
-              <MaterialIcons name="clear" size={14} color="#64748b" />
+              <MaterialIcons name="clear" size={14} color={colors.textMuted} />
               <Text style={styles.filterClearText}>Limpiar</Text>
             </TouchableOpacity>
                     </View>
@@ -1553,10 +1562,10 @@ export default function CierresTeoricosScreen() {
                 disabled={syncing}
               >
                 {syncing ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <MaterialIcons name="sync" size={18} color="#fff" />
+                    <MaterialIcons name="sync" size={18} color={colors.surface} />
                     <Text style={[styles.modalBtnPrimaryText, { marginLeft: 6 }]}>Sincronizar</Text>
                   </View>
                 )}
@@ -1630,7 +1639,7 @@ export default function CierresTeoricosScreen() {
               }}
             />
             <Text style={styles.filterLabel}>Número</Text>
-            <TextInput style={styles.filterInput} value={formNumber} onChangeText={setFormNumber} placeholder="1" placeholderTextColor="#94a3b8" editable={!saving && !editingItem} />
+            <TextInput style={styles.filterInput} value={formNumber} onChangeText={setFormNumber} placeholder="1" placeholderTextColor={colors.textMuted} editable={!saving && !editingItem} />
             <Text style={styles.filterLabel}>Formas de pago (€)</Text>
             {formPaymentMethods.map((method) => (
               <View key={method} style={styles.formPaymentRow}>
@@ -1640,7 +1649,7 @@ export default function CierresTeoricosScreen() {
                   value={formPayments[method] ?? ''}
                   onChangeText={(t) => setFormPayments((p) => ({ ...p, [method]: t }))}
                   placeholder="0"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                   keyboardType="decimal-pad"
                   editable={!saving}
                     />
@@ -1656,7 +1665,7 @@ export default function CierresTeoricosScreen() {
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
                 </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnPrimary, saving && styles.toolbarBtnDisabled]} onPress={handleSaveForm} disabled={saving}>
-                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnPrimaryText}>Guardar</Text>}
+                {saving ? <ActivityIndicator size="small" color={colors.surface} /> : <Text style={styles.modalBtnPrimaryText}>Guardar</Text>}
                     </TouchableOpacity>
                   </View>
           </Pressable>
@@ -1682,7 +1691,7 @@ export default function CierresTeoricosScreen() {
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
                 </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnDanger, saving && styles.toolbarBtnDisabled]} onPress={handleDelete} disabled={saving}>
-                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnPrimaryText}>Eliminar</Text>}
+                {saving ? <ActivityIndicator size="small" color={colors.surface} /> : <Text style={styles.modalBtnPrimaryText}>Eliminar</Text>}
                 </TouchableOpacity>
                 </View>
           </Pressable>
@@ -1702,7 +1711,7 @@ export default function CierresTeoricosScreen() {
               onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={effectivePage <= 1}
             >
-              <MaterialIcons name="chevron-left" size={20} color={effectivePage <= 1 ? '#94a3b8' : '#334155'} />
+              <MaterialIcons name="chevron-left" size={20} color={effectivePage <= 1 ? colors.textMuted : colors.textPrimary} />
               <Text style={[styles.pageBtnText, effectivePage <= 1 && styles.pageBtnTextDisabled]}>Anterior</Text>
                 </TouchableOpacity>
             <Text style={styles.pageInfo}>
@@ -1714,7 +1723,7 @@ export default function CierresTeoricosScreen() {
               disabled={effectivePage >= totalPages}
             >
               <Text style={[styles.pageBtnText, effectivePage >= totalPages && styles.pageBtnTextDisabled]}>Siguiente</Text>
-              <MaterialIcons name="chevron-right" size={20} color={effectivePage >= totalPages ? '#94a3b8' : '#334155'} />
+              <MaterialIcons name="chevron-right" size={20} color={effectivePage >= totalPages ? colors.textMuted : colors.textPrimary} />
                 </TouchableOpacity>
               </View>
         )}
@@ -1739,7 +1748,7 @@ export default function CierresTeoricosScreen() {
                           : 'check-box-outline-blank'
                       }
                       size={18}
-                      color="#64748b"
+                      color={colors.textMuted}
                     />
                 </TouchableOpacity>
                 ) : (
@@ -1792,7 +1801,7 @@ export default function CierresTeoricosScreen() {
                               <MaterialIcons
                                 name={checked ? 'check-box' : 'check-box-outline-blank'}
                                 size={18}
-                                color={checked ? '#0ea5e9' : '#94a3b8'}
+                                color={checked ? colors.accent : colors.textMuted}
                               />
                     </TouchableOpacity>
                   );
@@ -1820,32 +1829,35 @@ export default function CierresTeoricosScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: '#fff' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 17, fontWeight: '600', color: '#1e293b', letterSpacing: -0.3 },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8, position: 'relative', zIndex: 100 },
-  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, paddingHorizontal: 10 },
+  container: { flex: 1, padding: 10, backgroundColor: colors.surface },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: SPACING.sm },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: 17, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, letterSpacing: -0.3 },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.sm, position: 'relative', zIndex: 100 },
+  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, borderRadius: RADIO_MEDIO, paddingHorizontal: 10 },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, paddingVertical: 8, fontSize: 13, color: '#334155' },
-  toolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#f8fafc', borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' },
+  searchInput: { flex: 1, paddingVertical: SPACING.sm, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
+  toolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: colors.bg, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
   toolbarBtnDisabled: { opacity: 0.6 },
-  toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  toolbarBtnText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  toolbarBtnTextActive: { color: '#fff' },
-  toolbarBtnTextDisabled: { color: '#94a3b8' },
+  toolbarBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  toolbarBtnText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  toolbarBtnTextActive: { color: colors.surface },
+  toolbarBtnTextDisabled: { color: colors.textMuted },
   downloadWrap: { position: 'relative', zIndex: 50 },
   downloadOverlay: { position: 'fixed' as 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 49 },
   downloadMenu: {
     position: 'absolute',
     top: '100%',
     left: 0,
-    marginTop: 4,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    marginTop: SPACING.xs,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     minWidth: 150,
     zIndex: 100,
     ...(Platform.OS === 'web' && { boxShadow: '0 4px 12px rgba(0,0,0,0.12)' } as object),
@@ -1853,100 +1865,100 @@ const styles = StyleSheet.create({
   downloadMenuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
   },
-  downloadMenuText: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  downloadMenuDivider: { height: 1, backgroundColor: '#f1f5f9' },
-  toolbarBtnAdd: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#22c55e', borderRadius: 6 },
-  toolbarBtnAddText: { fontSize: 11, color: '#fff', fontWeight: '600' },
-  formError: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
-  formLocalesWrap: { maxHeight: 36, marginBottom: 8 },
+  downloadMenuText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  downloadMenuDivider: { height: 1, backgroundColor: colors.navActive },
+  toolbarBtnAdd: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: colors.success, borderRadius: radius.sm },
+  toolbarBtnAddText: { fontSize: typography.etiqueta.fontSize, color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  formError: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, marginBottom: SPACING.sm },
+  formLocalesWrap: { maxHeight: 36, marginBottom: SPACING.sm },
   formLocalesContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  formSelectWrap: { marginBottom: 8 },
+  formSelectWrap: { marginBottom: SPACING.sm },
   formPaymentRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  formPaymentLabel: { fontSize: 12, color: '#475569', minWidth: 140 },
-  formPaymentInput: { flex: 1, backgroundColor: '#fff', borderRadius: 4, paddingVertical: 4, paddingHorizontal: 8, fontSize: 12, color: '#334155', borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e8f0' },
-  formTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  formTotalLabel: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  formTotalValue: { fontSize: 14, fontWeight: '700', color: '#047857' },
+  formPaymentLabel: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, minWidth: 140 },
+  formPaymentInput: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.sm, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  formTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  formTotalLabel: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  formTotalValue: { fontVariant: ['tabular-nums'], fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#047857' },
   formModalScroll: { maxHeight: 360 },
-  modalBtnDanger: { backgroundColor: '#dc2626' },
-  totalFacturadoBox: { backgroundColor: '#d1fae5', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  soloFacturacionBox: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, paddingHorizontal: 0, marginBottom: 10 },
-  soloFacturacionLabel: { fontSize: 11, color: '#94a3b8', fontWeight: '400' },
+  modalBtnDanger: { backgroundColor: colors.danger },
+  totalFacturadoBox: { backgroundColor: '#d1fae5', borderRadius: radius.lg, paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg, marginBottom: SPACING.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  soloFacturacionBox: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingVertical: SPACING.xs, paddingHorizontal: 0, marginBottom: 10 },
+  soloFacturacionLabel: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight },
   soloFacturacionSwitchWrap: { transform: [{ scale: 0.65 }] },
-  totalFacturadoLabel: { fontSize: 14, fontWeight: '600', color: '#065f46' },
-  totalFacturadoValue: { fontSize: 15, fontWeight: '700', color: '#047857' },
+  totalFacturadoLabel: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#065f46' },
+  totalFacturadoValue: { fontVariant: ['tabular-nums'], fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#047857' },
   filterPanel: {
     backgroundColor: '#fafbfc',
-    borderRadius: 6,
-    paddingVertical: 8,
+    borderRadius: radius.sm,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#e5e7eb',
+    borderColor: colors.border,
     ...(Platform.OS === 'web' && { boxShadow: '0 1px 2px rgba(0,0,0,0.04)' } as object),
   },
   filterRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 },
   filterRowLocal: { marginTop: 10, width: '100%' },
   filterField: { minWidth: 135, flex: 0 },
   filterFieldLocal: { flex: 1, minWidth: 120 },
-  filterLabel: { fontSize: 10, fontWeight: '600', color: '#6b7280', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.3 },
-  filterInput: { backgroundColor: '#fff', borderRadius: 4, paddingVertical: 2, paddingHorizontal: 6, fontSize: 10, color: '#334155', borderWidth: StyleSheet.hairlineWidth, borderColor: '#e5e7eb', minHeight: 24 },
+  filterLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.3 },
+  filterInput: { backgroundColor: colors.surface, borderRadius: radius.sm, paddingVertical: 2, paddingHorizontal: 6, fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textPrimary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, minHeight: 24 },
   filterLocalesWrap: { maxHeight: 26 },
   filterLocalesContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  filterChip: { paddingVertical: 2, paddingHorizontal: 6, backgroundColor: '#f3f4f6', borderRadius: 4, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e5e7eb' },
-  filterChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  filterChipText: { fontSize: 10, color: '#6b7280', fontWeight: '500' },
-  filterChipTextActive: { color: '#fff' },
-  filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 8, marginLeft: 4 },
-  filterClearText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+  filterChip: { paddingVertical: 2, paddingHorizontal: 6, backgroundColor: colors.navActive, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  filterChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  filterChipText: { fontSize: fontSizes.badge, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  filterChipTextActive: { color: colors.surface },
+  filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: 5, paddingHorizontal: SPACING.sm, marginLeft: SPACING.xs },
+  filterClearText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 360 },
-  modalTitle: { fontSize: 17, fontWeight: '600', color: '#334155', marginBottom: 4 },
-  modalSubtitle: { fontSize: 12, color: '#64748b', marginBottom: 16 },
-  modalHint: { fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 16 },
+  modalContent: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 20, width: '100%', maxWidth: 360 },
+  modalTitle: { fontSize: 17, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
+  modalSubtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginBottom: SPACING.lg },
+  modalHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginBottom: SPACING.md, lineHeight: 16 },
   syncBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
-    backgroundColor: '#e0f2fe',
+    backgroundColor: colors.accentMuted,
     borderBottomWidth: 1,
     borderBottomColor: '#bae6fd',
   },
   syncBannerTextWrap: { flex: 1, minWidth: 0 },
-  syncBannerTitle: { fontSize: 13, fontWeight: '700', color: '#0369a1', marginBottom: 6 },
-  syncBannerSub: { fontSize: 11, color: '#0c4a6e', marginTop: 4 },
-  syncProgressWrap: { marginTop: 16, marginBottom: 4 },
-  syncProgressBarBg: { height: 8, backgroundColor: '#e2e8f0', borderRadius: 4, overflow: 'hidden' },
-  syncProgressBarFill: { height: '100%', backgroundColor: '#0ea5e9', borderRadius: 4 },
-  syncProgressInfo: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, flexWrap: 'wrap', gap: 4 },
-  syncProgressText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  syncProgressTimer: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
-  modalActions: { flexDirection: 'row', gap: 12, marginTop: 16, justifyContent: 'flex-end' },
-  modalBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
-  modalBtnCancel: { backgroundColor: '#f1f5f9' },
-  modalBtnCancelText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
-  modalBtnPrimary: { backgroundColor: '#0ea5e9' },
-  modalBtnPrimaryText: { fontSize: 13, color: '#fff', fontWeight: '600', marginLeft: 6 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 },
-  infoLine: { fontSize: 11, color: '#64748b', flex: 1 },
-  pagination: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  pageBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#f8fafc', borderRadius: 8 },
+  syncBannerTitle: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, marginBottom: 6 },
+  syncBannerSub: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#0c4a6e', marginTop: SPACING.xs },
+  syncProgressWrap: { marginTop: 16, marginBottom: SPACING.xs },
+  syncProgressBarBg: { height: 8, backgroundColor: colors.border, borderRadius: radius.sm, overflow: 'hidden' },
+  syncProgressBarFill: { height: '100%', backgroundColor: colors.accent, borderRadius: radius.sm },
+  syncProgressInfo: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, flexWrap: 'wrap', gap: SPACING.xs },
+  syncProgressText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  syncProgressTimer: { fontSize: typography.etiqueta.fontSize, color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  modalActions: { flexDirection: 'row', gap: SPACING.md, marginTop: 16, justifyContent: 'flex-end' },
+  modalBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: SPACING.lg, borderRadius: RADIO_MEDIO },
+  modalBtnCancel: { backgroundColor: colors.navActive },
+  modalBtnCancelText: { fontSize: fontSizes[13], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  modalBtnPrimary: { backgroundColor: colors.accent },
+  modalBtnPrimaryText: { fontSize: fontSizes[13], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, marginLeft: 6 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.sm, flexWrap: 'wrap', gap: SPACING.sm },
+  infoLine: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, flex: 1 },
+  pagination: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  pageBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, backgroundColor: colors.bg, borderRadius: RADIO_MEDIO },
   pageBtnDisabled: { opacity: 0.5 },
-  pageBtnText: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  pageBtnTextDisabled: { color: '#94a3b8' },
-  pageInfo: { fontSize: 12, color: '#64748b', fontWeight: '500' },
-  tableScroll: { flex: 1, backgroundColor: '#fff' },
+  pageBtnText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  pageBtnTextDisabled: { color: colors.textMuted },
+  pageInfo: { fontSize: fontSizes[12], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  tableScroll: { flex: 1, backgroundColor: colors.surface },
   tableWrapper: { flex: 1, flexDirection: 'column' },
-  tableInner: { flex: 1, backgroundColor: '#fff' },
-  table: { paddingBottom: 24, backgroundColor: '#fff' },
-  headerRowTable: { flexDirection: 'row', backgroundColor: '#f8fafc', borderBottomWidth: 1, borderColor: '#e2e8f0' },
-  dataRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#f1f5f9' },
+  tableInner: { flex: 1, backgroundColor: colors.surface },
+  table: { paddingBottom: 24, backgroundColor: colors.surface },
+  headerRowTable: { flexDirection: 'row', backgroundColor: colors.bg, borderBottomWidth: 1, borderColor: colors.border },
+  dataRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: colors.navActive },
   dataRowSelected: { backgroundColor: '#dbeafe' },
   cellHeader: { paddingHorizontal: 6, paddingVertical: 6, paddingRight: 18, justifyContent: 'center', position: 'relative' },
   cell: { paddingHorizontal: 6, paddingVertical: 5, justifyContent: 'center', position: 'relative' },
@@ -1959,27 +1971,27 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     backgroundColor: '#fef9c3', 
     paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingVertical: SPACING.xs,
+    borderRadius: radius.sm,
     maxWidth: 280,
     zIndex: 1000,
     opacity: 1,
     ...(Platform.OS === 'web' && { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } as object),
   },
-  cellTooltipText: { fontSize: 10, color: '#713f12', lineHeight: 14 },
+  cellTooltipText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: '#713f12', lineHeight: 14 },
   cellRight: { alignItems: 'flex-end' },
-  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#475569', letterSpacing: 0.2 },
-  cellText: { fontSize: 10, color: '#334155', letterSpacing: 0.1 },
-  cellBold: { fontWeight: '700' },
+  cellHeaderText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, letterSpacing: 0.2 },
+  cellText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textPrimary, letterSpacing: 0.1 },
+  cellBold: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   resizeHandle: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 16, justifyContent: 'center', alignItems: 'flex-end' },
   resizeHandleWeb: { cursor: 'col-resize' } as Record<string, unknown>,
-  resizeLine: { width: StyleSheet.hairlineWidth, height: '70%', backgroundColor: '#f1f5f9', borderRadius: 0 },
+  resizeLine: { width: StyleSheet.hairlineWidth, height: '70%', backgroundColor: colors.navActive, borderRadius: 0 },
   emptyRow: { padding: 24, alignItems: 'center' },
-  emptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
-  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  loadingText: { fontSize: 13, color: '#64748b' },
-  errorWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  errorText: { fontSize: 13, color: '#dc2626', textAlign: 'center' },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic' },
+  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SPACING.md },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
+  errorWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SPACING.md },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.danger, textAlign: 'center' },
   retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10 },
-  retryBtnText: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
+  retryBtnText: { fontSize: fontSizes[13], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
 });
