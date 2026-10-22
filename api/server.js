@@ -14,8 +14,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import pinoHttp from 'pino-http';
-import pino from 'pino';
-import { logger } from './lib/logger.js';
+import { logger, opcionesLogHttp } from './lib/logger.js';
 import { validateEnv } from './lib/validateEnv.js';
 import { helmetOptions } from './lib/helmetOptions.js';
 import { origenesDeEntorno, origenesPermitidos } from './lib/corsOrigins.js';
@@ -108,31 +107,7 @@ validateEnv();
 const app = express();
 
 // --- Logging HTTP estructurado (req.log disponible en cada handler). ---
-// Redacta `?token=` del access log: el feed ICS lleva el secreto en la URL.
-function redactarTokenEnUrl(url) {
-  if (typeof url !== 'string' || !/[?&]token=/i.test(url)) return url;
-  return url.replace(/([?&]token=)[^&]*/gi, '$1[Redacted]');
-}
-
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req) {
-        // pino-http pasa un wrapper con `url` / `raw`; no asumir IncomingMessage puro.
-        const base =
-          req.raw && typeof req.raw === 'object'
-            ? pino.stdSerializers.req(req.raw)
-            : { method: req.method, url: req.url };
-        return {
-          ...base,
-          id: req.id,
-          url: redactarTokenEnUrl(base.url || req.url || ''),
-        };
-      },
-    },
-  }),
-);
+app.use(pinoHttp(opcionesLogHttp(logger)));
 
 // --- Helmet: headers de seguridad HTTP ---
 // [SEC S-11] CSP report-only para API JSON (no enforcing; no aplica al documento Expo web)
