@@ -63,6 +63,14 @@ import {
   tasksTabularNums,
   tasksTipo,
 } from '../../../constants/tasksUiTokens';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 import { apiFetch, errorMessage } from '../../../utils/api';
 import { formatFecha, formatCreadoEn } from '../../../utils/formatFecha';
 import type { AdjuntoTarea, ComentarioTarea, EnlaceTarea, Tarea, TareaDetalle } from '../../../types/tasks';
@@ -415,7 +423,7 @@ export default function FichaTareaScreen() {
   if (acceso.permisosCargando) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={tasksColor.acento} />
         <Text style={styles.centroTexto}>Cargando permisos…</Text>
       </View>
     );
@@ -424,7 +432,7 @@ export default function FichaTareaScreen() {
   if (!puedeVer) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="lock-outline" size={30} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={30} color={tasksColor.textoTerciario} />
         <Text style={styles.centroTexto}>No tienes permiso para ver las tareas.</Text>
       </View>
     );
@@ -433,13 +441,13 @@ export default function FichaTareaScreen() {
   if (noDisponible) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="search-off" size={36} color="#94a3b8" />
+        <MaterialIcons name="search-off" size={36} color={tasksColor.textoTerciario} />
         <Text style={styles.centroTexto}>Esta tarea no existe o ya no está disponible.</Text>
         <TouchableOpacity
           style={styles.volverBtn}
           onPress={() => router.push('/proyectos/mis-tareas' as never)}
         >
-          <MaterialIcons name="arrow-back" size={18} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={18} color={tasksColor.acento} />
           <Text style={styles.volverTexto}>Volver a mis tareas</Text>
         </TouchableOpacity>
       </View>
@@ -449,7 +457,7 @@ export default function FichaTareaScreen() {
   if (cargando && !tarea) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={tasksColor.acento} />
         <Text style={styles.centroTexto}>Cargando la tarea…</Text>
       </View>
     );
@@ -458,10 +466,10 @@ export default function FichaTareaScreen() {
   if (!tarea) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="error-outline" size={36} color="#f87171" />
+        <MaterialIcons name="error-outline" size={36} color={colors.danger} />
         <Text style={styles.centroError}>{error ?? 'No se pudo cargar la tarea'}</Text>
         <TouchableOpacity style={styles.volverBtn} onPress={() => void cargarTarea()}>
-          <MaterialIcons name="refresh" size={18} color="#0ea5e9" />
+          <MaterialIcons name="refresh" size={18} color={tasksColor.acento} />
           <Text style={styles.volverTexto}>Reintentar</Text>
         </TouchableOpacity>
       </View>
@@ -516,7 +524,7 @@ export default function FichaTareaScreen() {
               router.push(`/proyectos/${encodeURIComponent(tarea.proyecto_id as string)}` as never)
             }
           >
-            <MaterialIcons name="folder-open" size={16} color="#0ea5e9" />
+            <MaterialIcons name="folder-open" size={16} color={tasksColor.acento} />
             <Text style={styles.enlaceProyectoTexto}>Ver el proyecto</Text>
           </TouchableOpacity>
         ) : null}
@@ -529,8 +537,8 @@ export default function FichaTareaScreen() {
               setBorrarVisible(true);
             }}
           >
-            <MaterialIcons name="delete-outline" size={16} color="#b91c1c" />
-            <Text style={[styles.enlaceProyectoTexto, { color: '#b91c1c' }]}>Eliminar tarea</Text>
+            <MaterialIcons name="delete-outline" size={16} color={statusColors.danger.text} />
+            <Text style={[styles.enlaceProyectoTexto, { color: statusColors.danger.text }]}>Eliminar tarea</Text>
           </TouchableOpacity>
         ) : null}
 
@@ -542,14 +550,14 @@ export default function FichaTareaScreen() {
 
         {tarea.estado === 'bloqueada' && tarea.bloqueo_motivo ? (
           <View style={styles.bloqueo}>
-            <MaterialIcons name="block" size={16} color="#b45309" />
+            <MaterialIcons name="block" size={16} color={statusColors.warning.text} />
             <Text style={styles.bloqueoTexto}>{tarea.bloqueo_motivo}</Text>
           </View>
         ) : null}
 
         {tarea.cita_origen ? (
           <View style={styles.cita}>
-            <MaterialIcons name="format-quote" size={16} color="#94a3b8" />
+            <MaterialIcons name="format-quote" size={16} color={tasksColor.textoTerciario} />
             <Text style={styles.citaTexto}>{tarea.cita_origen}</Text>
           </View>
         ) : null}
@@ -566,7 +574,7 @@ export default function FichaTareaScreen() {
               <MaterialIcons
                 name={panelReasignar ? 'close' : 'swap-horiz'}
                 size={16}
-                color="#0ea5e9"
+                color={tasksColor.acento}
               />
               <Text style={styles.reasignarTexto}>
                 {panelReasignar ? 'Cancelar la reasignación' : 'Reasignar'}
@@ -592,7 +600,7 @@ export default function FichaTareaScreen() {
                 />
                 {usuarios.noDisponibles ? (
                   <View style={form.aviso}>
-                    <MaterialIcons name="info-outline" size={14} color="#d97706" />
+                    <MaterialIcons name="info-outline" size={14} color={tasksColor.aviso} />
                     <Text style={form.avisoTexto}>
                       No se puede reasignar sin el permiso de usuarios.
                     </Text>
@@ -604,7 +612,7 @@ export default function FichaTareaScreen() {
                   disabled={reasignando}
                 >
                   {reasignando ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
+                    <ActivityIndicator size="small" color={tasksColor.textoInverso} />
                   ) : (
                     <Text style={styles.primarioTexto}>Reasignar la tarea</Text>
                   )}
@@ -640,12 +648,12 @@ export default function FichaTareaScreen() {
                     accessibilityLabel={item.hecho ? 'Desmarcar el elemento' : 'Marcar el elemento'}
                   >
                     {itemEnCurso === item.id ? (
-                      <ActivityIndicator size="small" color="#0ea5e9" />
+                      <ActivityIndicator size="small" color={tasksColor.acento} />
                     ) : (
                       <MaterialIcons
                         name={item.hecho ? 'check-box' : 'check-box-outline-blank'}
                         size={20}
-                        color={item.hecho ? '#16a34a' : '#94a3b8'}
+                        color={item.hecho ? tasksColor.exito : tasksColor.textoTerciario}
                       />
                     )}
                   </TouchableOpacity>
@@ -663,7 +671,7 @@ export default function FichaTareaScreen() {
                       disabled={itemEnCurso === item.id}
                       accessibilityLabel="Borrar el elemento"
                     >
-                      <MaterialIcons name="delete-outline" size={16} color="#d97706" />
+                      <MaterialIcons name="delete-outline" size={16} color={tasksColor.aviso} />
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -682,7 +690,7 @@ export default function FichaTareaScreen() {
                 value={textoItem}
                 onChangeText={setTextoItem}
                 placeholder="Añadir un paso"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={tasksColor.textoTerciario}
                 editable={itemEnCurso !== 'nuevo'}
                 onSubmitEditing={() => void anadirItem()}
                 returnKeyType="done"
@@ -693,9 +701,9 @@ export default function FichaTareaScreen() {
                 disabled={itemEnCurso === 'nuevo' || !textoItem.trim()}
               >
                 {itemEnCurso === 'nuevo' ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
+                  <ActivityIndicator size="small" color={tasksColor.textoInverso} />
                 ) : (
-                  <MaterialIcons name="add" size={18} color="#ffffff" />
+                  <MaterialIcons name="add" size={18} color={tasksColor.textoInverso} />
                 )}
               </TouchableOpacity>
             </View>
@@ -710,7 +718,7 @@ export default function FichaTareaScreen() {
           <View style={styles.lista}>
             {vinculos.map((vinculo) => (
               <View key={`${vinculo.tipo}-${vinculo.id}`} style={styles.filaLista}>
-                <MaterialIcons name="link" size={16} color="#94a3b8" />
+                <MaterialIcons name="link" size={16} color={tasksColor.textoTerciario} />
                 <View style={styles.filaTexto}>
                   <Text style={styles.filaTitulo}>{vinculo.etiqueta?.trim() || 'Sin etiqueta'}</Text>
                   <Text style={styles.filaSub}>
@@ -803,7 +811,7 @@ export default function FichaTareaScreen() {
                 value={textoComentario}
                 onChangeText={setTextoComentario}
                 placeholder="Escribe un comentario; con @nombre mencionas a alguien"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={tasksColor.textoTerciario}
                 multiline
                 editable={!enviandoComentario}
               />
@@ -813,10 +821,10 @@ export default function FichaTareaScreen() {
                 disabled={enviandoComentario || !textoComentario.trim()}
               >
                 {enviandoComentario ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
+                  <ActivityIndicator size="small" color={tasksColor.textoInverso} />
                 ) : (
                   <>
-                    <MaterialIcons name="send" size={16} color="#ffffff" />
+                    <MaterialIcons name="send" size={16} color={tasksColor.textoInverso} />
                     <Text style={styles.primarioTexto}>Comentar</Text>
                   </>
                 )}
@@ -850,10 +858,10 @@ export default function FichaTareaScreen() {
               disabled={cargandoComentarios}
             >
               {cargandoComentarios ? (
-                <ActivityIndicator size="small" color="#0ea5e9" />
+                <ActivityIndicator size="small" color={tasksColor.acento} />
               ) : (
                 <>
-                  <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
+                  <MaterialIcons name="expand-more" size={16} color={tasksColor.acento} />
                   <Text style={styles.masTexto}>Ver más comentarios</Text>
                 </>
               )}
@@ -892,7 +900,7 @@ export default function FichaTareaScreen() {
                 />
               ) : (
                 <View style={styles.avisoSoloLectura}>
-                  <MaterialIcons name="lock-outline" size={15} color="#64748b" />
+                  <MaterialIcons name="lock-outline" size={15} color={colors.textMuted} />
                   <Text style={styles.avisoSoloLecturaTexto}>
                     Solo lectura: esta tarea la cambia su responsable o quien pueda editar su proyecto.
                   </Text>
@@ -901,9 +909,9 @@ export default function FichaTareaScreen() {
 
               {cambio.error ? (
                 <TouchableOpacity style={styles.avisoError} onPress={cambio.descartarError}>
-                  <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+                  <MaterialIcons name="error-outline" size={16} color={statusColors.danger.text} />
                   <Text style={styles.avisoErrorTexto}>{cambio.error}</Text>
-                  <MaterialIcons name="close" size={16} color="#b91c1c" />
+                  <MaterialIcons name="close" size={16} color={statusColors.danger.text} />
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -999,63 +1007,65 @@ function Dato({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tasksColor.fondoApp },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 32, gap: 12 },
+  scrollContent: { padding: SPACING.lg, paddingBottom: 32, gap: SPACING.md },
 
-  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center', lineHeight: 19 },
-  centroError: { fontSize: 13, color: '#ef4444', textAlign: 'center' },
+  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  /** 19 px de interlineado; entre fontSizes[18] y fontSizes[20]. */
+  centroTexto: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
+  /** Rojo de rechazo; no es colors.danger. */
+  centroError: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: '#ef4444', textAlign: 'center' },
   volverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH },
-  volverTexto: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  volverTexto: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
 
   cabeceraMeta: { gap: 10 },
-  cabeceraBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
-  cabeceraFecha: { ...tasksTipo.etiqueta, color: tasksColor.textoSecundario },
+  cabeceraBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, alignItems: 'center' },
+  cabeceraFecha: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.textoSecundario },
   avisoSoloLectura: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderRadius: tasksRadius.contenedor,
     backgroundColor: tasksColor.superficieHundida,
   },
-  avisoSoloLecturaTexto: { flex: 1, ...tasksTipo.micro, color: tasksColor.textoSecundario },
+  avisoSoloLecturaTexto: { flex: 1, ...tasksTipo.micro, fontFamily: fontFamily.medium, color: tasksColor.textoSecundario },
   avisoError: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderRadius: tasksRadius.contenedor,
     backgroundColor: tasksColor.peligroSuave,
     minHeight: MIN_TOUCH,
   },
-  avisoErrorTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#b91c1c' },
-  errorGeneral: { ...tasksTipo.etiqueta, color: tasksColor.peligro },
+  avisoErrorTexto: { flex: 1, ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: statusColors.danger.text },
+  errorGeneral: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.peligro },
 
-  cuerpo: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  cuerpo: { flexDirection: 'row', gap: SPACING.md, alignItems: 'flex-start' },
   cuerpoApilado: { flexDirection: 'column' },
-  columna: { flex: 1, minWidth: 0, gap: 12, width: '100%' },
+  columna: { flex: 1, minWidth: 0, gap: SPACING.md, width: '100%' },
 
-  datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.md },
   dato: { minWidth: 130, gap: 2 },
-  datoEtiqueta: { ...tasksTipo.etiqueta },
-  datoValor: { ...tasksTipo.dato },
+  datoEtiqueta: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium },
+  datoValor: { ...tasksTipo.dato, fontFamily: fontFamily.medium },
   datoTabular: { ...tasksTabularNums },
-  descripcion: { ...tasksTipo.cuerpo },
-  sinDescripcion: { ...tasksTipo.micro },
+  descripcion: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular },
+  sinDescripcion: { ...tasksTipo.micro, fontFamily: fontFamily.medium },
   enlaceProyecto: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start' },
   enlaceProyectoTactil: { minHeight: MIN_TOUCH },
-  enlaceProyectoTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
+  enlaceProyectoTexto: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.textoEnlace },
   bloqueo: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
     padding: 10,
     borderRadius: tasksRadius.contenedor,
-    backgroundColor: '#fef3c7',
+    backgroundColor: statusColors.warning.bg,
   },
-  bloqueoTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#b45309' },
+  bloqueoTexto: { flex: 1, ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: statusColors.warning.text },
   cita: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1064,30 +1074,30 @@ const styles = StyleSheet.create({
     borderRadius: tasksRadius.contenedor,
     backgroundColor: tasksColor.superficieHundida,
     borderLeftWidth: 3,
-    borderLeftColor: '#cbd5e1',
+    borderLeftColor: colors.borderStrong,
   },
-  citaTexto: { flex: 1, ...tasksTipo.etiqueta, color: tasksColor.textoSecundario, fontStyle: 'italic' },
+  citaTexto: { flex: 1, ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.textoSecundario, fontStyle: 'italic' },
 
-  reasignarWrap: { gap: 8 },
+  reasignarWrap: { gap: SPACING.sm },
   reasignarBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start' },
   reasignarBtnTactil: { minHeight: MIN_TOUCH },
-  reasignarTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
+  reasignarTexto: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.textoEnlace },
 
-  lista: { gap: 8 },
+  lista: { gap: SPACING.sm },
   filaLista: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 4,
     borderBottomWidth: 1,
     borderBottomColor: tasksColor.bordeSutil,
   },
   filaTexto: { flex: 1, minWidth: 0 },
-  filaTitulo: { ...tasksTipo.dato },
-  filaSub: { ...tasksTipo.micro, marginTop: 1 },
+  filaTitulo: { ...tasksTipo.dato, fontFamily: fontFamily.medium },
+  filaSub: { ...tasksTipo.micro, fontFamily: fontFamily.medium, marginTop: 1 },
   check: { padding: 2 },
   checkTactil: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
-  itemTexto: { flex: 1, ...tasksTipo.cuerpo, color: tasksColor.textoPrimario },
+  itemTexto: { flex: 1, ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.textoPrimario },
   itemHecho: { color: tasksColor.textoTerciario, textDecorationLine: 'line-through' },
   iconoBtn: {
     padding: 6,
@@ -1097,19 +1107,19 @@ const styles = StyleSheet.create({
     backgroundColor: tasksColor.superficieHundida,
   },
   iconoBtnTactil: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
-  filaNuevoItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  filaNuevoItem: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   inputItem: { flex: 1 },
-  vacioSeccion: { ...tasksTipo.micro },
+  vacioSeccion: { ...tasksTipo.micro, fontFamily: fontFamily.medium },
 
   formEmbebido: {
-    gap: 8,
+    gap: SPACING.sm,
     padding: 10,
     borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
     borderColor: tasksColor.bordeSutil,
     backgroundColor: tasksColor.superficieHundida,
   },
-  formComentario: { gap: 8 },
+  formComentario: { gap: SPACING.sm },
   primarioBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1117,13 +1127,13 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: tasksColor.acento,
     paddingVertical: 9,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderRadius: tasksRadius.control,
   },
   primarioBtnCorto: { paddingHorizontal: 14, alignSelf: 'stretch' },
   primarioBtnTactil: { minHeight: MIN_TOUCH },
-  primarioTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontWeight: '600' },
-  errorSeccion: { ...tasksTipo.etiqueta, color: tasksColor.peligro },
+  primarioTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  errorSeccion: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.peligro },
 
   comentario: {
     gap: 3,
@@ -1133,20 +1143,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tasksColor.bordeSutil,
   },
-  comentarioAutor: { ...tasksTipo.micro },
-  comentarioTexto: { ...tasksTipo.cuerpo, color: tasksColor.textoPrimario },
+  comentarioAutor: { ...tasksTipo.micro, fontFamily: fontFamily.medium },
+  comentarioTexto: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.textoPrimario },
 
   masBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderRadius: tasksRadius.control,
     borderWidth: 1,
     borderColor: tasksColor.bordeSutil,
     backgroundColor: tasksColor.superficieHundida,
   },
   masBtnTactil: { minHeight: MIN_TOUCH },
-  masTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
+  masTexto: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.textoEnlace },
 });
