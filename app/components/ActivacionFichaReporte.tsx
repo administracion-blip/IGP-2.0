@@ -9,6 +9,15 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import type { ComponentProps, ReactNode } from 'react';
 import { useBreakpoint } from '../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 import { buildWhatsAppUrl } from '../lib/activaciones';
 import {
   type Activacion,
@@ -44,7 +53,7 @@ function SecCard({
     <View style={styles.secCard}>
       <View style={styles.secCardHead}>
         <View style={styles.secIconWrap}>
-          <MaterialIcons name={icon} size={16} color="#0ea5e9" />
+          <MaterialIcons name={icon} size={16} color={colors.accent} />
         </View>
         <Text style={styles.secCardTitle}>{titulo}</Text>
       </View>
@@ -66,7 +75,7 @@ function KpiCard({ icon, label, valor }: { icon: IconName; label: string; valor:
   return (
     <View style={styles.kpiCard}>
       <View style={styles.kpiIconWrap}>
-        <MaterialIcons name={icon} size={15} color="#0ea5e9" />
+        <MaterialIcons name={icon} size={15} color={colors.accent} />
       </View>
       <Text style={styles.kpiLabel}>{label}</Text>
       <Text style={styles.kpiValor} numberOfLines={2}>
@@ -150,7 +159,7 @@ export function ActivacionFichaReporte({
       {sesionDestacada ? (
         <View style={styles.sesionHoyBanner}>
           <View style={styles.sesionHoyHead}>
-            <MaterialIcons name="today" size={16} color="#0369a1" />
+            <MaterialIcons name="today" size={16} color={statusColors.info.text} />
             <Text style={styles.sesionHoyTitulo}>Sesión de hoy</Text>
             <View
               style={[
@@ -182,7 +191,7 @@ export function ActivacionFichaReporte({
           </Text>
           {sesionDestacada.incidencia ? (
             <View style={styles.incidenciaBox}>
-              <MaterialIcons name="warning-amber" size={15} color="#d97706" />
+              <MaterialIcons name="warning-amber" size={15} color={colors.warning} />
               <Text style={styles.incidenciaText}>{sesionDestacada.incidencia}</Text>
             </View>
           ) : null}
@@ -217,12 +226,12 @@ export function ActivacionFichaReporte({
             {activacion.promotor_telefono ? (
               <View style={styles.telBtns}>
                 <TouchableOpacity style={styles.telBtn} onPress={llamar}>
-                  <MaterialIcons name="call" size={14} color="#0ea5e9" />
+                  <MaterialIcons name="call" size={14} color={colors.accent} />
                   <Text style={styles.telBtnText}>Llamar</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.telBtn, styles.telBtnWa]} onPress={whatsApp}>
-                  <MaterialIcons name="chat" size={14} color="#16a34a" />
-                  <Text style={[styles.telBtnText, { color: '#16a34a' }]}>WA</Text>
+                  <MaterialIcons name="chat" size={14} color={colors.success} />
+                  <Text style={[styles.telBtnText, { color: colors.success }]}>WA</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -269,7 +278,7 @@ export function ActivacionFichaReporte({
                 style={styles.adjChip}
                 onPress={() => adj.url && Linking.openURL(adj.url).catch(() => {})}
               >
-                <MaterialIcons name="insert-drive-file" size={15} color="#0ea5e9" />
+                <MaterialIcons name="insert-drive-file" size={15} color={colors.accent} />
                 <Text style={styles.adjNombre} numberOfLines={1}>
                   {adj.nombre}
                 </Text>
@@ -283,13 +292,13 @@ export function ActivacionFichaReporte({
         <View style={styles.sesionesHead}>
           <View style={styles.secCardHead}>
             <View style={styles.secIconWrap}>
-              <MaterialIcons name="storefront" size={16} color="#0ea5e9" />
+              <MaterialIcons name="storefront" size={16} color={colors.accent} />
             </View>
             <Text style={styles.secCardTitle}>Sesiones ({sesiones.length})</Text>
           </View>
           {puedeGestionar && onGestionarSesiones ? (
             <TouchableOpacity style={styles.gestionarBtn} onPress={onGestionarSesiones}>
-              <MaterialIcons name="edit-calendar" size={14} color="#fff" />
+              <MaterialIcons name="edit-calendar" size={14} color={colors.surface} />
               <Text style={styles.gestionarBtnText}>Gestionar</Text>
             </TouchableOpacity>
           ) : null}
@@ -344,7 +353,7 @@ export function ActivacionFichaReporte({
                   </Text>
                   <View style={[styles.thEstado, styles.tdEstado]}>
                     {s.incidencia ? (
-                      <MaterialIcons name="warning-amber" size={14} color="#d97706" style={{ marginRight: 4 }} />
+                      <MaterialIcons name="warning-amber" size={14} color={colors.warning} style={{ marginRight: SPACING.xs }} />
                     ) : null}
                     <View style={[styles.badgeMini, { backgroundColor: sm.bg }]}>
                       <Text style={[styles.badgeMiniText, { color: sm.text }]}>{sm.label}</Text>
@@ -372,20 +381,24 @@ export function ActivacionEstadoBadge({ activacion }: { activacion: Activacion }
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 export const activacionFichaStyles = StyleSheet.create({
   report: {
     width: '100%',
     maxWidth: 860,
-    gap: 12,
+    gap: SPACING.md,
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACING.sm,
   },
-  topActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexWrap: 'wrap' },
+  /** Pastilla 20 px; radius.xl es 16. */
   estadoBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -395,204 +408,205 @@ export const activacionFichaStyles = StyleSheet.create({
     paddingVertical: 5,
   },
   estadoDot: { width: 7, height: 7, borderRadius: 4 },
-  estadoText: { fontSize: 12, fontWeight: '700' },
+  estadoText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   btnPdf: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 7,
   },
-  btnPdfText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  btnPdfText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
   btnEditar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#0ea5e9',
-    borderRadius: 8,
+    backgroundColor: colors.accent,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 14,
     paddingVertical: 7,
   },
-  btnEditarText: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  btnEditarText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
   btnDisabled: { opacity: 0.65 },
   volverBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 6,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
   },
-  volverText: { fontSize: 13, fontWeight: '600', color: '#475569' },
+  volverText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
 });
 
 const styles = StyleSheet.create({
   ...activacionFichaStyles,
+  /** 26 px: entre fontSizes[24] y fontSizes[30]. */
   tituloProducto: {
     fontSize: 26,
-    fontWeight: '800',
-    color: '#0f172a',
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textStrong,
     lineHeight: 32,
-    marginTop: 4,
+    marginTop: SPACING.xs,
   },
   breadcrumb: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 6, gap: 2 },
-  breadcrumbItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  breadcrumbSep: { fontSize: 12, color: '#cbd5e1' },
-  breadcrumbText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
-  breadcrumbMarca: { color: '#64748b', fontWeight: '500' },
+  breadcrumbItem: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  breadcrumbSep: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.borderStrong },
+  breadcrumbText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
+  breadcrumbMarca: { color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
 
   sesionHoyBanner: {
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
-    gap: 4,
+    borderRadius: radius.md,
+    padding: SPACING.md,
+    marginTop: SPACING.sm,
+    gap: SPACING.xs,
   },
   sesionHoyHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  sesionHoyTitulo: { fontSize: 12, fontWeight: '700', color: '#0369a1', flex: 1 },
-  sesionHoyLocal: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginTop: 2 },
-  sesionHoyMeta: { fontSize: 12, color: '#64748b' },
+  sesionHoyTitulo: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, flex: 1 },
+  sesionHoyLocal: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginTop: 2 },
+  sesionHoyMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
   incidenciaBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fde68a',
-    borderRadius: 8,
-    padding: 8,
-    marginTop: 8,
+    borderRadius: RADIO_MEDIO,
+    padding: SPACING.sm,
+    marginTop: SPACING.sm,
   },
-  incidenciaText: { flex: 1, fontSize: 12, color: '#92400e', lineHeight: 17 },
+  incidenciaText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#92400e', lineHeight: 17 },
 
-  kpiRow: { flexDirection: 'row', gap: 10, marginTop: 14, marginBottom: 4 },
+  kpiRow: { flexDirection: 'row', gap: 10, marginTop: 14, marginBottom: SPACING.xs },
   kpiRowStack: { flexDirection: 'column' },
   kpiCard: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    padding: 12,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: SPACING.md,
     minWidth: 0,
     ...(Platform.OS === 'web' && ({ boxShadow: '0 1px 4px rgba(15,23,42,0.06)' } as object)),
   },
   kpiIconWrap: {
     width: 28,
     height: 28,
-    borderRadius: 8,
-    backgroundColor: '#e0f2fe',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 6,
   },
-  kpiLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.3 },
-  kpiValor: { fontSize: 13, fontWeight: '700', color: '#0f172a', marginTop: 3, lineHeight: 18 },
+  kpiLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.3 },
+  kpiValor: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginTop: 3, lineHeight: 18 },
 
   secCard: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     padding: 14,
     ...(Platform.OS === 'web' && ({ boxShadow: '0 1px 4px rgba(15,23,42,0.06)' } as object)),
   },
-  secCardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  secCardHead: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.md },
   secIconWrap: {
     width: 30,
     height: 30,
-    borderRadius: 8,
-    backgroundColor: '#e0f2fe',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   secCardTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
 
-  grid2: { flexDirection: 'row', gap: 16 },
+  grid2: { flexDirection: 'row', gap: SPACING.lg },
   grid3: { flexDirection: 'row', gap: 10 },
   gridStack: { flexDirection: 'column', gap: 10 },
 
   campoInline: { flex: 1, minWidth: 0 },
-  campoLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.3 },
-  campoValor: { fontSize: 13, color: '#0f172a', marginTop: 3, lineHeight: 18, fontWeight: '500' },
+  campoLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.3 },
+  campoValor: { fontSize: fontSizes[13], color: colors.textStrong, marginTop: 3, lineHeight: 18, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
 
-  telBtns: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  telBtns: { flexDirection: 'row', gap: 6, marginTop: SPACING.sm },
   telBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
-    borderRadius: 6,
+    backgroundColor: colors.accentMuted,
+    borderRadius: radius.sm,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
   telBtnWa: { borderColor: '#86efac', backgroundColor: '#f0fdf4' },
-  telBtnText: { fontSize: 11, fontWeight: '600', color: '#0ea5e9' },
+  telBtnText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
 
   bloqueCol: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     padding: 14,
     minWidth: 0,
     ...(Platform.OS === 'web' && ({ boxShadow: '0 1px 4px rgba(15,23,42,0.06)' } as object)),
   },
   bloqueColTitulo: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
   },
-  bloqueColTexto: { fontSize: 13, color: '#334155', lineHeight: 20 },
+  bloqueColTexto: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, lineHeight: 20 },
   bloqueLargoTexto: {
-    fontSize: 13,
-    color: '#334155',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textPrimary,
     lineHeight: 22,
     width: '100%',
   },
 
-  materialesWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  materialesWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs },
   materialChip: {
-    backgroundColor: '#f1f5f9',
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     borderRadius: 4,
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
-  materialText: { fontSize: 11, color: '#334155' },
+  materialText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
 
   adjGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   adjChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     paddingHorizontal: 10,
     paddingVertical: 6,
     maxWidth: '100%',
   },
-  adjNombre: { fontSize: 12, color: '#0ea5e9', fontWeight: '500', maxWidth: 220 },
+  adjNombre: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, maxWidth: 220 },
 
   sesionesHead: {
     flexDirection: 'row',
@@ -600,31 +614,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 10,
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACING.sm,
   },
   gestionarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#0ea5e9',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    gap: SPACING.xs,
+    backgroundColor: colors.accent,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 6,
   },
-  gestionarBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
-  sesionesVacio: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
+  gestionarBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  sesionesVacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic' },
 
-  tablaSesiones: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden' },
+  tablaSesiones: { borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, overflow: 'hidden' },
   tablaHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
     paddingVertical: 7,
     paddingHorizontal: 10,
   },
-  th: { fontSize: 10, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  th: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase' },
   thLocal: { flex: 2, minWidth: 0 },
   thFecha: { width: 72 },
   thHora: { width: 90 },
@@ -633,24 +647,24 @@ const styles = StyleSheet.create({
   tablaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  sesionDestacadaRow: { backgroundColor: '#f0f9ff' },
-  td: { fontSize: 12, color: '#334155' },
+  sesionDestacadaRow: { backgroundColor: colors.accentMuted },
+  td: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
   tdEstado: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
 
   sesionCardMovil: {
     padding: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    gap: 4,
+    borderBottomColor: colors.navActive,
+    gap: SPACING.xs,
   },
-  sesionCardLocal: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
-  sesionCardMeta: { fontSize: 12, color: '#64748b' },
+  sesionCardLocal: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong },
+  sesionCardMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
 
-  badgeMini: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
-  badgeMiniText: { fontSize: 10, fontWeight: '700' },
+  badgeMini: { borderRadius: radius.sm, paddingHorizontal: 7, paddingVertical: 3 },
+  badgeMiniText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 });
