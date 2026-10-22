@@ -6,6 +6,13 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { HubNavCard, HubNavGrid } from '../../../components/ui/HubNavCard';
 import { useHubNavGrid } from '../../../hooks/useHubNavGrid';
 import { hubAccentById } from '../../../lib/hubNavAccent';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 
 type Acceso = {
   id: string;
@@ -69,7 +76,7 @@ export default function LimpiezaHubScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push('/mantenimiento' as never)} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Limpieza</Text>
@@ -104,21 +111,24 @@ export default function LimpiezaHubScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: colors.surface },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.lg, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 14, color: '#64748b', lineHeight: 20, marginTop: 2 },
-  scrollContent: { paddingBottom: 24 },
-  vacio: { fontSize: 13, color: '#94a3b8', padding: 16, marginTop: 8 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, lineHeight: 20, marginTop: 2 },
+  scrollContent: { paddingBottom: SPACING.xl },
+  vacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, padding: SPACING.lg, marginTop: SPACING.sm },
 });
