@@ -26,6 +26,15 @@ import {
   ESTADO_SESION_META,
   sesionCruzaMedianoche,
 } from '../../types/activaciones';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 type LocalItem = { id_Locales?: string; nombre?: string; Nombre?: string };
 
@@ -326,7 +335,7 @@ export default function ActivacionSesionesScreen() {
   if (!puedeGestionar) {
     return (
       <View style={styles.centerBox}>
-        <MaterialIcons name="lock-outline" size={36} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={36} color={colors.textMuted} />
         <Text style={styles.emptyText}>No tienes permiso para gestionar sesiones.</Text>
       </View>
     );
@@ -339,7 +348,7 @@ export default function ActivacionSesionesScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={styles.title} numberOfLines={1}>Sesiones</Text>
@@ -348,14 +357,14 @@ export default function ActivacionSesionesScreen() {
           </Text>
         </View>
         <TouchableOpacity style={styles.nuevaBtn} onPress={abrirModalCrear}>
-          <MaterialIcons name="add" size={16} color="#fff" />
+          <MaterialIcons name="add" size={16} color={colors.surface} />
           <Text style={styles.nuevaBtnText}>Nueva sesión</Text>
         </TouchableOpacity>
       </View>
 
       {error ? (
         <View style={styles.errorBanner}>
-          <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+          <MaterialIcons name="error-outline" size={16} color={statusColors.danger.text} />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity onPress={cargar}>
             <Text style={styles.retry}>Reintentar</Text>
@@ -365,11 +374,11 @@ export default function ActivacionSesionesScreen() {
 
       {loading ? (
         <View style={styles.centerBox}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
       ) : grupos.length === 0 ? (
         <View style={styles.centerBox}>
-          <MaterialIcons name="event-busy" size={48} color="#cbd5e1" />
+          <MaterialIcons name="event-busy" size={48} color={colors.borderStrong} />
           <Text style={styles.emptyText}>No hay sesiones programadas. Crea la primera con «Nueva sesión».</Text>
         </View>
       ) : (
@@ -377,7 +386,7 @@ export default function ActivacionSesionesScreen() {
           {grupos.map((g) => (
             <View key={g.nombre} style={styles.grupoCard}>
               <View style={styles.grupoHeader}>
-                <MaterialIcons name="storefront" size={16} color="#0369a1" />
+                <MaterialIcons name="storefront" size={16} color={statusColors.info.text} />
                 <Text style={styles.grupoNombre}>{g.nombre}</Text>
                 <Text style={styles.grupoMeta}>{g.sesiones.length} sesión(es)</Text>
               </View>
@@ -392,14 +401,14 @@ export default function ActivacionSesionesScreen() {
                       {sesionCruzaMedianoche(s) ? ' (+1)' : ''}
                     </Text>
                     {s.incidencia ? (
-                      <MaterialIcons name="warning-amber" size={16} color="#d97706" />
+                      <MaterialIcons name="warning-amber" size={16} color={colors.warning} />
                     ) : null}
                     <View style={[styles.badgeMini, { backgroundColor: sm.bg }]}>
                       <Text style={[styles.badgeMiniText, { color: sm.text }]}>{sm.label}</Text>
                     </View>
                     <View style={{ flex: 1 }} />
                     {accionando ? (
-                      <ActivityIndicator size="small" color="#0ea5e9" />
+                      <ActivityIndicator size="small" color={colors.accent} />
                     ) : (
                       <>
                         <TouchableOpacity
@@ -407,7 +416,7 @@ export default function ActivacionSesionesScreen() {
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           accessibilityLabel="Editar sesión"
                         >
-                          <MaterialIcons name="edit" size={19} color="#0ea5e9" />
+                          <MaterialIcons name="edit" size={19} color={colors.accent} />
                         </TouchableOpacity>
                         {s.estado_sesion === 'programada' ? (
                           <TouchableOpacity
@@ -415,7 +424,7 @@ export default function ActivacionSesionesScreen() {
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityLabel="Cancelar sesión"
                           >
-                            <MaterialIcons name="event-busy" size={19} color="#d97706" />
+                            <MaterialIcons name="event-busy" size={19} color={colors.warning} />
                           </TouchableOpacity>
                         ) : null}
                         {puedeEliminar(s) ? (
@@ -424,7 +433,7 @@ export default function ActivacionSesionesScreen() {
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityLabel="Eliminar sesión"
                           >
-                            <MaterialIcons name="delete-outline" size={19} color="#dc2626" />
+                            <MaterialIcons name="delete-outline" size={19} color={colors.danger} />
                           </TouchableOpacity>
                         ) : null}
                       </>
@@ -443,7 +452,7 @@ export default function ActivacionSesionesScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editSesionId ? 'Editar sesión' : 'Nueva sesión'}</Text>
               <TouchableOpacity onPress={cerrarModalSesion} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ padding: 14 }} keyboardShouldPersistTaps="handled">
@@ -468,7 +477,7 @@ export default function ActivacionSesionesScreen() {
                     value={nuevaHoraInicio}
                     onChangeText={setNuevaHoraInicio}
                     placeholder="23:00"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                     keyboardType="numbers-and-punctuation"
                   />
                 </View>
@@ -479,7 +488,7 @@ export default function ActivacionSesionesScreen() {
                     value={nuevaHoraFin}
                     onChangeText={setNuevaHoraFin}
                     placeholder="01:00"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                     keyboardType="numbers-and-punctuation"
                   />
                 </View>
@@ -496,7 +505,7 @@ export default function ActivacionSesionesScreen() {
                 <MaterialIcons
                   name={repetir ? 'check-box' : 'check-box-outline-blank'}
                   size={20}
-                  color={repetir ? '#0ea5e9' : '#94a3b8'}
+                  color={repetir ? colors.accent : colors.textMuted}
                 />
                 <Text style={styles.checkLabel}>Repetir esta sesión</Text>
               </TouchableOpacity>
@@ -533,7 +542,7 @@ export default function ActivacionSesionesScreen() {
 
               {modalError ? (
                 <View style={styles.errorBanner}>
-                  <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+                  <MaterialIcons name="error-outline" size={16} color={statusColors.danger.text} />
                   <Text style={styles.errorText}>{modalError}</Text>
                 </View>
               ) : null}
@@ -544,9 +553,9 @@ export default function ActivacionSesionesScreen() {
                 disabled={guardandoSesion}
               >
                 {guardandoSesion ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
-                  <MaterialIcons name="save" size={16} color="#fff" />
+                  <MaterialIcons name="save" size={16} color={colors.surface} />
                 )}
                 <Text style={styles.guardarBtnText}>Guardar</Text>
               </TouchableOpacity>
@@ -558,153 +567,160 @@ export default function ActivacionSesionesScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
-  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
-  retry: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
+  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
+  retry: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 12, color: '#94a3b8', marginTop: 1 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 1 },
   nuevaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#0ea5e9',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    gap: SPACING.xs,
+    backgroundColor: colors.accent,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 9,
   },
-  nuevaBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+  nuevaBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#fef2f2',
+    gap: SPACING.sm,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
     marginBottom: 10,
   },
-  errorText: { flex: 1, fontSize: 12, color: '#b91c1c' },
+  errorText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.danger.text },
   grupoCard: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     marginBottom: 10,
     overflow: 'hidden',
   },
   grupoHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  grupoNombre: { flex: 1, fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  grupoMeta: { fontSize: 11, color: '#94a3b8' },
+  grupoNombre: { flex: 1, fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  grupoMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
   sesionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  sesionFecha: { fontSize: 13, color: '#334155', width: 84 },
-  sesionHora: { fontSize: 13, color: '#0f172a', fontWeight: '600' },
-  badgeMini: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
-  badgeMiniText: { fontSize: 10, fontWeight: '700' },
+  sesionFecha: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, width: 84, fontVariant: ['tabular-nums'] },
+  sesionHora: { fontSize: fontSizes[13], color: colors.textStrong, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontVariant: ['tabular-nums'] },
+  badgeMini: { borderRadius: RADIO_MEDIO, paddingHorizontal: 7, paddingVertical: 3 },
+  badgeMiniText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  /** Negro al 35 %. colors.overlay es slate. */
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
   modalCard: {
     width: '100%',
     maxWidth: 440,
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_TARJETA,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.bg,
   },
-  modalTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
-  label: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 4, marginTop: 10 },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: SPACING.xs, marginTop: 10 },
   input: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
     paddingVertical: 9,
-    fontSize: 14,
-    color: '#0f172a',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textStrong,
   },
   row2: { flexDirection: 'row', gap: 10 },
   col: { flex: 1, minWidth: 0 },
-  notaMadrugada: { fontSize: 12, color: '#b45309', marginTop: 8, fontStyle: 'italic' },
-  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 },
-  checkLabel: { fontSize: 13, color: '#334155', fontWeight: '500' },
+  notaMadrugada: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.warning.text, marginTop: SPACING.sm, fontStyle: 'italic' },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginTop: 14 },
+  checkLabel: { fontSize: fontSizes[13], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   repetirBox: {
     marginTop: 6,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     padding: 10,
   },
   diasRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  /** Círculo 36×36. */
   diaChip: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  diaChipActivo: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  diaChipText: { fontSize: 12, fontWeight: '700', color: '#64748b' },
-  diaChipTextActivo: { color: '#fff' },
+  diaChipActivo: { backgroundColor: colors.accent, borderColor: colors.accent },
+  diaChipText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted },
+  diaChipTextActivo: { color: colors.surface },
   guardarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#16a34a',
-    borderRadius: 10,
-    paddingVertical: 12,
-    marginTop: 16,
+    backgroundColor: colors.success,
+    borderRadius: radius.md,
+    paddingVertical: SPACING.md,
+    marginTop: SPACING.lg,
   },
-  guardarBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  guardarBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
 });
