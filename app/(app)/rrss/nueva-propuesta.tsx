@@ -14,6 +14,15 @@ import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useLocalToast } from '../../components/Toast';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
@@ -191,7 +200,7 @@ export default function NuevaPropuestaScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.accent} />
         </TouchableOpacity>
         <Text style={styles.title}>Nueva propuesta</Text>
       </View>
@@ -282,7 +291,7 @@ export default function NuevaPropuestaScreen() {
             multiline
             numberOfLines={5}
             placeholder="Describe qué quieres comunicar (qué producto, qué evento, qué tono…)"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
 
@@ -318,7 +327,7 @@ export default function NuevaPropuestaScreen() {
               value={refUrl}
               onChangeText={setRefUrl}
               placeholder="https://ejemplo.com/imagen.jpg"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
@@ -328,18 +337,18 @@ export default function NuevaPropuestaScreen() {
               <Image source={{ uri: imagenUri }} style={styles.imagenPreview} resizeMode="cover" />
               <View style={styles.imagenActions}>
                 <TouchableOpacity style={styles.smallBtn} onPress={elegirImagen}>
-                  <MaterialIcons name="edit" size={16} color="#0ea5e9" />
+                  <MaterialIcons name="edit" size={16} color={colors.accent} />
                   <Text style={styles.smallBtnText}>Cambiar</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.smallBtn, styles.smallBtnDanger]} onPress={quitarImagen}>
-                  <MaterialIcons name="delete-outline" size={16} color="#dc2626" />
+                  <MaterialIcons name="delete-outline" size={16} color={colors.danger} />
                   <Text style={[styles.smallBtnText, styles.smallBtnDangerText]}>Quitar</Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
             <TouchableOpacity style={styles.uploadBtn} onPress={elegirImagen} activeOpacity={0.7}>
-              <MaterialIcons name="add-photo-alternate" size={22} color="#0ea5e9" />
+              <MaterialIcons name="add-photo-alternate" size={22} color={colors.accent} />
               <Text style={styles.uploadBtnText}>Elegir imagen</Text>
             </TouchableOpacity>
           )}
@@ -347,7 +356,7 @@ export default function NuevaPropuestaScreen() {
 
         {error && (
           <View style={styles.errorBox}>
-            <MaterialIcons name="error-outline" size={18} color="#f87171" />
+            <MaterialIcons name="error-outline" size={18} color={colors.danger} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
@@ -359,7 +368,7 @@ export default function NuevaPropuestaScreen() {
             disabled={saving}
             activeOpacity={0.7}
           >
-            {saving ? <ActivityIndicator color="#fff" /> : <MaterialIcons name="save" size={20} color="#fff" />}
+            {saving ? <ActivityIndicator color={colors.surface} /> : <MaterialIcons name="save" size={20} color={colors.surface} />}
             <Text style={styles.primaryBtnText}>{saving ? 'Guardando…' : 'Crear propuesta'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.back()} disabled={saving}>
@@ -372,70 +381,73 @@ export default function NuevaPropuestaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerBtn: { padding: 6 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   form: { padding: 16, gap: 16 },
   field: { gap: 6 },
-  fieldSub: { fontSize: 11, color: '#64748b', lineHeight: 15 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  segmentRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  fieldSub: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 15 },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  segmentRow: { flexDirection: 'row', gap: SPACING.sm, marginBottom: 4 },
   segmentChip: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
   },
-  segmentChipSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  segmentChipText: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  segmentChipTextSelected: { color: '#0ea5e9' },
+  segmentChipSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  segmentChipText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  segmentChipTextSelected: { color: colors.accent },
   input: {
-    fontSize: 14,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    color: '#334155',
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.md,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
   textarea: { minHeight: 100, textAlignVertical: 'top' },
   dateInput: {
-    fontSize: 13,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    color: '#334155',
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.md,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8 },
-  chipSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  chipText: { fontSize: 13, color: '#475569' },
-  chipTextSelected: { color: '#0ea5e9', fontWeight: '600' },
-  imagenWrap: { gap: 8 },
-  imagenPreview: { width: '100%', height: 240, borderRadius: 8, backgroundColor: '#f1f5f9' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+  chip: { paddingVertical: SPACING.sm, paddingHorizontal: 14, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO },
+  chipSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  chipText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
+  chipTextSelected: { color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  imagenWrap: { gap: SPACING.sm },
+  imagenPreview: { width: '100%', height: 240, borderRadius: RADIO_MEDIO, backgroundColor: colors.navActive },
   imagenActions: { flexDirection: 'row', gap: 10 },
-  smallBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, backgroundColor: '#f8fafc' },
-  smallBtnDanger: { borderColor: '#fecaca', backgroundColor: '#fef2f2' },
-  smallBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  smallBtnDangerText: { color: '#dc2626' },
-  uploadBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed', borderRadius: 8, backgroundColor: '#f8fafc' },
-  uploadBtnText: { fontSize: 13, fontWeight: '500', color: '#0ea5e9' },
-  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8 },
-  errorText: { fontSize: 12, color: '#dc2626', flex: 1 },
+  smallBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: SPACING.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, backgroundColor: colors.bg },
+  smallBtnDanger: { borderColor: '#fecaca', backgroundColor: statusColors.danger.bg },
+  smallBtnText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  smallBtnDangerText: { color: colors.danger },
+  uploadBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: 14, borderWidth: 1, borderColor: colors.borderStrong, borderStyle: 'dashed', borderRadius: RADIO_MEDIO, backgroundColor: colors.bg },
+  uploadBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.accent },
+  errorBox: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flex: 1 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  primaryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, backgroundColor: '#0ea5e9', borderRadius: 10 },
-  primaryBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  secondaryBtn: { paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#fff' },
-  secondaryBtnText: { fontSize: 13, color: '#475569', fontWeight: '500' },
+  primaryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: SPACING.md, backgroundColor: colors.accent, borderRadius: radius.md },
+  primaryBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  secondaryBtn: { paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
+  secondaryBtnText: { fontSize: fontSizes[13], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   disabled: { opacity: 0.6 },
 });
