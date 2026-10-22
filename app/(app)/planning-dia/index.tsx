@@ -27,7 +27,13 @@ import {
   puedeVerActivacionesPlanning,
   puedeVerArqueoCaja,
 } from '../../lib/permisosModulos';
-import { tasksUi } from '../../constants/tasksUiTokens';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 
@@ -316,7 +322,7 @@ export default function PlanningDiaIndexScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push('/' as never)} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Planning del día</Text>
@@ -327,7 +333,7 @@ export default function PlanningDiaIndexScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {!hayContenido && !muestraFilaSuperior ? (
           <View style={styles.emptyBox}>
-            <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+            <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
             <Text style={styles.emptyText}>
               No tienes permisos para acceder a las acciones del día.
             </Text>
@@ -429,33 +435,49 @@ export default function PlanningDiaIndexScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: tasksUi.space[5], backgroundColor: tasksUi.color.fondoApp },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: tasksUi.space[4], gap: 10 },
+  container: { flex: 1, padding: SPACING.xl, backgroundColor: colors.bg },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.lg, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: tasksUi.radius.contenedor,
-    backgroundColor: tasksUi.color.superficie,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    borderColor: colors.border,
   },
-  title: { ...tasksUi.tipo.tituloPantalla },
-  subtitle: { ...tasksUi.tipo.cuerpo, marginTop: 2 },
-  scrollContent: { paddingBottom: tasksUi.space[5] },
+  title: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[24],
+    fontWeight: typography.boton.fontWeight,
+    lineHeight: 30,
+    color: colors.textStrong,
+  },
+  subtitle: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[14],
+    fontWeight: typography.cuerpo.fontWeight,
+    lineHeight: 20,
+    color: colors.textPrimary,
+    marginTop: 2,
+  },
+  scrollContent: { paddingBottom: SPACING.xl },
   objetivosRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    marginBottom: 12,
-    gap: 12,
+    marginBottom: SPACING.md,
+    gap: SPACING.md,
   },
   sectionDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: tasksUi.color.bordeSutil,
-    marginTop: 4,
-    marginBottom: 16,
+    backgroundColor: colors.border,
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.lg,
     alignSelf: 'flex-start',
   },
   objetivosRowStack: {
@@ -476,6 +498,13 @@ const styles = StyleSheet.create({
   kpiCardStack: {
     flexGrow: 0,
   },
-  emptyBox: { alignItems: 'center', gap: 8, paddingVertical: 40 },
-  emptyText: { ...tasksUi.tipo.cuerpo, textAlign: 'center' },
+  emptyBox: { alignItems: 'center', gap: SPACING.sm, paddingVertical: 40 }, // 40 sin token
+  emptyText: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[14],
+    fontWeight: typography.cuerpo.fontWeight,
+    lineHeight: 20,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
 });
