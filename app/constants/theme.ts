@@ -185,3 +185,15 @@ export function shadowCard(): ViewStyle {
 }
 
 export { FONT, MIN_TOUCH, SPACING };
+
+export {
+  tasksColor,
+  tasksIcono,
+  tasksRadius,
+  tasksSombraFlotante,
+  tasksSpace,
+  tasksTabla,
+  tasksTabularNums,
+  tasksTipo,
+  tasksUi,
+} from './tasksUiTokens';

@@ -18,6 +18,13 @@ import { useHubNavGrid } from '../../hooks/useHubNavGrid';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
 import { tasksColor } from '../../constants/tasksUiTokens';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  statusColors,
+  SPACING,
+} from '../../constants/theme';
 import { puedeVerCuadroMando, puedeVerProyectos, puedeVerReuniones } from '../../lib/tasksAcceso';
 import { apiFetch } from '../../utils/api';
 import { ESTADOS_PROYECTO, type EstadoProyecto } from '../../types/tasks';
@@ -187,7 +194,7 @@ export default function ProyectosHubScreen() {
   if (acceso.permisosCargando) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.centroTexto}>Cargando permisos…</Text>
       </View>
     );
@@ -196,7 +203,7 @@ export default function ProyectosHubScreen() {
   if (!puedeEntrar) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="lock-outline" size={30} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={30} color={colors.textMuted} />
         <Text style={styles.centroTexto}>No tienes permiso para acceder al módulo de proyectos.</Text>
       </View>
     );
@@ -221,8 +228,8 @@ export default function ProyectosHubScreen() {
               label="Mis tareas"
               description="Lo que tienes abierto, ordenado por vencimiento"
               icon="task-alt"
-              accentBg="#e0f2fe"
-              accentFg="#0ea5e9"
+              accentBg={colors.accentMuted}
+              accentFg={colors.accent}
               width={cardWidth}
               compact={compact}
               badgeCount={vencidas ?? undefined}
@@ -234,8 +241,8 @@ export default function ProyectosHubScreen() {
               label="Proyectos"
               description="Listado, alta y ficha de cada proyecto"
               icon="folder-open"
-              accentBg="#dcfce7"
-              accentFg="#16a34a"
+              accentBg={statusColors.success.bg}
+              accentFg={colors.success}
               width={cardWidth}
               compact={compact}
               onPress={() => router.push('/proyectos/listado' as never)}
@@ -270,8 +277,8 @@ export default function ProyectosHubScreen() {
               label="Reuniones"
               description="Convocatorias, actas manuales y acuerdos"
               icon="groups"
-              accentBg="#fef3c7"
-              accentFg="#d97706"
+              accentBg={statusColors.warning.bg}
+              accentFg={colors.warning}
               width={cardWidth}
               compact={compact}
               onPress={() => router.push('/reuniones' as never)}
@@ -284,9 +291,9 @@ export default function ProyectosHubScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: tasksColor.fondoApp },
-  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: tasksColor.fondoApp },
+  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  centroTexto: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 24 },
+  scrollContent: { paddingBottom: SPACING.xl },
 });
