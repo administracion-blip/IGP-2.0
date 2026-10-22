@@ -19,6 +19,15 @@ import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { apiFetch } from '../../utils/api';
 import { RangoFechas } from '../../components/RangoFechas';
 import { estadoFacturacionParte } from '../../lib/mantenimientoFacturacion';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -48,16 +57,16 @@ const COLUMNAS_INCIDENCIAS = [
 type Incidencia = Record<string, string | number | string[] | undefined>;
 
 const PRIORIDAD_COLOR: Record<string, string> = {
-  urgente: '#dc2626',
+  urgente: colors.danger,
   alta: '#ea580c',
   media: '#eab308',
-  baja: '#16a34a',
+  baja: colors.success,
 };
 
 function getPrioridadColor(p: string | undefined): string {
-  if (!p) return '#94a3b8';
+  if (!p) return colors.textMuted;
   const key = (p ?? '').toString().trim().toLowerCase();
-  return PRIORIDAD_COLOR[key] ?? '#94a3b8';
+  return PRIORIDAD_COLOR[key] ?? colors.textMuted;
 }
 
 function truncar(val: string): string {
@@ -112,13 +121,13 @@ function estilosEstado(estado: string | undefined): { backgroundColor: string; c
     case 'NUEVA':
       return { backgroundColor: '#dbeafe', color: '#1e40af' };
     case 'Programado':
-      return { backgroundColor: '#fef3c7', color: '#b45309' };
+      return { backgroundColor: statusColors.warning.bg, color: statusColors.warning.text };
     case 'Reparacion':
       return { backgroundColor: '#d1fae5', color: '#047857' };
     case 'CANCELADA':
-      return { backgroundColor: '#fee2e2', color: '#b91c1c' };
+      return { backgroundColor: statusColors.danger.bg, color: statusColors.danger.text };
     default:
-      return { backgroundColor: '#f1f5f9', color: '#475569' };
+      return { backgroundColor: colors.navActive, color: colors.textPrimary };
   }
 }
 
@@ -437,12 +446,12 @@ export default function ReparacionesRealizadasScreen() {
       <View
         style={[
           styles.cell,
-          { width: getColWidth('espera'), flexDirection: 'row', alignItems: 'center', gap: 4 },
-          alerta && { backgroundColor: '#fef2f2' },
+          { width: getColWidth('espera'), flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+          alerta && { backgroundColor: statusColors.danger.bg },
         ]}
       >
-        {alerta && <MaterialIcons name="warning" size={14} color="#dc2626" />}
-        <Text style={[styles.cellText, alerta && { color: '#dc2626', fontWeight: '700' }]} numberOfLines={1} ellipsizeMode="tail">
+        {alerta && <MaterialIcons name="warning" size={14} color={colors.danger} />}
+        <Text style={[styles.cellText, alerta && { color: colors.danger, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight }]} numberOfLines={1} ellipsizeMode="tail">
           {raw}
         </Text>
       </View>
@@ -514,10 +523,10 @@ export default function ReparacionesRealizadasScreen() {
                   style={[
                     styles.cell,
                     { width: getColWidth(col) },
-                    estadoStyles && { backgroundColor: estadoStyles.backgroundColor, borderRadius: 6 },
+                    estadoStyles && { backgroundColor: estadoStyles.backgroundColor, borderRadius: radius.sm },
                   ]}
                 >
-                  <Text style={[styles.cellText, estadoStyles && { color: estadoStyles.color, fontWeight: '600' }]} numberOfLines={1} ellipsizeMode="tail">
+                  <Text style={[styles.cellText, estadoStyles && { color: estadoStyles.color, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight }]} numberOfLines={1} ellipsizeMode="tail">
                     {text}
                   </Text>
                 </View>
@@ -533,24 +542,24 @@ export default function ReparacionesRealizadasScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Reparaciones realizadas</Text>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} disabled={loading} accessibilityLabel="Actualizar">
-          {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={22} color="#0ea5e9" />}
+          {loading ? <ActivityIndicator size="small" color={colors.accent} /> : <MaterialIcons name="refresh" size={22} color={colors.accent} />}
         </TouchableOpacity>
       </View>
       <Text style={styles.subtitle}>Incidencias con estado Reparacion.</Text>
 
       <View style={styles.toolbarRow}>
         <View style={styles.searchWrap}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
             placeholder="Buscar…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
         <TouchableOpacity
@@ -559,7 +568,7 @@ export default function ReparacionesRealizadasScreen() {
           activeOpacity={0.7}
           accessibilityLabel="Filtros por fechas y local"
         >
-          <MaterialIcons name="filter-list" size={20} color={hayFiltrosActivos ? '#fff' : '#0ea5e9'} />
+          <MaterialIcons name="filter-list" size={20} color={hayFiltrosActivos ? colors.surface : colors.accent} />
         </TouchableOpacity>
         <View style={styles.viewModeWrap}>
           <TouchableOpacity
@@ -567,14 +576,14 @@ export default function ReparacionesRealizadasScreen() {
             onPress={() => setViewMode('tabla')}
             accessibilityLabel="Vista tabla"
           >
-            <MaterialIcons name="view-list" size={20} color={viewMode === 'tabla' ? '#0ea5e9' : '#94a3b8'} />
+            <MaterialIcons name="view-list" size={20} color={viewMode === 'tabla' ? colors.accent : colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.viewModeBtn, viewMode === 'deck' && styles.viewModeBtnActive]}
             onPress={() => setViewMode('deck')}
             accessibilityLabel="Vista tarjetas"
           >
-            <MaterialIcons name="view-module" size={20} color={viewMode === 'deck' ? '#0ea5e9' : '#94a3b8'} />
+            <MaterialIcons name="view-module" size={20} color={viewMode === 'deck' ? colors.accent : colors.textMuted} />
           </TouchableOpacity>
         </View>
       </View>
@@ -599,13 +608,13 @@ export default function ReparacionesRealizadasScreen() {
         {viewMode === 'tabla' && totalPages > 1 && (
           <View style={styles.pagination}>
             <TouchableOpacity style={[styles.pageBtn, pageIndexClamped <= 0 && styles.pageBtnDisabled]} onPress={goPrevPage} disabled={pageIndexClamped <= 0}>
-              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
             <Text style={styles.pageText}>
               Página {pageIndexClamped + 1} de {totalPages}
             </Text>
             <TouchableOpacity style={[styles.pageBtn, pageIndexClamped >= totalPages - 1 && styles.pageBtnDisabled]} onPress={goNextPage} disabled={pageIndexClamped >= totalPages - 1}>
-              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
           </View>
         )}
@@ -613,7 +622,7 @@ export default function ReparacionesRealizadasScreen() {
 
       {loading && incidencias.length === 0 ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Cargando…</Text>
         </View>
       ) : viewMode === 'tabla' ? (
@@ -715,7 +724,7 @@ export default function ReparacionesRealizadasScreen() {
                             }
                             return (
                               <View key={i} style={[styles.deckFotoThumbH, styles.deckFotoPlaceholder]}>
-                                <MaterialIcons name="image-not-supported" size={20} color="#cbd5e1" />
+                                <MaterialIcons name="image-not-supported" size={20} color={colors.borderStrong} />
                               </View>
                             );
                           })}
@@ -758,7 +767,7 @@ export default function ReparacionesRealizadasScreen() {
                   }}
                   style={styles.modalClose}
                 >
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
@@ -768,7 +777,7 @@ export default function ReparacionesRealizadasScreen() {
                   </Text>
                   {modalFiltroError ? (
                     <View style={styles.modalErrorWrap}>
-                      <MaterialIcons name="error-outline" size={18} color="#dc2626" />
+                      <MaterialIcons name="error-outline" size={18} color={colors.danger} />
                       <Text style={styles.modalErrorText}>{modalFiltroError}</Text>
                     </View>
                   ) : null}
@@ -799,7 +808,7 @@ export default function ReparacionesRealizadasScreen() {
                         <MaterialIcons
                           name={draftLocalIds.length === todosLosIdsLocales.length && todosLosIdsLocales.length > 0 ? 'check-box' : 'check-box-outline-blank'}
                           size={20}
-                          color="#0ea5e9"
+                          color={colors.accent}
                         />
                         <Text style={styles.localeRowAllText}>Seleccionar todos</Text>
                       </TouchableOpacity>
@@ -821,7 +830,7 @@ export default function ReparacionesRealizadasScreen() {
                               <MaterialIcons
                                 name={selected ? 'check-box' : 'check-box-outline-blank'}
                                 size={20}
-                                color={selected ? '#0ea5e9' : '#94a3b8'}
+                                color={selected ? colors.accent : colors.textMuted}
                               />
                               <Text style={[styles.localeRowText, selected && styles.localeRowTextSelected]} numberOfLines={1}>
                                 {nombre || id}
@@ -850,40 +859,43 @@ export default function ReparacionesRealizadasScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
-  backBtn: { padding: 4 },
-  refreshBtn: { padding: 4, marginLeft: 'auto' },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155', flex: 1 },
-  subtitle: { fontSize: 13, color: '#64748b', lineHeight: 18, marginBottom: 8 },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' },
-  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 120, maxWidth: 320, height: 36, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 8 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xs, gap: SPACING.sm },
+  backBtn: { padding: SPACING.xs },
+  refreshBtn: { padding: SPACING.xs, marginLeft: 'auto' },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, flex: 1 },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, lineHeight: 18, marginBottom: SPACING.sm },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.sm, flexWrap: 'wrap' },
+  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 120, maxWidth: 320, height: 36, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, paddingHorizontal: SPACING.sm },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 13, color: '#334155', paddingVertical: 0 },
-  filterBtn: { padding: 8, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
-  filterBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  viewModeWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden' },
-  viewModeBtn: { padding: 8, backgroundColor: '#fff' },
-  viewModeBtnActive: { backgroundColor: '#e0f2fe' },
-  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  errorText: { fontSize: 12, color: '#f87171', flex: 1 },
-  retryBtn: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#fef2f2', borderRadius: 8 },
-  retryBtnText: { fontSize: 12, color: '#dc2626', fontWeight: '600' },
-  subtitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
-  subtitleTable: { fontSize: 12, color: '#64748b' },
-  pagination: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  pageBtn: { padding: 4 },
+  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, paddingVertical: 0 },
+  filterBtn: { padding: SPACING.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.bg },
+  filterBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  viewModeWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' },
+  viewModeBtn: { padding: SPACING.sm, backgroundColor: colors.surface },
+  viewModeBtnActive: { backgroundColor: colors.accentMuted },
+  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flex: 1 },
+  retryBtn: { paddingVertical: 6, paddingHorizontal: SPACING.md, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  retryBtnText: { fontSize: fontSizes[12], color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.sm, gap: SPACING.md, flexWrap: 'wrap' },
+  subtitleTable: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  pagination: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  pageBtn: { padding: SPACING.xs },
   pageBtnDisabled: { opacity: 0.5 },
-  pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
-  center: { paddingVertical: 24, alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
+  pageText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginHorizontal: SPACING.xs },
+  center: { paddingVertical: SPACING.xl, alignItems: 'center', gap: 10 },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 20 },
-  table: { minWidth: '100%', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
-  rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
-  cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 6, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },
-  cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
+  table: { minWidth: '100%', borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, overflow: 'hidden', backgroundColor: colors.surface },
+  rowHeader: { flexDirection: 'row', backgroundColor: colors.border, borderBottomWidth: 1, borderBottomColor: colors.borderStrong },
+  cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 6, paddingHorizontal: SPACING.sm, borderRightWidth: 1, borderRightColor: colors.borderStrong, position: 'relative' },
+  cellHeaderText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   resizeHandle: {
     position: 'absolute',
     top: 0,
@@ -892,44 +904,45 @@ const styles = StyleSheet.create({
     height: '100%',
     cursor: 'col-resize' as 'pointer',
   },
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
-  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
-  cellText: { fontSize: 11, color: '#475569' },
-  cellFacturadaSi: { backgroundColor: '#f0fdfa', borderRadius: 6 },
-  cellFacturadaNo: { backgroundColor: '#fffbeb', borderRadius: 6 },
-  cellFacturadaTextSi: { color: '#0f766e', fontWeight: '700' },
-  cellFacturadaTextNo: { color: '#b45309', fontWeight: '600' },
-  cellSinFactura: { backgroundColor: '#f1f5f9', borderRadius: 6 },
-  cellSinFacturaText: { color: '#475569', fontWeight: '600' },
+  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm, borderRightWidth: 1, borderRightColor: colors.border },
+  cellText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
+  cellFacturadaSi: { backgroundColor: '#f0fdfa', borderRadius: radius.sm },
+  cellFacturadaNo: { backgroundColor: statusColors.warning.bg, borderRadius: radius.sm },
+  cellFacturadaTextSi: { color: '#0f766e', fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  cellFacturadaTextNo: { color: statusColors.warning.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  cellSinFactura: { backgroundColor: colors.navActive, borderRadius: radius.sm },
+  cellSinFacturaText: { color: colors.textPrimary, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   deckScrollWrap: { flex: 1 },
-  deckScrollContent: { paddingBottom: 24 },
-  deckEmpty: { padding: 24, alignItems: 'center' },
-  deckEmptyText: { fontSize: 13, color: '#94a3b8' },
-  deckGroup: { marginBottom: 12 },
+  deckScrollContent: { paddingBottom: SPACING.xl },
+  deckEmpty: { padding: SPACING.xl, alignItems: 'center' },
+  deckEmptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
+  deckGroup: { marginBottom: SPACING.md },
   deckGroupHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginBottom: 10,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 10,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: colors.navActive,
+    borderRadius: radius.md,
     borderLeftWidth: 4,
-    borderLeftColor: '#0ea5e9',
+    borderLeftColor: colors.accent,
   },
-  deckGroupTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  deckGroupBadge: { backgroundColor: '#e2e8f0', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 10 },
-  deckGroupBadgeText: { fontSize: 10, fontWeight: '600', color: '#000' },
-  deckGroupCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  deckGroupTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  deckGroupBadge: { backgroundColor: colors.border, paddingVertical: 2, paddingHorizontal: 6, borderRadius: radius.md },
+  // Negro del contador; no es colors.textStrong.
+  deckGroupBadgeText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#000' },
+  deckGroupCards: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   deckCardThird: { width: '21%', minWidth: 104 },
   deckCard: {
     position: 'relative',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    marginBottom: 12,
+    borderColor: colors.border,
+    marginBottom: SPACING.md,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -941,80 +954,82 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
-    backgroundColor: '#e2e8f0',
+    gap: SPACING.sm,
+    backgroundColor: colors.border,
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
   },
-  deckCardTitleText: { fontSize: 11, fontWeight: '700', color: '#334155', flex: 1, minWidth: 0 },
-  deckPriorityBadge: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, flexShrink: 0 },
-  deckPriorityBadgeText: { fontSize: 10, fontWeight: '700', color: '#fff' },
-  deckCardBody: { padding: 12, paddingBottom: 8 },
-  deckCardLine: { flexDirection: 'row', gap: 12, marginBottom: 6 },
+  deckCardTitleText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, flex: 1, minWidth: 0 },
+  deckPriorityBadge: { paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm, borderRadius: radius.sm, flexShrink: 0 },
+  deckPriorityBadgeText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
+  deckCardBody: { padding: SPACING.md, paddingBottom: SPACING.sm },
+  deckCardLine: { flexDirection: 'row', gap: SPACING.md, marginBottom: 6 },
   deckCardLineFixed: { minHeight: 36 },
   deckCardCell: { flex: 1, minWidth: 0 },
   deckCardCellDesc: { flex: 1, minWidth: 0 },
-  deckLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', marginBottom: 1, textTransform: 'uppercase', letterSpacing: 0.2 },
-  deckValue: { fontSize: 11, color: '#334155' },
-  deckValueDesc: { lineHeight: 16, color: '#475569', fontSize: 11 },
-  deckValueFacturada: { color: '#0f766e', fontWeight: '700' },
-  deckValuePendiente: { color: '#b45309', fontWeight: '600' },
-  deckValueSinFactura: { color: '#475569', fontWeight: '600' },
-  deckValueNota: { fontSize: 10, color: '#64748b', lineHeight: 14, marginTop: 2 },
+  deckLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, marginBottom: 1, textTransform: 'uppercase', letterSpacing: 0.2 },
+  deckValue: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
+  deckValueDesc: { lineHeight: 16, color: colors.textPrimary, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize },
+  deckValueFacturada: { color: '#0f766e', fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  deckValuePendiente: { color: statusColors.warning.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  deckValueSinFactura: { color: colors.textPrimary, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  deckValueNota: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, lineHeight: 14, marginTop: 2 },
+  // Gris de pie de tarjeta; no es colors.bg.
   deckCardFotos: {
     flexDirection: 'row',
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: colors.navActive,
     backgroundColor: '#fafafa',
   },
-  deckFotoThumbWrap: { borderRadius: 6, overflow: 'hidden' },
-  deckFotoThumbH: { width: 40, height: 40, borderRadius: 6, backgroundColor: '#e2e8f0' },
+  deckFotoThumbWrap: { borderRadius: radius.sm, overflow: 'hidden' },
+  deckFotoThumbH: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.border },
   deckFotoPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  // Más oscuro que colors.overlay.
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
-  modalContentWrap: { width: '100%', maxWidth: 400, padding: 24, alignItems: 'center' },
+  modalContentWrap: { width: '100%', maxWidth: 400, padding: SPACING.xl, alignItems: 'center' },
   modalScroll: { maxHeight: 400 },
-  modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
-  modalClose: { padding: 4 },
+  modalCard: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.xl, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  modalClose: { padding: SPACING.xs },
   modalBody: { padding: 20 },
-  modalHint: { fontSize: 12, color: '#64748b', marginBottom: 14, lineHeight: 18 },
-  modalErrorWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8 },
-  modalErrorText: { flex: 1, fontSize: 12, color: '#dc2626' },
+  modalHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginBottom: 14, lineHeight: 18 },
+  modalErrorWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.md, padding: 10, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  modalErrorText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
   modalField: { marginBottom: 14 },
-  modalLabel: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 },
-  modalLabelMuted: { fontWeight: '400', color: '#94a3b8' },
-  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 },
-  modalBtnLimpiar: { paddingVertical: 10, paddingHorizontal: 16, backgroundColor: '#f1f5f9', borderRadius: 10 },
-  modalBtnLimpiarText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
-  modalBtnAplicar: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#0ea5e9', borderRadius: 10 },
-  modalBtnAplicarText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  localesList: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
+  modalLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: 6 },
+  modalLabelMuted: { fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted },
+  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACING.md, marginTop: SPACING.sm },
+  modalBtnLimpiar: { paddingVertical: 10, paddingHorizontal: SPACING.lg, backgroundColor: colors.navActive, borderRadius: radius.md },
+  modalBtnLimpiarText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  modalBtnAplicar: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: colors.accent, borderRadius: radius.md },
+  modalBtnAplicarText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  localesList: { borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, overflow: 'hidden', backgroundColor: colors.surface },
   localeRowAll: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#f0f9ff',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.accentMuted,
   },
-  localeRowAllText: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  localeRowAllText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
   localesScroll: { maxHeight: 220 },
   localeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  localeRowSelected: { backgroundColor: '#f0f9ff' },
-  localeRowText: { flex: 1, fontSize: 13, color: '#334155' },
-  localeRowTextSelected: { color: '#0ea5e9', fontWeight: '500' },
+  localeRowSelected: { backgroundColor: colors.accentMuted },
+  localeRowText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
+  localeRowTextSelected: { color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
 });
