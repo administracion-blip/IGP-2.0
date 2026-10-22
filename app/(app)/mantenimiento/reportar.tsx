@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  useWindowDimensions,
   Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -22,6 +21,16 @@ import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { apiFetch } from '../../utils/api';
 import { formatCreadoEn } from '../../utils/formatFecha';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 const AUTH_KEY = 'erp_user';
 
@@ -49,7 +58,7 @@ function truncar(texto: string, max = DESC_MAX): string {
 export default function ReportarIncidenciaScreen() {
   const router = useRouter();
   const { locales, loading: loadingLocales, error: localesError } = useMantenimientoLocales();
-  const { width } = useWindowDimensions();
+  const { width } = useBreakpoint();
   const [userId, setUserId] = useState<string>('');
   const [userName, setUserName] = useState<string>('');
   const [registroTimestamp, setRegistroTimestamp] = useState<string>('');
@@ -247,7 +256,7 @@ export default function ReportarIncidenciaScreen() {
     >
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Reportar incidencia</Text>
       </View>
@@ -255,19 +264,19 @@ export default function ReportarIncidenciaScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {loadingLocales ? (
           <View style={[styles.formCard, styles.loadingWrap, { maxWidth: Math.min(width - 32, 480) }]}>
-            <ActivityIndicator size="small" color="#0ea5e9" />
+            <ActivityIndicator size="small" color={colors.accent} />
             <Text style={styles.loadingText}>Cargando locales…</Text>
           </View>
         ) : localesError ? (
           <View style={[styles.formCard, styles.loadingWrap, { maxWidth: Math.min(width - 32, 480) }]}>
-            <MaterialIcons name="error-outline" size={20} color="#f87171" />
-            <Text style={[styles.loadingText, { color: '#f87171' }]}>{localesError}</Text>
+            <MaterialIcons name="error-outline" size={20} color={colors.danger} />
+            <Text style={[styles.loadingText, { color: colors.danger }]}>{localesError}</Text>
           </View>
         ) : (
           <View style={[styles.formCard, { maxWidth: Math.min(width - 32, 480) }]}>
             {successMessage ? (
               <View style={styles.successWrap}>
-                <MaterialIcons name="check-circle" size={22} color="#16a34a" />
+                <MaterialIcons name="check-circle" size={22} color={colors.success} />
                 <Text style={styles.successText}>{successMessage}</Text>
               </View>
             ) : null}
@@ -300,7 +309,7 @@ export default function ReportarIncidenciaScreen() {
                     onPress={() => setZona(z)}
                   >
                     <Text style={[styles.optionText, zona === z && styles.optionTextSelected]}>{z}</Text>
-                    {zona === z ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                    {zona === z ? <MaterialIcons name="check" size={18} color={colors.accent} /> : null}
                   </TouchableOpacity>
                 ))}
               </View>
@@ -316,7 +325,7 @@ export default function ReportarIncidenciaScreen() {
                     onPress={() => setPrioridad(p)}
                   >
                     <Text style={[styles.optionText, prioridad === p && styles.optionTextSelected]}>{p}</Text>
-                    {prioridad === p ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                    {prioridad === p ? <MaterialIcons name="check" size={18} color={colors.accent} /> : null}
                   </TouchableOpacity>
                 ))}
               </View>
@@ -329,7 +338,7 @@ export default function ReportarIncidenciaScreen() {
                 value={titulo}
                 onChangeText={setTitulo}
                 placeholder="Ej: Luz fundida en mostrador"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
               />
             </View>
 
@@ -340,7 +349,7 @@ export default function ReportarIncidenciaScreen() {
                 value={descripcion}
                 onChangeText={setDescripcion}
                 placeholder="Detalles adicionales..."
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 multiline
                 numberOfLines={4}
               />
@@ -353,7 +362,7 @@ export default function ReportarIncidenciaScreen() {
                   <View key={index} style={styles.fotoSlot}>
                     <Image source={{ uri }} style={styles.fotoThumb} resizeMode="cover" />
                     <TouchableOpacity style={styles.fotoRemoveBtn} onPress={() => quitarFoto(index)}>
-                      <MaterialIcons name="close" size={16} color="#fff" />
+                      <MaterialIcons name="close" size={16} color={colors.surface} />
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -364,10 +373,10 @@ export default function ReportarIncidenciaScreen() {
                     disabled={fotosLoading}
                   >
                     {fotosLoading ? (
-                      <ActivityIndicator size="small" color="#0ea5e9" />
+                      <ActivityIndicator size="small" color={colors.accent} />
                     ) : (
                       <>
-                        <MaterialIcons name="add-a-photo" size={24} color="#94a3b8" />
+                        <MaterialIcons name="add-a-photo" size={24} color={colors.textMuted} />
                         <Text style={styles.fotoAddText}>+</Text>
                       </>
                     )}
@@ -378,7 +387,7 @@ export default function ReportarIncidenciaScreen() {
 
             {error ? (
               <View style={styles.errorWrap}>
-                <MaterialIcons name="error-outline" size={18} color="#f87171" />
+                <MaterialIcons name="error-outline" size={18} color={colors.danger} />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
@@ -389,7 +398,7 @@ export default function ReportarIncidenciaScreen() {
                 onPress={() => router.replace('/mantenimiento/incidencias')}
                 disabled={enviando}
               >
-                <MaterialIcons name="cancel" size={20} color="#fff" />
+                <MaterialIcons name="cancel" size={20} color={colors.surface} />
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -398,10 +407,10 @@ export default function ReportarIncidenciaScreen() {
                 disabled={enviando}
               >
                 {enviando ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
                   <>
-                    <MaterialIcons name="send" size={20} color="#fff" />
+                    <MaterialIcons name="send" size={20} color={colors.surface} />
                     <Text style={styles.submitBtnText}>Enviar incidencia</Text>
                   </>
                 )}
@@ -423,7 +432,7 @@ export default function ReportarIncidenciaScreen() {
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Posible incidencia duplicada</Text>
                 <TouchableOpacity onPress={cerrarModalDuplicados} style={styles.modalClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <Text style={styles.modalMessage}>
@@ -471,22 +480,25 @@ export default function ReportarIncidenciaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  wrapper: { flex: 1, backgroundColor: '#ffffff' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 16, gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  wrapper: { flex: 1, backgroundColor: colors.surface },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, paddingHorizontal: SPACING.lg, gap: SPACING.sm },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 24, alignItems: 'center' },
-  loadingWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 16 },
-  loadingText: { fontSize: 12, color: '#64748b' },
+  scrollContent: { padding: SPACING.lg, paddingBottom: SPACING.xl, alignItems: 'center' },
+  loadingWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: SPACING.lg },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
   formCard: {
     width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -496,65 +508,67 @@ const styles = StyleSheet.create({
   successWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
     paddingHorizontal: 14,
-    backgroundColor: '#dcfce7',
-    borderRadius: 8,
-    marginBottom: 12,
+    backgroundColor: statusColors.success.bg,
+    borderRadius: RADIO_MEDIO,
+    marginBottom: SPACING.md,
   },
-  successText: { fontSize: 14, fontWeight: '600', color: '#16a34a' },
-  registroLine: { fontSize: 10, color: '#94a3b8', marginBottom: 12 },
-  field: { marginBottom: 16 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 },
-  selectWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  successText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.success },
+  registroLine: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, marginBottom: SPACING.md },
+  field: { marginBottom: SPACING.lg },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: 6 },
+  selectWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   optionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#f8fafc',
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
-  optionBtnSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  optionText: { fontSize: 12, color: '#475569' },
-  optionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
+  optionBtnSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  optionText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  optionTextSelected: { color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    fontSize: 14,
-    color: '#334155',
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.md,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
   },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
-  fotosRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  fotoSlot: { position: 'relative', width: 80, height: 80, borderRadius: 8, overflow: 'hidden', backgroundColor: '#f1f5f9' },
+  fotosRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.md },
+  fotoSlot: { position: 'relative', width: 80, height: 80, borderRadius: RADIO_MEDIO, overflow: 'hidden', backgroundColor: colors.navActive },
   fotoThumb: { width: '100%', height: '100%' },
+  // Círculo 24×24; el radio es la mitad del lado.
   fotoRemoveBtn: { position: 'absolute', top: 4, right: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
-  fotoAddBtn: { width: 80, height: 80, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', borderStyle: 'dashed', backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
-  fotoAddText: { fontSize: 20, color: '#94a3b8', marginTop: 2 },
-  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8 },
-  errorText: { fontSize: 12, color: '#f87171' },
-  buttonsRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  fotoAddBtn: { width: 80, height: 80, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+  fotoAddText: { fontFamily: fontFamily.regular, fontSize: fontSizes[20], color: colors.textMuted, marginTop: 2 },
+  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SPACING.md, padding: 10, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
+  buttonsRow: { flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.lg },
   submitBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 10,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
+    borderRadius: radius.md,
   },
-  cancelBtn: { flex: 1, backgroundColor: '#dc2626' },
-  cancelBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  submitBtnPrimary: { flex: 3, backgroundColor: '#0ea5e9' },
+  cancelBtn: { flex: 1, backgroundColor: colors.danger },
+  cancelBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  submitBtnPrimary: { flex: 3, backgroundColor: colors.accent },
   submitBtnDisabled: { opacity: 0.7 },
-  submitBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  submitBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  // Más oscuro que colors.overlay.
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -564,15 +578,15 @@ const styles = StyleSheet.create({
   modalContentWrap: {
     width: '100%',
     maxWidth: 520,
-    padding: 24,
+    padding: SPACING.xl,
     alignItems: 'center',
     maxHeight: '92%',
   },
   modalCard: {
     width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: SPACING.lg,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
@@ -583,54 +597,54 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
-    gap: 8,
+    marginBottom: SPACING.sm,
+    gap: SPACING.sm,
   },
-  modalTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: '#0f172a' },
+  modalTitle: { flex: 1, fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
   modalClose: { padding: 2 },
-  modalMessage: { fontSize: 13, color: '#475569', marginBottom: 12, lineHeight: 18 },
+  modalMessage: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, marginBottom: SPACING.md, lineHeight: 18 },
   similaresScroll: { maxHeight: 320 },
-  similaresScrollContent: { gap: 10, paddingBottom: 4 },
+  similaresScrollContent: { gap: 10, paddingBottom: SPACING.xs },
   similarCard: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    padding: 12,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: SPACING.md,
   },
-  similarTitulo: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 4 },
-  similarMeta: { fontSize: 11, color: '#64748b', marginBottom: 6 },
-  similarDesc: { fontSize: 12, color: '#475569', lineHeight: 16 },
-  similarFotosRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  similarFoto: { width: 48, height: 48, borderRadius: 6, backgroundColor: '#e2e8f0' },
+  similarTitulo: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
+  similarMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginBottom: 6 },
+  similarDesc: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, lineHeight: 16 },
+  similarFotosRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
+  similarFoto: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: colors.border },
   modalFooter: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACING.sm,
     marginTop: 14,
     justifyContent: 'flex-end',
   },
   modalBtnSecondary: {
     paddingVertical: 10,
     paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.navActive,
   },
-  modalBtnSecondaryText: { fontSize: 13, fontWeight: '600', color: '#475569' },
+  modalBtnSecondaryText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   modalBtnOutline: {
     paddingVertical: 10,
     paddingHorizontal: 14,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#0ea5e9',
-    backgroundColor: '#fff',
+    borderColor: colors.accent,
+    backgroundColor: colors.surface,
   },
-  modalBtnOutlineText: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  modalBtnOutlineText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
   modalBtnPrimary: {
     paddingVertical: 10,
     paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accent,
   },
-  modalBtnPrimaryText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+  modalBtnPrimaryText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
 });
