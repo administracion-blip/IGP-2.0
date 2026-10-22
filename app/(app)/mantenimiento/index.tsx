@@ -6,6 +6,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
 import { useHubNavGrid } from '../../hooks/useHubNavGrid';
 import { hubAccentById } from '../../lib/hubNavAccent';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 type AccesoModulo = {
   id: string;
@@ -89,10 +96,28 @@ export default function MantenimientoHubScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#64748b', lineHeight: 20, marginBottom: 16 },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: colors.surface },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[20],
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.textStrong,
+    marginBottom: SPACING.xs,
+  },
+  subtitle: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[14],
+    color: colors.textMuted,
+    lineHeight: 20,
+    marginBottom: SPACING.lg,
+  },
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 24 },
-  vacio: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginTop: 8 },
+  scrollContent: { paddingBottom: SPACING.xl },
+  vacio: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textMuted,
+    fontStyle: 'italic',
+    marginTop: SPACING.sm,
+  },
 });
