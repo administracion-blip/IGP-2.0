@@ -22,6 +22,15 @@ import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
 import { useConfirmar } from '../../../hooks/useConfirmar';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 
 type LocalApi = {
   id_Locales?: string | number;
@@ -262,7 +271,7 @@ export default function EntradasConfigScreen() {
   if (!puedeConfigurar) {
     return (
       <View style={styles.locked}>
-        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
         <Text style={styles.lockedText}>No tienes permiso para configurar entradas.</Text>
         <TouchableOpacity style={styles.backLink} onPress={() => router.push('/rrpp' as never)}>
           <Text style={styles.backLinkText}>Volver a RRPP</Text>
@@ -280,7 +289,7 @@ export default function EntradasConfigScreen() {
           style={styles.backBtn}
           accessibilityLabel="Volver a RRPP"
         >
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Configuración Ágora</Text>
@@ -305,7 +314,7 @@ export default function EntradasConfigScreen() {
       {!localId ? (
         <Text style={styles.hint}>Selecciona un local para configurar.</Text>
       ) : loading ? (
-        <ActivityIndicator style={{ marginTop: 24 }} color="#0ea5e9" />
+        <ActivityIndicator style={{ marginTop: SPACING.xl }} color={colors.accent} />
       ) : (
         <ScrollView
           style={{ zIndex: 0, position: 'relative' }}
@@ -321,7 +330,7 @@ export default function EntradasConfigScreen() {
                 value={baseUrl}
                 onChangeText={setBaseUrl}
                 placeholder="https://…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!guardandoCfg}
@@ -333,8 +342,8 @@ export default function EntradasConfigScreen() {
                 value={enabled}
                 onValueChange={setEnabled}
                 disabled={guardandoCfg}
-                trackColor={{ false: '#e2e8f0', true: '#0ea5e9' }}
-                thumbColor="#fff"
+                trackColor={{ false: colors.border, true: colors.accent }}
+                thumbColor={colors.surface}
               />
             </View>
             <View style={styles.field}>
@@ -344,7 +353,7 @@ export default function EntradasConfigScreen() {
                 value={tokenNuevo}
                 onChangeText={setTokenNuevo}
                 placeholder={hasToken ? '•••••••• (dejar vacío para conservar)' : 'Pegar token nuevo'}
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
                 secureTextEntry
@@ -364,7 +373,7 @@ export default function EntradasConfigScreen() {
               disabled={guardandoCfg}
             >
               {guardandoCfg ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={colors.surface} />
               ) : (
                 <Text style={styles.btnPrimaryText}>Guardar configuración</Text>
               )}
@@ -378,7 +387,7 @@ export default function EntradasConfigScreen() {
                 style={[styles.btnSecondary, isPhone && { minHeight: MIN_TOUCH }]}
                 onPress={abrirNuevoTipo}
               >
-                <MaterialIcons name="add" size={18} color="#0ea5e9" />
+                <MaterialIcons name="add" size={18} color={colors.accent} />
                 <Text style={styles.btnSecondaryText}>Nuevo tipo</Text>
               </TouchableOpacity>
             </View>
@@ -403,14 +412,14 @@ export default function EntradasConfigScreen() {
                       onPress={() => abrirEditarTipo(t)}
                       accessibilityLabel="Editar tipo"
                     >
-                      <MaterialIcons name="edit" size={18} color="#334155" />
+                      <MaterialIcons name="edit" size={18} color={colors.textPrimary} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.iconBtn}
                       onPress={() => borrarTipo(t)}
                       accessibilityLabel="Eliminar tipo"
                     >
-                      <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                      <MaterialIcons name="delete-outline" size={18} color={colors.danger} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -432,7 +441,7 @@ export default function EntradasConfigScreen() {
                   value={formNombre}
                   onChangeText={setFormNombre}
                   placeholder="Ej. Entrada general"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                   editable={!guardandoTipo}
                 />
               </View>
@@ -443,7 +452,7 @@ export default function EntradasConfigScreen() {
                   value={formSettingsId}
                   onChangeText={setFormSettingsId}
                   placeholder="ID numérico en Ágora"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                   keyboardType="number-pad"
                   editable={!guardandoTipo}
                 />
@@ -454,8 +463,8 @@ export default function EntradasConfigScreen() {
                   value={formActivo}
                   onValueChange={setFormActivo}
                   disabled={guardandoTipo}
-                  trackColor={{ false: '#e2e8f0', true: '#0ea5e9' }}
-                  thumbColor="#fff"
+                  trackColor={{ false: colors.border, true: colors.accent }}
+                  thumbColor={colors.surface}
                 />
               </View>
               {errorTipo ? <Text style={styles.error}>{errorTipo}</Text> : null}
@@ -473,7 +482,7 @@ export default function EntradasConfigScreen() {
                   disabled={guardandoTipo}
                 >
                   {guardandoTipo ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={colors.surface} />
                   ) : (
                     <Text style={styles.btnPrimaryText}>Guardar</Text>
                   )}
@@ -487,52 +496,55 @@ export default function EntradasConfigScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff', padding: 16 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
+  container: { flex: 1, backgroundColor: colors.surface, padding: SPACING.lg },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 14, color: '#64748b', marginTop: 2 },
-  localRow: { marginBottom: 12 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, marginTop: 2 },
+  localRow: { marginBottom: SPACING.md },
   scroll: { paddingBottom: 40, gap: 14 },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 16,
-    gap: 12,
+    borderColor: colors.border,
+    padding: SPACING.lg,
+    gap: SPACING.md,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: SPACING.sm,
     flexWrap: 'wrap',
   },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
+  cardTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
   field: { gap: 6 },
-  label: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  label: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
-    fontSize: 14,
-    color: '#0f172a',
-    backgroundColor: '#f8fafc',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textStrong,
+    backgroundColor: colors.bg,
   },
-  help: { fontSize: 12, color: '#94a3b8', lineHeight: 16 },
+  help: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, lineHeight: 16 },
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -540,85 +552,88 @@ const styles = StyleSheet.create({
   },
   btnPrimary: {
     alignSelf: 'flex-start',
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     minWidth: 140,
     alignItems: 'center',
   },
-  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  btnPrimaryText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[13] },
+  /** Borde cielo; no es colors.border. */
   btnSecondary: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#e0f2fe',
+    backgroundColor: colors.accentMuted,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
   },
-  btnSecondaryText: { color: '#0369a1', fontWeight: '700', fontSize: 13 },
-  hint: { fontSize: 13, color: '#94a3b8', marginTop: 8 },
-  error: { color: '#dc2626', fontSize: 13 },
-  ok: { color: '#16a34a', fontSize: 13, fontWeight: '600' },
+  btnSecondaryText: { color: statusColors.info.text, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[13] },
+  hint: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, marginTop: SPACING.sm },
+  error: { color: colors.danger, fontFamily: fontFamily.regular, fontSize: fontSizes[13] },
+  ok: { color: colors.success, fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   tipoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: colors.navActive,
   },
   tipoRowStack: { alignItems: 'flex-start' },
-  tipoNombre: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
-  tipoMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  tipoNombre: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong },
+  tipoMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
   tipoActions: { flexDirection: 'row', gap: 4 },
   iconBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
+  /** Velo más oscuro que colors.overlay. */
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
   modalBox: {
     width: '100%',
     maxWidth: 420,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    gap: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: SPACING.lg,
+    gap: SPACING.md,
   },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 4 },
+  /** 17 px: entre fontSizes[16] y fontSizes[18]. */
+  modalTitle: { fontSize: 17, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACING.sm, marginTop: 4 },
   btnCancel: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  btnCancelText: { color: '#64748b', fontWeight: '600' },
+  btnCancelText: { color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   locked: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    padding: 24,
-    backgroundColor: '#fff',
+    padding: SPACING.xl,
+    backgroundColor: colors.surface,
   },
-  lockedText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
-  backLink: { marginTop: 8, padding: 10 },
-  backLinkText: { color: '#0ea5e9', fontWeight: '600' },
+  lockedText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
+  backLink: { marginTop: SPACING.sm, padding: 10 },
+  backLinkText: { color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 });
