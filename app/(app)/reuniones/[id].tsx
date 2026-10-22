@@ -70,6 +70,14 @@ import {
   tasksSpace,
   tasksTipo,
 } from '../../constants/tasksUiTokens';
+import {
+  colors,
+  fontFamily,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatFecha } from '../../utils/formatFecha';
 import {
@@ -124,7 +132,7 @@ function BarraPipelineIndeterminada({ etiqueta }: { etiqueta: string }) {
         <Animated.View style={[styles.pipelineBarraGlow, { left }]} />
       </View>
       <View style={styles.pipelineFaseFila}>
-        <ActivityIndicator size="small" color="#0ea5e9" />
+        <ActivityIndicator size="small" color={tasksColor.acento} />
         <Text style={styles.pipelineFaseTexto}>{etiqueta}</Text>
       </View>
     </View>
@@ -534,7 +542,7 @@ export default function FichaReunionScreen() {
   if (acceso.permisosCargando || cargando) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={tasksColor.acento} />
         <Text style={styles.centroTexto}>Cargando reunión…</Text>
       </View>
     );
@@ -543,7 +551,7 @@ export default function FichaReunionScreen() {
   if (!puedeVer) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="lock-outline" size={30} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={30} color={tasksColor.textoTerciario} />
         <Text style={styles.centroTexto}>No tienes permiso para ver las reuniones.</Text>
       </View>
     );
@@ -552,7 +560,7 @@ export default function FichaReunionScreen() {
   if (noDisponible) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="event-busy" size={30} color="#94a3b8" />
+        <MaterialIcons name="event-busy" size={30} color={tasksColor.textoTerciario} />
         <Text style={styles.centroTexto}>Esta reunión no existe o ya no está disponible.</Text>
         <TouchableOpacity style={styles.btnVolver} onPress={() => router.push('/reuniones' as never)}>
           <Text style={styles.btnVolverTexto}>Volver al listado</Text>
@@ -620,7 +628,7 @@ export default function FichaReunionScreen() {
       <SeccionFicha titulo="Orden del día" icono="format-list-bulleted" variante="destacada">
         {!ordenEditable ? (
           <View style={styles.avisoBloqueo}>
-            <MaterialIcons name="lock-outline" size={14} color="#d97706" />
+            <MaterialIcons name="lock-outline" size={14} color={tasksColor.aviso} />
             <Text style={styles.avisoBloqueoTexto}>
               Bloqueado: la reunión ya está celebrada o tiene acta (D-20).
             </Text>
@@ -644,7 +652,7 @@ export default function FichaReunionScreen() {
                 style={[styles.btnSecundario, isCompact && styles.btnSecundarioTactil]}
                 onPress={() => setActaVisible(true)}
               >
-                <MaterialIcons name="visibility" size={16} color="#0ea5e9" />
+                <MaterialIcons name="visibility" size={16} color={tasksColor.acento} />
                 <Text style={styles.btnSecundarioTexto}>Ver</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -660,9 +668,9 @@ export default function FichaReunionScreen() {
                 accessibilityState={{ disabled: descargandoPdf, busy: descargandoPdf }}
               >
                 {descargandoPdf ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" />
+                  <ActivityIndicator size="small" color={tasksColor.acento} />
                 ) : (
-                  <MaterialIcons name="picture-as-pdf" size={16} color="#0ea5e9" />
+                  <MaterialIcons name="picture-as-pdf" size={16} color={tasksColor.acento} />
                 )}
                 <Text style={styles.btnSecundarioTexto}>
                   {descargandoPdf ? 'Descargando…' : 'PDF'}
@@ -693,9 +701,9 @@ export default function FichaReunionScreen() {
             accessibilityLabel="Ver transcripción"
           >
             {cargandoTranscripcion ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={tasksColor.acento} />
             ) : (
-              <MaterialIcons name="visibility" size={16} color="#0ea5e9" />
+              <MaterialIcons name="visibility" size={16} color={tasksColor.acento} />
             )}
             <Text style={styles.btnSecundarioTexto}>
               {cargandoTranscripcion ? 'Cargando…' : 'Ver'}
@@ -784,10 +792,10 @@ export default function FichaReunionScreen() {
             disabled={guardando}
           >
             {guardando ? (
-              <ActivityIndicator size="small" color="#ffffff" />
+              <ActivityIndicator size="small" color={tasksColor.textoInverso} />
             ) : (
               <>
-                <MaterialIcons name="playlist-add-check" size={16} color="#ffffff" />
+                <MaterialIcons name="playlist-add-check" size={16} color={tasksColor.textoInverso} />
                 <Text style={styles.btnPrimarioTexto}>
                   Crear tareas desde acuerdos abiertos ({acuerdosAbiertos.length})
                 </Text>
@@ -860,7 +868,7 @@ export default function FichaReunionScreen() {
                 <MaterialIcons
                   name={a.es_externo ? 'person-outline' : 'person'}
                   size={16}
-                  color="#64748b"
+                  color={colors.textMuted}
                 />
                 <Text style={styles.asistenteNombre}>
                   {(a.nombre || nombreUsuario(a.usuario_id)).trim() || '—'}
@@ -944,7 +952,7 @@ export default function FichaReunionScreen() {
         style={[styles.btnHistorial, isCompact && styles.btnHistorialTactil]}
         onPress={() => setHistorialVisible(true)}
       >
-        <MaterialIcons name="history" size={18} color="#0ea5e9" />
+        <MaterialIcons name="history" size={18} color={tasksColor.acento} />
         <Text style={styles.btnHistorialTexto}>Ver historial</Text>
       </TouchableOpacity>
     </>
@@ -1021,17 +1029,17 @@ export default function FichaReunionScreen() {
 
         {avisoCalendario ? (
           <View style={styles.bannerCalendario}>
-            <MaterialIcons name="event-busy" size={18} color="#b45309" />
+            <MaterialIcons name="event-busy" size={18} color={statusColors.warning.text} />
             <Text style={styles.bannerCalendarioTexto}>{avisoCalendario}</Text>
           </View>
         ) : null}
 
         {msgAccion ? (
           <View style={styles.bannerInfo}>
-            <MaterialIcons name="info-outline" size={18} color="#0369a1" />
+            <MaterialIcons name="info-outline" size={18} color={statusColors.info.text} />
             <Text style={styles.bannerInfoTexto}>{msgAccion}</Text>
             <TouchableOpacity onPress={() => setMsgAccion(null)}>
-              <MaterialIcons name="close" size={18} color="#0369a1" />
+              <MaterialIcons name="close" size={18} color={statusColors.info.text} />
             </TouchableOpacity>
           </View>
         ) : null}
@@ -1096,7 +1104,7 @@ export default function FichaReunionScreen() {
                   onPress={() => setHistorialVisible(false)}
                   accessibilityLabel="Cerrar"
                 >
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <ScrollView style={modal.body}>
@@ -1126,10 +1134,10 @@ export default function FichaReunionScreen() {
               <View style={modal.header}>
                 <Text style={modal.title}>Nuevo acuerdo</Text>
                 <TouchableOpacity style={modal.close} onPress={() => setAcuerdoFormVisible(false)}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
-              <View style={{ paddingHorizontal: 20, paddingVertical: 16, gap: 12 }}>
+              <View style={{ paddingHorizontal: 20, paddingVertical: 16, gap: SPACING.md }}>
                 <View style={form.group}>
                   <Text style={form.label}>Texto</Text>
                   <TextInput
@@ -1137,7 +1145,7 @@ export default function FichaReunionScreen() {
                     value={acuerdoTexto}
                     onChangeText={setAcuerdoTexto}
                     placeholder="Qué se acordó…"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={tasksColor.textoTerciario}
                     multiline
                   />
                 </View>
@@ -1177,7 +1185,7 @@ export default function FichaReunionScreen() {
                   disabled={guardando}
                 >
                   {guardando ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
+                    <ActivityIndicator size="small" color={tasksColor.textoInverso} />
                   ) : (
                     <Text style={modal.btnTextPrimario}>Guardar</Text>
                   )}
@@ -1196,7 +1204,7 @@ export default function FichaReunionScreen() {
       >
         <Pressable style={modal.overlay} onPress={() => !guardando && setAvisoFormVisible(false)}>
           <Pressable style={modal.confirmCard} onPress={(e) => e?.stopPropagation?.()}>
-            <MaterialIcons name="mic" size={36} color="#0ea5e9" style={modal.confirmIcono} />
+            <MaterialIcons name="mic" size={36} color={tasksColor.acento} style={modal.confirmIcono} />
             <Text style={modal.confirmTitle}>Aviso de grabación</Text>
             <Text style={modal.confirmText}>
               Se registrará que los asistentes han sido informados de que la reunión puede
@@ -1221,7 +1229,7 @@ export default function FichaReunionScreen() {
                 disabled={guardando}
               >
                 {guardando ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
+                  <ActivityIndicator size="small" color={tasksColor.textoInverso} />
                 ) : (
                   <Text style={modal.btnTextPrimario}>Registrar</Text>
                 )}
@@ -1250,21 +1258,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    padding: 24,
+    padding: SPACING.xl,
     backgroundColor: tasksColor.fondoApp,
   },
-  centroTexto: { ...tasksTipo.cuerpo, textAlign: 'center' },
-  errorTexto: { ...tasksTipo.cuerpo, color: tasksColor.peligro, textAlign: 'center' },
+  centroTexto: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, textAlign: 'center' },
+  errorTexto: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.peligro, textAlign: 'center' },
   btnVolver: {
-    marginTop: 8,
+    marginTop: SPACING.sm,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
     borderColor: tasksColor.bordeFuerte,
     backgroundColor: tasksColor.superficie,
   },
-  btnVolverTexto: { ...tasksTipo.dato, color: tasksColor.textoEnlace, fontWeight: '600' },
+  btnVolverTexto: { ...tasksTipo.dato, color: tasksColor.textoEnlace, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 
   cabeceraMeta: { gap: tasksSpace[2] },
   cabeceraBadges: {
@@ -1273,7 +1281,7 @@ const styles = StyleSheet.create({
     gap: 6,
     alignItems: 'center',
   },
-  cabeceraFecha: { ...tasksTipo.etiqueta, color: tasksColor.textoSecundario },
+  cabeceraFecha: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.textoSecundario },
   editarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1284,7 +1292,7 @@ const styles = StyleSheet.create({
     borderRadius: tasksRadius.control,
   },
   editarBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  editarTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontWeight: '600' },
+  editarTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   avisoSoloLectura: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1296,14 +1304,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tasksColor.bordeSutil,
   },
-  avisoSoloLecturaTexto: { flex: 1, ...tasksTipo.micro, color: tasksColor.textoSecundario },
+  avisoSoloLecturaTexto: { flex: 1, ...tasksTipo.micro, fontFamily: fontFamily.medium, color: tasksColor.textoSecundario },
 
   meetRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
   },
+  /** Borde ámbar; no es colors.border. */
   meetChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1311,29 +1320,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: tasksRadius.contenedor,
-    backgroundColor: '#fef3c7',
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fcd34d',
   },
   meetChipTactil: { minHeight: MIN_TOUCH },
-  meetChipTexto: { ...tasksTipo.dato, fontWeight: '600', color: '#92400e' },
+  /** Ámbar oscuro; no es colors.warning. */
+  meetChipTexto: { ...tasksTipo.dato, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#92400e' },
   meetCopiar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
     borderRadius: tasksRadius.contenedor,
   },
-  meetCopiarTexto: { ...tasksTipo.etiqueta, fontWeight: '600', color: tasksColor.textoSecundario },
+  meetCopiarTexto: { ...tasksTipo.etiqueta, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: tasksColor.textoSecundario },
 
   pipelineBarraWrap: { gap: 6 },
+  /** 2 px; por debajo de radius.sm (6). */
   pipelineBarraFondo: {
     height: 3,
     borderRadius: 2,
     backgroundColor: tasksColor.acentoSuave,
     overflow: 'hidden',
   },
+  /** 2 px; por debajo de radius.sm (6). */
   pipelineBarraGlow: {
     position: 'absolute',
     top: 0,
@@ -1343,68 +1355,72 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     opacity: 0.85,
   },
-  pipelineFaseFila: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  pipelineFaseTexto: { ...tasksTipo.etiqueta, fontWeight: '600', color: tasksColor.acentoTexto },
+  pipelineFaseFila: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  pipelineFaseTexto: { ...tasksTipo.etiqueta, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: tasksColor.acentoTexto },
 
   scroll: { flex: 1 },
   scrollContent: { padding: tasksSpace[4], gap: tasksSpace[3], paddingBottom: tasksSpace[6] },
   scrollContentCompact: { padding: tasksSpace[3] },
 
-  columnas: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
+  columnas: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.lg },
   columnasApiladas: { flexDirection: 'column' },
-  colPrincipal: { flex: 1.55, minWidth: 0, gap: 12 },
-  colLateral: { flex: 1, minWidth: 280, maxWidth: 420, gap: 12 },
+  colPrincipal: { flex: 1.55, minWidth: 0, gap: SPACING.md },
+  colLateral: { flex: 1, minWidth: 280, maxWidth: 420, gap: SPACING.md },
   colApilada: { maxWidth: '100%', width: '100%', minWidth: 0 },
 
+  /** Borde ámbar; no es colors.border. */
   bannerCalendario: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    paddingHorizontal: 12,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     borderRadius: tasksRadius.contenedor,
     backgroundColor: tasksColor.avisoSuave,
     borderWidth: 1,
     borderColor: '#fde68a',
   },
-  bannerCalendarioTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#92400e', lineHeight: 17 },
+  /** Ámbar oscuro; no es colors.warning. 17 px de interlineado, entre fontSizes[16] y fontSizes[18]. */
+  bannerCalendarioTexto: { flex: 1, ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: '#92400e', lineHeight: 17 },
+  /** Borde cielo; no es colors.border. */
   bannerInfo: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    paddingHorizontal: 12,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     borderRadius: tasksRadius.contenedor,
     backgroundColor: tasksColor.acentoSuave,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
-  bannerInfoTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#0c4a6e', lineHeight: 17 },
+  /** Azul oscuro del aviso; no es colors.textStrong. 17 px de interlineado, entre fontSizes[16] y fontSizes[18]. */
+  bannerInfoTexto: { flex: 1, ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: '#0c4a6e', lineHeight: 17 },
 
-  datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.md },
   dato: { width: '47%', minWidth: 120, gap: 2 },
-  datoEtiqueta: { ...tasksTipo.etiqueta },
-  datoValor: { ...tasksTipo.dato },
+  datoEtiqueta: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium },
+  datoValor: { ...tasksTipo.dato, fontFamily: fontFamily.medium },
 
-  listaSimple: { gap: 8 },
-  filaAsistente: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  asistenteNombre: { flex: 1, ...tasksTipo.cuerpo, color: tasksColor.textoPrimario },
-  asistioSi: { ...tasksTipo.micro, fontWeight: '600', color: tasksColor.exito },
-  asistioNo: { ...tasksTipo.micro, fontWeight: '600', color: tasksColor.textoTerciario },
+  listaSimple: { gap: SPACING.sm },
+  filaAsistente: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  asistenteNombre: { flex: 1, ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.textoPrimario },
+  asistioSi: { ...tasksTipo.micro, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: tasksColor.exito },
+  asistioNo: { ...tasksTipo.micro, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: tasksColor.textoTerciario },
 
   avisoBloqueo: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 6 },
-  avisoBloqueoTexto: { flex: 1, ...tasksTipo.micro, color: tasksColor.aviso, lineHeight: 16 },
-  textoLargo: { ...tasksTipo.cuerpo, color: tasksColor.textoPrimario, lineHeight: 20 },
-  vacioSeccion: { ...tasksTipo.micro, lineHeight: 18 },
+  avisoBloqueoTexto: { flex: 1, ...tasksTipo.micro, fontFamily: fontFamily.medium, color: tasksColor.aviso, lineHeight: 16 },
+  textoLargo: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.textoPrimario, lineHeight: 20 },
+  vacioSeccion: { ...tasksTipo.micro, fontFamily: fontFamily.medium, lineHeight: 18 },
 
   actaPreview: { gap: 10 },
-  actaAcciones: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  actaAcciones: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   btnSecundario: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
     borderColor: tasksColor.bordeFuerte,
@@ -1412,20 +1428,20 @@ const styles = StyleSheet.create({
   },
   btnSecundarioTactil: { minHeight: MIN_TOUCH },
   btnSecundarioDisabled: { opacity: 0.65 },
-  btnSecundarioTexto: { ...tasksTipo.etiqueta, fontWeight: '600', color: tasksColor.textoEnlace },
+  btnSecundarioTexto: { ...tasksTipo.etiqueta, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: tasksColor.textoEnlace },
 
   tarjetaAcuerdo: {
     borderWidth: 1,
     borderColor: tasksColor.bordeFuerte,
-    borderRadius: 10,
+    borderRadius: radius.md,
     padding: 10,
     backgroundColor: tasksColor.superficieHundida,
     gap: 6,
   },
   acuerdoCabecera: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  acuerdoTexto: { ...tasksTipo.cuerpo, color: tasksColor.textoPrimario, lineHeight: 18 },
-  acuerdoMeta: { ...tasksTipo.micro },
-  enlaceTarea: { ...tasksTipo.micro, fontWeight: '600', color: tasksColor.textoEnlace },
+  acuerdoTexto: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.textoPrimario, lineHeight: 18 },
+  acuerdoMeta: { ...tasksTipo.micro, fontFamily: fontFamily.medium },
+  enlaceTarea: { ...tasksTipo.micro, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: tasksColor.textoEnlace },
   acuerdoAcciones: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
   chipAccion: {
     paddingHorizontal: 10,
@@ -1436,36 +1452,36 @@ const styles = StyleSheet.create({
     backgroundColor: tasksColor.superficie,
   },
   chipAccionTactil: { minHeight: MIN_TOUCH, justifyContent: 'center' },
-  chipAccionTexto: { ...tasksTipo.micro, fontWeight: '600', color: tasksColor.textoSecundario },
+  chipAccionTexto: { ...tasksTipo.micro, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: tasksColor.textoSecundario },
 
   btnPrimario: {
-    marginTop: 8,
+    marginTop: SPACING.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderRadius: tasksRadius.contenedor,
     backgroundColor: tasksColor.acento,
   },
   btnPrimarioTactil: { minHeight: MIN_TOUCH },
-  btnPrimarioTexto: { ...tasksTipo.dato, fontWeight: '700', color: tasksColor.textoInverso },
+  btnPrimarioTexto: { ...tasksTipo.dato, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: tasksColor.textoInverso },
 
   btnHistorial: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
     paddingHorizontal: 14,
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: tasksColor.bordeFuerte,
     backgroundColor: tasksColor.superficie,
   },
   btnHistorialTactil: { minHeight: MIN_TOUCH },
-  btnHistorialTexto: { ...tasksTipo.cuerpo, fontWeight: '700', color: tasksColor.textoEnlace },
+  btnHistorialTexto: { ...tasksTipo.cuerpo, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: tasksColor.textoEnlace },
 
-  avisoDetalle: { ...tasksTipo.etiqueta, color: tasksColor.textoSecundario, textAlign: 'center' },
+  avisoDetalle: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.textoSecundario, textAlign: 'center' },
 });
