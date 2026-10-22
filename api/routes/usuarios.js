@@ -27,6 +27,12 @@ function formatId6(val) {
 // aparte, con `departamentosDelCuerpo`.
 const TABLE_USUARIOS_ATTRS = ['id_usuario', 'Nombre', 'Apellidos', 'Email', 'Password', 'Telefono', 'Rol', 'Local'];
 
+/** Lo que devuelve el listado: sin `Password` (ni siquiera se lee) y con `Departamentos`. */
+const PROYECCION_LISTADO_USUARIOS = [
+  ...TABLE_USUARIOS_ATTRS.filter((a) => a !== 'Password'),
+  'Departamentos',
+];
+
 /**
  * `Departamentos` es una lista de **IDs** de departamento, al contrario que
  * `Locales`, que guarda nombres (D-12).
@@ -44,11 +50,18 @@ async function departamentosDelCuerpo(valor, existente) {
 // Listar usuarios (campos de la tabla, sin Password)
 // [SEC S-05]
 router.get('/usuarios', requirePermission('usuarios.ver'), async (req, res) => {
-  const cmd = new ScanCommand({
-    TableName: tables.usuarios,
-  });
-  const result = await docClient.send(cmd);
-  const items = result.Items || [];
+  const items = [];
+  let lastKey = null;
+  do {
+    const result = await docClient.send(new ScanCommand({
+      TableName: tables.usuarios,
+      ProjectionExpression: PROYECCION_LISTADO_USUARIOS.map((a) => `#${a}`).join(', '),
+      ExpressionAttributeNames: Object.fromEntries(PROYECCION_LISTADO_USUARIOS.map((a) => [`#${a}`, a])),
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
   const usuarios = items.map((item) => {
     const out = {};
     for (const key of TABLE_USUARIOS_ATTRS) {

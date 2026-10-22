@@ -2,6 +2,7 @@ import { responderError } from '../lib/http/responderError.js';
 import express from 'express';
 import { ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { batchGetTodos } from '../lib/dynamo/lotes.js';
 import { hasPermission } from '../middleware/auth.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
 import { resolveTotalAportacionUnitaria } from '../lib/pedidos/rappelAcuerdo.js';
@@ -910,6 +911,9 @@ router.get('/pedidos/traspaso-export', async (req, res) => {
   }
 });
 
+/** Updates simultáneos al marcar traspasos exportados. */
+const MARCAR_TRASPASO_CONCURRENCIA = 10;
+
 // POST /pedidos/traspaso-export/marcar  body: { pedidoIds: [] }
 // Marca los pedidos como ya exportados (control de duplicados). Idempotente.
 router.post('/pedidos/traspaso-export/marcar', async (req, res) => {
@@ -921,20 +925,19 @@ router.post('/pedidos/traspaso-export/marcar', async (req, res) => {
     : [];
   if (ids.length === 0) return res.status(400).json({ error: 'pedidoIds es obligatorio' });
   // Todos los pedidos tienen que ser suyos antes de marcar ninguno.
+  // Un pedido que no vuelve no existe: no se comprueba (y luego su marcado falla la condición).
   if (!(await cargarAlcance(req)).global) {
-    for (const id of ids) {
-      const got = await docClient.send(new GetCommand({
-        TableName: tables.pedidos,
-        Key: { Id: id },
-        ProjectionExpression: 'Id, LocalId, AlmacenOrigenId',
-      }));
-      if (got.Item && !(await permitePedido(req, got.Item))) return sinAccesoLocal(res);
+    const existentes = await batchGetTodos(tables.pedidos, ids.map((Id) => ({ Id })), {
+      projection: 'Id, LocalId, AlmacenOrigenId',
+    });
+    for (const p of existentes) {
+      if (!(await permitePedido(req, p))) return sinAccesoLocal(res);
     }
   }
   const now = new Date().toISOString();
   const email = String(req.user?.email ?? '').trim();
-  let marcados = 0;
-  for (const id of ids) {
+  // Cada pedido por su cuenta: un fallo no aborta el resto, solo no cuenta.
+  const marcarUno = async (id) => {
     try {
       await docClient.send(new UpdateCommand({
         TableName: tables.pedidos,
@@ -943,12 +946,18 @@ router.post('/pedidos/traspaso-export/marcar', async (req, res) => {
         ExpressionAttributeValues: { ':t': now, ':p': email },
         ConditionExpression: 'attribute_exists(Id)',
       }));
-      marcados += 1;
+      return true;
     } catch (e) {
       if (e?.name !== 'ConditionalCheckFailedException') {
         console.error('[pedidos/traspaso-export/marcar]', id, e.message || e);
       }
+      return false;
     }
+  };
+  let marcados = 0;
+  for (let i = 0; i < ids.length; i += MARCAR_TRASPASO_CONCURRENCIA) {
+    const resultados = await Promise.all(ids.slice(i, i + MARCAR_TRASPASO_CONCURRENCIA).map(marcarUno));
+    marcados += resultados.filter(Boolean).length;
   }
   res.json({ ok: true, marcados, exportadoEn: now });
 });

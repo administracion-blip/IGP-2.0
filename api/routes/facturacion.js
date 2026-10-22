@@ -24,6 +24,7 @@ import {
   queryPagosByFactura,
   queryAuditoriaByFactura,
 } from '../lib/dynamo/facturasRelacionadas.js';
+import { batchWriteTodos } from '../lib/dynamo/lotes.js';
 import {
   normalizeCif,
   cifDigitsOnly,
@@ -638,6 +639,10 @@ router.get('/facturacion/facturas/:id', requirePermission('facturacion.ver'), as
   }
 });
 
+/** Límite de operaciones de una TransactWriteItems. */
+const MAX_OPERACIONES_TRANSACCION = 100;
+const MENSAJE_ERROR_GUARDAR_FACTURA = 'No se ha podido guardar la factura';
+
 // [SEC S-01]
 router.post('/facturacion/facturas', requirePermission('facturacion.crear'), async (req, res) => {
   const body = req.body || {};
@@ -703,10 +708,44 @@ router.post('/facturacion/facturas', requirePermission('facturacion.crear'), asy
     const total_factura = factura.total_factura;
 
     aplicarClavesFactura(factura);
-    await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
+    const putCabecera = { TableName: tables.facturas, Item: factura };
 
-    for (const linea of lineasToSave) {
-      await docClient.send(new PutCommand({ TableName: tables.facturasLineas, Item: linea }));
+    // Nunca una cabecera sin todas sus líneas: no cuadraría con su total y, en
+    // gastos, un reintento tomaría el número siguiente y duplicaría la deuda.
+    if (1 + lineasToSave.length <= MAX_OPERACIONES_TRANSACCION) {
+      try {
+        await docClient.send(new TransactWriteCommand({
+          TransactItems: [
+            { Put: putCabecera },
+            ...lineasToSave.map((Item) => ({ Put: { TableName: tables.facturasLineas, Item } })),
+          ],
+        }));
+      } catch (err) {
+        logger.error({ err, id_factura: id_entrada }, '[facturacion/facturas] no se ha podido guardar la factura');
+        return responderError(res, err, { mensaje: MENSAJE_ERROR_GUARDAR_FACTURA });
+      }
+    } else {
+      // Líneas primero y cabecera al final: las líneas solo se leen por
+      // id_factura, así que sin cabecera quedan huérfanas pero invisibles.
+      try {
+        await batchWriteTodos(tables.facturasLineas, lineasToSave);
+      } catch (err) {
+        logger.error(
+          {
+            err,
+            id_factura: id_entrada,
+            lineasPendientes: (err?.pendientes || []).map((l) => l.id_linea),
+          },
+          '[facturacion/facturas] no se han podido guardar todas las líneas; no se crea la factura',
+        );
+        return responderError(res, err, { mensaje: 'No se han podido guardar todas las líneas de la factura' });
+      }
+      try {
+        await docClient.send(new PutCommand(putCabecera));
+      } catch (err) {
+        logger.error({ err, id_factura: id_entrada }, '[facturacion/facturas] líneas guardadas pero no la cabecera');
+        return responderError(res, err, { mensaje: MENSAJE_ERROR_GUARDAR_FACTURA });
+      }
     }
 
     await registrarAuditoria(id_entrada, 'creacion', usuario_id, usuario_nombre, { tipo, serie, numero_factura, total_factura });

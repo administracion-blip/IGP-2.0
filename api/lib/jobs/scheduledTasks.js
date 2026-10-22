@@ -1,4 +1,4 @@
-import { ScanCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { internalSyncFetchHeaders } from '../internalSync.js';
 import { logger } from '../logger.js';
@@ -92,11 +92,19 @@ const syncLastRun = {};
 
 export async function checkAutoSyncs(port) {
   try {
-    const { Items = [] } = await docClient.send(new ScanCommand({
-      TableName: tableAjustesName,
-      FilterExpression: 'PK = :pk AND Enabled = :e',
-      ExpressionAttributeValues: { ':pk': 'sincronizaciones', ':e': true },
-    }));
+    const Items = [];
+    let lastKey = null;
+    do {
+      const r = await docClient.send(new QueryCommand({
+        TableName: tableAjustesName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': 'sincronizaciones' },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      // Solo el booleano true, como haría el filtro `Enabled = true` de DynamoDB.
+      Items.push(...(r.Items || []).filter((item) => item.Enabled === true));
+      lastKey = r.LastEvaluatedKey || null;
+    } while (lastKey);
 
     const now = new Date();
     const dayKey = DAY_MAP[now.getDay()];

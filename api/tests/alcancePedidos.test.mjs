@@ -240,6 +240,68 @@ test('marcar traspasos con un pedido ajeno en la lista: 403 sin marcar ninguno, 
   assert.ok(pedido('PED-2').TraspasoExportadoEn);
 });
 
+/** 15 pedidos de Bar Norte: más de un bloque de marcado (10 a la vez). */
+function sembrarPedidosNorte() {
+  const ids = [];
+  for (let i = 10; i < 25; i += 1) {
+    const id = `PED-N${i}`;
+    sembrarPedido({ Id: id, LocalId: '000010', AlmacenOrigenId: '1', Estado: 'Enviado', Fecha: '2026-10-02', Notas: '' });
+    ids.push(id);
+  }
+  return ids;
+}
+
+test('marcar traspasos: el alcance se lee en un lote y un pedido ajeno al final bloquea todos', async () => {
+  montar();
+  db.sembrar(tables.rolesPermisos, { PK: 'ROL#Local', SK: 'PERMISO#pedidos.exportar_traspaso' });
+  const ids = [...sembrarPedidosNorte(), 'NO-EXISTE', 'PED-1'];
+  const r = await api('POST', '/api/pedidos/traspaso-export/marcar', { pedidoIds: ids }, LOCAL_NORTE);
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'No tienes acceso a este local');
+  const lecturas = db.operaciones.filter((o) => o.tipo === 'BatchGetCommand');
+  assert.deepEqual(lecturas.map((o) => o.claves), [17]);
+  assert.equal(db.operaciones.filter((o) => o.tipo === 'GetCommand' && o.tabla === tables.pedidos).length, 0);
+  assert.equal(db.operaciones.filter((o) => o.tipo === 'UpdateCommand').length, 0);
+  assert.ok(db.listar(tables.pedidos).every((p) => p.TraspasoExportadoEn === undefined));
+});
+
+test('marcar traspasos: un inexistente y un fallo de escritura no paran el resto y no cuentan', async () => {
+  montar();
+  db.sembrar(tables.rolesPermisos, { PK: 'ROL#Local', SK: 'PERMISO#pedidos.exportar_traspaso' });
+  const ids = sembrarPedidosNorte();
+  const enviar = docClient.send;
+  docClient.send = async (cmd) => {
+    if (cmd?.constructor?.name === 'UpdateCommand' && cmd.input.Key?.Id === 'PED-N13') {
+      throw Object.assign(new Error('Fallo de red simulado'), { name: 'NetworkingError' });
+    }
+    return enviar(cmd);
+  };
+  const errores = [];
+  const original = console.error;
+  console.error = (...args) => errores.push(args);
+  let r;
+  try {
+    r = await api('POST', '/api/pedidos/traspaso-export/marcar', { pedidoIds: ['NO-EXISTE', ...ids] }, LOCAL_NORTE);
+  } finally {
+    console.error = original;
+    docClient.send = enviar;
+  }
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.marcados, 14);
+  assert.ok(r.body.exportadoEn);
+  for (const id of ids) {
+    if (id === 'PED-N13') assert.equal(pedido(id).TraspasoExportadoEn, undefined);
+    else assert.equal(pedido(id).TraspasoExportadoEn, r.body.exportadoEn, id);
+  }
+  // El inexistente falla la condición en silencio; el error de red se registra.
+  assert.equal(pedido('NO-EXISTE'), null);
+  assert.deepEqual(
+    errores.map(([etiqueta, id]) => [etiqueta, id]),
+    [['[pedidos/traspaso-export/marcar]', 'PED-N13']],
+  );
+});
+
 // ─── Devoluciones: el local que devuelve tiene que ser suyo ───
 
 const OFICINA = { sub: '000093', email: 'oficina@grupo.test', rol: 'SuperUser' };

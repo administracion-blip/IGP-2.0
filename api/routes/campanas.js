@@ -19,6 +19,7 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { batchGetTodos, indexarPor } from '../lib/dynamo/lotes.js';
 import { requirePermission, hasPermission } from '../middleware/auth.js';
 import {
   calcularResultadosCampana,
@@ -467,13 +468,15 @@ router.get('/campanas/:campanaId/ventas-detalle', requirePermission('incentivos_
     }
 
     // Coste por producto (para el incentivo por línea)
+    const productosCoste = await batchGetTodos(
+      tables.agoraProducts,
+      [...productIds].map((pid) => ({ PK: 'GLOBAL', SK: pid })),
+      { projection: '#sk, #coste', expressionAttributeNames: { '#sk': 'SK', '#coste': 'CostPrice' } },
+    );
+    const productoPorId = indexarPor(productosCoste, (it) => String(it.SK));
     const costeMap = new Map();
     for (const pid of productIds) {
-      const pr = await docClient.send(new GetCommand({
-        TableName: tables.agoraProducts,
-        Key: { PK: 'GLOBAL', SK: pid },
-      }));
-      costeMap.set(pid, Number(pr.Item?.CostPrice) || 0);
+      costeMap.set(pid, Number(productoPorId.get(pid)?.CostPrice) || 0);
     }
 
     // €/ud efectivo por producto (override si existe; si no, valor de campaña)
