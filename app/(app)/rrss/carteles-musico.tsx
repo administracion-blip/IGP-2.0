@@ -13,6 +13,15 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useLocalToast } from '../../components/Toast';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
@@ -210,12 +219,12 @@ export default function CartelesMusicoScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.accent} />
           </TouchableOpacity>
           <Text style={styles.title}>Carteles músico</Text>
         </View>
         <View style={styles.empty}>
-          <MaterialIcons name="lock" size={32} color="#94a3b8" />
+          <MaterialIcons name="lock" size={32} color={colors.textMuted} />
           <Text style={styles.emptyText}>Necesitas el permiso marketing.gestionar.</Text>
         </View>
       </View>
@@ -228,7 +237,7 @@ export default function CartelesMusicoScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.accent} />
         </TouchableOpacity>
         <Text style={styles.title}>Carteles músico</Text>
       </View>
@@ -270,7 +279,7 @@ export default function CartelesMusicoScreen() {
           <MaterialIcons
             name={agruparConciertos ? 'check-box' : 'check-box-outline-blank'}
             size={22}
-            color={agruparConciertos ? '#0ea5e9' : '#94a3b8'}
+            color={agruparConciertos ? colors.accent : colors.textMuted}
           />
           <View style={styles.toggleTextCol}>
             <Text style={styles.toggleTitle}>Agrupar conciertos</Text>
@@ -285,13 +294,13 @@ export default function CartelesMusicoScreen() {
           onPress={generar}
           disabled={loading || !idLocal}
         >
-          {loading ? <ActivityIndicator color="#fff" /> : <MaterialIcons name="library-music" size={20} color="#fff" />}
+          {loading ? <ActivityIndicator color={colors.surface} /> : <MaterialIcons name="library-music" size={20} color={colors.surface} />}
           <Text style={styles.primaryBtnText}>{loading ? 'Generando…' : 'Generar carteles'}</Text>
         </TouchableOpacity>
 
         {error && (
           <View style={styles.errorBox}>
-            <MaterialIcons name="error-outline" size={18} color="#f87171" />
+            <MaterialIcons name="error-outline" size={18} color={colors.danger} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
@@ -300,7 +309,7 @@ export default function CartelesMusicoScreen() {
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {!hayResultados && !loading ? (
           <View style={styles.empty}>
-            <MaterialIcons name="library-music" size={32} color="#94a3b8" />
+            <MaterialIcons name="library-music" size={32} color={colors.textMuted} />
             <Text style={styles.emptyText}>
               Selecciona un local, opcionalmente agrupa conciertos, elige el rango en dd/mm/aaaa y pulsa Generar carteles.
             </Text>
@@ -316,7 +325,7 @@ export default function CartelesMusicoScreen() {
             </Text>
             <View style={styles.cardActions}>
               <TouchableOpacity style={styles.smallBtn} onPress={() => copiarPrompt(promptAgrupado)}>
-                <MaterialIcons name="content-copy" size={16} color="#0ea5e9" />
+                <MaterialIcons name="content-copy" size={16} color={colors.accent} />
                 <Text style={styles.smallBtnText}>Copiar prompt</Text>
               </TouchableOpacity>
               {propuestaAgrupadaCreada ? (
@@ -331,9 +340,9 @@ export default function CartelesMusicoScreen() {
                   disabled={creandoAgrupado || carteles.length === 0}
                 >
                   {creandoAgrupado ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={colors.surface} />
                   ) : (
-                    <MaterialIcons name="add" size={16} color="#fff" />
+                    <MaterialIcons name="add" size={16} color={colors.surface} />
                   )}
                   <Text style={[styles.smallBtnText, styles.smallBtnPrimaryText]}>
                     {creandoAgrupado ? 'Creando…' : 'Crear propuesta agrupada'}
@@ -370,7 +379,7 @@ export default function CartelesMusicoScreen() {
                       <Image source={{ uri: c.imagen_artista_url }} style={styles.avatar} />
                     ) : (
                       <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                        <MaterialIcons name="person" size={28} color="#94a3b8" />
+                        <MaterialIcons name="person" size={28} color={colors.textMuted} />
                       </View>
                     )}
                     <View style={styles.cardHeaderText}>
@@ -391,7 +400,7 @@ export default function CartelesMusicoScreen() {
 
                   <View style={styles.cardActions}>
                     <TouchableOpacity style={styles.smallBtn} onPress={() => copiarPrompt(c.prompt)}>
-                      <MaterialIcons name="content-copy" size={16} color="#0ea5e9" />
+                      <MaterialIcons name="content-copy" size={16} color={colors.accent} />
                       <Text style={styles.smallBtnText}>Copiar prompt</Text>
                     </TouchableOpacity>
                     {yaCreado ? (
@@ -406,9 +415,9 @@ export default function CartelesMusicoScreen() {
                         disabled={creandoIdx === i}
                       >
                         {creandoIdx === i ? (
-                          <ActivityIndicator size="small" color="#fff" />
+                          <ActivityIndicator size="small" color={colors.surface} />
                         ) : (
-                          <MaterialIcons name="add" size={16} color="#fff" />
+                          <MaterialIcons name="add" size={16} color={colors.surface} />
                         )}
                         <Text style={[styles.smallBtnText, styles.smallBtnPrimaryText]}>
                           {creandoIdx === i ? 'Creando…' : 'Crear propuesta'}
@@ -426,68 +435,72 @@ export default function CartelesMusicoScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerBtn: { padding: 6 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  filtersWrap: { padding: 12, gap: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  filtersWrap: { padding: SPACING.md, gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   row: { flexDirection: 'row', gap: 10 },
   field: { flex: 1, gap: 6 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   dateInput: {
-    fontSize: 13,
-    paddingVertical: 8,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    color: '#334155',
-    backgroundColor: '#fff',
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: colors.bg,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
   toggleTextCol: { flex: 1, gap: 4 },
-  toggleTitle: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  toggleHint: { fontSize: 11, color: '#64748b', lineHeight: 16 },
-  primaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, backgroundColor: '#0ea5e9', borderRadius: 10 },
-  primaryBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8 },
-  errorText: { fontSize: 12, color: '#dc2626', flex: 1 },
+  toggleTitle: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  toggleHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 16 },
+  primaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: SPACING.md, backgroundColor: colors.accent, borderRadius: radius.md },
+  primaryBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  errorBox: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flex: 1 },
   list: { flex: 1 },
-  listContent: { padding: 12, gap: 12, paddingBottom: 24 },
-  empty: { paddingVertical: 32, alignItems: 'center', gap: 8, paddingHorizontal: 16 },
-  emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', padding: 12, gap: 10 },
-  cardDestacada: { borderColor: '#7dd3fc', backgroundColor: '#f0f9ff' },
-  cardBanner: { fontSize: 12, fontWeight: '700', color: '#0369a1', textTransform: 'uppercase', letterSpacing: 0.5 },
+  listContent: { padding: SPACING.md, gap: 12, paddingBottom: 24 },
+  empty: { paddingVertical: 32, alignItems: 'center', gap: SPACING.sm, paddingHorizontal: 16 },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: SPACING.md, gap: 10 },
+  cardDestacada: { borderColor: '#7dd3fc', backgroundColor: colors.accentMuted },
+  cardBanner: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, textTransform: 'uppercase', letterSpacing: 0.5 },
   incluidasWrap: { gap: 6, paddingBottom: 8 },
-  incluidasTitle: { fontSize: 13, fontWeight: '600', color: '#475569' },
-  compactRow: { paddingVertical: 8, paddingHorizontal: 10, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  compactText: { fontSize: 12, color: '#475569' },
-  compactStrong: { fontWeight: '600', color: '#334155' },
+  incluidasTitle: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  compactRow: { paddingVertical: SPACING.sm, paddingHorizontal: 10, backgroundColor: colors.surface, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border },
+  compactText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  compactStrong: { fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#f1f5f9' },
+  // Círculo de 56 px.
+  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.navActive },
   avatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   cardHeaderText: { flex: 1, gap: 2 },
-  artistName: { fontSize: 14, fontWeight: '700', color: '#334155' },
-  dateLine: { fontSize: 12, color: '#64748b' },
-  promptLabel: { fontSize: 11, fontWeight: '600', color: '#475569' },
-  promptText: { fontSize: 12, color: '#475569', lineHeight: 18, padding: 10, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  cardActions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  smallBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: '#bae6fd', borderRadius: 6, backgroundColor: '#f0f9ff' },
-  smallBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  smallBtnPrimary: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  smallBtnPrimaryText: { color: '#fff' },
+  artistName: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  dateLine: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  promptLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  promptText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, lineHeight: 18, padding: 10, backgroundColor: colors.bg, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border },
+  cardActions: { flexDirection: 'row', gap: SPACING.sm, flexWrap: 'wrap' },
+  smallBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md, borderWidth: 1, borderColor: '#bae6fd', borderRadius: radius.sm, backgroundColor: colors.accentMuted },
+  smallBtnText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  smallBtnPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+  smallBtnPrimaryText: { color: colors.surface },
   smallBtnSuccess: { backgroundColor: '#d1fae5', borderColor: '#a7f3d0' },
   smallBtnSuccessText: { color: '#10b981' },
   disabled: { opacity: 0.6 },
