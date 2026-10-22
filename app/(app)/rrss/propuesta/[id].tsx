@@ -17,6 +17,15 @@ import * as Clipboard from 'expo-clipboard';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { apiFetch } from '../../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 import { useLocalToast } from '../../../components/Toast';
 import { InputFecha } from '../../../components/InputFecha';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
@@ -55,15 +64,15 @@ type RefSegmentPropuesta = 'subir' | 'enlace';
 function badgeStyles(estado: string): { backgroundColor: string; color: string } {
   switch (estado) {
     case 'pendiente':
-      return { backgroundColor: '#fef3c7', color: '#b45309' };
+      return { backgroundColor: statusColors.warning.bg, color: statusColors.warning.text };
     case 'aprobada':
       return { backgroundColor: '#d1fae5', color: '#047857' };
     case 'rechazada':
-      return { backgroundColor: '#fee2e2', color: '#b91c1c' };
+      return { backgroundColor: statusColors.danger.bg, color: statusColors.danger.text };
     case 'publicada':
       return { backgroundColor: '#dbeafe', color: '#1e40af' };
     default:
-      return { backgroundColor: '#f1f5f9', color: '#475569' };
+      return { backgroundColor: colors.navActive, color: colors.textPrimary };
   }
 }
 
@@ -469,7 +478,7 @@ export default function PropuestaDetailScreen() {
   if (loading) {
     return (
       <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando propuesta…</Text>
       </View>
     );
@@ -480,12 +489,12 @@ export default function PropuestaDetailScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.accent} />
           </TouchableOpacity>
           <Text style={styles.title}>Propuesta</Text>
         </View>
         <View style={[styles.center, { padding: 32 }]}>
-          <MaterialIcons name="error-outline" size={32} color="#f87171" />
+          <MaterialIcons name="error-outline" size={32} color={colors.danger} />
           <Text style={styles.errorText}>{error || 'Propuesta no encontrada'}</Text>
           <TouchableOpacity style={styles.secondaryBtn} onPress={cargar}>
             <Text style={styles.secondaryBtnText}>Reintentar</Text>
@@ -501,7 +510,7 @@ export default function PropuestaDetailScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.accent} />
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>
           {propuesta.tipo}
@@ -516,7 +525,7 @@ export default function PropuestaDetailScreen() {
         <View style={styles.field}>
           <Text style={styles.label}>Local</Text>
           <View style={styles.readonlyBox}>
-            <MaterialIcons name="store" size={16} color="#64748b" />
+            <MaterialIcons name="store" size={16} color={colors.textMuted} />
             <Text style={styles.readonlyText}>{localNombre}</Text>
           </View>
         </View>
@@ -582,7 +591,7 @@ export default function PropuestaDetailScreen() {
             />
           ) : (
             <View style={styles.readonlyBox}>
-              <MaterialIcons name="event" size={16} color="#64748b" />
+              <MaterialIcons name="event" size={16} color={colors.textMuted} />
               <Text style={styles.readonlyText}>{isoToDmy(fechaSugerida) || '—'}</Text>
             </View>
           )}
@@ -597,7 +606,7 @@ export default function PropuestaDetailScreen() {
             onChangeText={setDescripcion}
             multiline
             editable={puedeEditarBasicos}
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
 
@@ -639,7 +648,7 @@ export default function PropuestaDetailScreen() {
                   value={refUrl}
                   onChangeText={setRefUrl}
                   placeholder="https://…"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="url"
@@ -649,18 +658,18 @@ export default function PropuestaDetailScreen() {
                   <Image source={{ uri: refUri }} style={styles.imagenPreview} resizeMode="cover" />
                   <View style={styles.imagenActions}>
                     <TouchableOpacity style={styles.smallBtnImg} onPress={elegirImagenReferenciaDetalle}>
-                      <MaterialIcons name="edit" size={16} color="#0ea5e9" />
+                      <MaterialIcons name="edit" size={16} color={colors.accent} />
                       <Text style={styles.smallBtnImgText}>Cambiar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.smallBtnImg, styles.smallBtnImgDanger]} onPress={quitarImagenRef}>
-                      <MaterialIcons name="delete-outline" size={16} color="#dc2626" />
+                      <MaterialIcons name="delete-outline" size={16} color={colors.danger} />
                       <Text style={[styles.smallBtnImgText, styles.smallBtnImgDangerText]}>Quitar</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
               ) : (
                 <TouchableOpacity style={styles.uploadBtn} onPress={elegirImagenReferenciaDetalle} activeOpacity={0.7}>
-                  <MaterialIcons name="add-photo-alternate" size={22} color="#0ea5e9" />
+                  <MaterialIcons name="add-photo-alternate" size={22} color={colors.accent} />
                   <Text style={styles.uploadBtnText}>Elegir imagen nueva</Text>
                 </TouchableOpacity>
               )}
@@ -706,7 +715,7 @@ export default function PropuestaDetailScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Copiar prompt al portapapeles"
                   >
-                    <MaterialIcons name="content-copy" size={18} color="#0ea5e9" />
+                    <MaterialIcons name="content-copy" size={18} color={colors.accent} />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.smallBtn, busy === 'prompt' && styles.disabled]}
@@ -714,9 +723,9 @@ export default function PropuestaDetailScreen() {
                     disabled={busy === 'prompt'}
                   >
                     {busy === 'prompt' ? (
-                      <ActivityIndicator size="small" color="#0ea5e9" />
+                      <ActivityIndicator size="small" color={colors.accent} />
                     ) : (
-                      <MaterialIcons name="auto-awesome" size={16} color="#0ea5e9" />
+                      <MaterialIcons name="auto-awesome" size={16} color={colors.accent} />
                     )}
                     <Text style={styles.smallBtnText}>{promptGenerado ? 'Regenerar' : 'Generar'}</Text>
                   </TouchableOpacity>
@@ -728,7 +737,7 @@ export default function PropuestaDetailScreen() {
                 onChangeText={setPromptGenerado}
                 multiline
                 placeholder="Aún no se ha generado prompt. Pulsa Generar."
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
               />
             </View>
 
@@ -739,7 +748,7 @@ export default function PropuestaDetailScreen() {
                 value={imagenFinalUrl}
                 onChangeText={setImagenFinalUrl}
                 placeholder="https://…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
               />
             </View>
@@ -751,7 +760,7 @@ export default function PropuestaDetailScreen() {
                 value={urlPublicacion}
                 onChangeText={setUrlPublicacion}
                 placeholder="https://instagram.com/…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
               />
             </View>
@@ -767,7 +776,7 @@ export default function PropuestaDetailScreen() {
               disabled={saving}
               activeOpacity={0.7}
             >
-              {saving ? <ActivityIndicator color="#fff" /> : <MaterialIcons name="save" size={20} color="#fff" />}
+              {saving ? <ActivityIndicator color={colors.surface} /> : <MaterialIcons name="save" size={20} color={colors.surface} />}
               <Text style={styles.primaryBtnText}>{saving ? 'Guardando…' : 'Guardar cambios'}</Text>
             </TouchableOpacity>
           )}
@@ -779,7 +788,7 @@ export default function PropuestaDetailScreen() {
                 onPress={aprobar}
                 disabled={busy === 'aprobar'}
               >
-                {busy === 'aprobar' ? <ActivityIndicator color="#fff" /> : <MaterialIcons name="check" size={20} color="#fff" />}
+                {busy === 'aprobar' ? <ActivityIndicator color={colors.surface} /> : <MaterialIcons name="check" size={20} color={colors.surface} />}
                 <Text style={styles.primaryBtnText}>Aprobar</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -787,7 +796,7 @@ export default function PropuestaDetailScreen() {
                 onPress={rechazar}
                 disabled={busy === 'rechazar'}
               >
-                {busy === 'rechazar' ? <ActivityIndicator color="#fff" /> : <MaterialIcons name="close" size={20} color="#fff" />}
+                {busy === 'rechazar' ? <ActivityIndicator color={colors.surface} /> : <MaterialIcons name="close" size={20} color={colors.surface} />}
                 <Text style={styles.primaryBtnText}>Rechazar</Text>
               </TouchableOpacity>
             </View>
@@ -799,7 +808,7 @@ export default function PropuestaDetailScreen() {
               onPress={marcarPublicada}
               disabled={busy === 'publicar'}
             >
-              {busy === 'publicar' ? <ActivityIndicator color="#fff" /> : <MaterialIcons name="campaign" size={20} color="#fff" />}
+              {busy === 'publicar' ? <ActivityIndicator color={colors.surface} /> : <MaterialIcons name="campaign" size={20} color={colors.surface} />}
               <Text style={styles.primaryBtnText}>Marcar como publicada</Text>
             </TouchableOpacity>
           )}
@@ -811,9 +820,9 @@ export default function PropuestaDetailScreen() {
               disabled={busy === 'borrar'}
             >
               {busy === 'borrar' ? (
-                <ActivityIndicator color="#dc2626" />
+                <ActivityIndicator color={colors.danger} />
               ) : (
-                <MaterialIcons name="delete-outline" size={20} color="#dc2626" />
+                <MaterialIcons name="delete-outline" size={20} color={colors.danger} />
               )}
               <Text style={styles.dangerBtnOutlineText}>Eliminar propuesta</Text>
             </TouchableOpacity>
@@ -830,123 +839,127 @@ export default function PropuestaDetailScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerBtn: { padding: 6 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155', flex: 1 },
-  badge: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 12 },
-  badgeText: { fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, flex: 1 },
+  badge: { paddingVertical: SPACING.xs, paddingHorizontal: SPACING.md, borderRadius: radius.lg },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, textTransform: 'capitalize' },
   form: { padding: 16, gap: 16 },
   field: { gap: 6 },
-  fieldSub: { fontSize: 11, color: '#64748b', lineHeight: 15 },
-  fieldSubMuted: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic' },
-  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  fieldSub: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 15 },
+  fieldSubMuted: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontStyle: 'italic' },
+  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm },
   promptActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   smallBtnIcon: {
     paddingVertical: 6,
     paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    borderRadius: 6,
-    backgroundColor: '#f0f9ff',
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentMuted,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  segmentRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  segmentRow: { flexDirection: 'row', gap: SPACING.sm, marginBottom: 4 },
   segmentChip: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
   },
-  segmentChipSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  segmentChipText: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  segmentChipTextSelected: { color: '#0ea5e9' },
-  imagenWrap: { gap: 8 },
+  segmentChipSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  segmentChipText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  segmentChipTextSelected: { color: colors.accent },
+  imagenWrap: { gap: SPACING.sm },
   imagenActions: { flexDirection: 'row', gap: 10 },
   smallBtnImg: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.bg,
   },
-  smallBtnImgDanger: { borderColor: '#fecaca', backgroundColor: '#fef2f2' },
-  smallBtnImgText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  smallBtnImgDangerText: { color: '#dc2626' },
+  smallBtnImgDanger: { borderColor: '#fecaca', backgroundColor: statusColors.danger.bg },
+  smallBtnImgText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  smallBtnImgDangerText: { color: colors.danger },
   uploadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 14,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: colors.borderStrong,
     borderStyle: 'dashed',
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
   },
-  uploadBtnText: { fontSize: 13, fontWeight: '500', color: '#0ea5e9' },
-  readonlyBox: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  readonlyText: { fontSize: 13, color: '#334155' },
+  uploadBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.accent },
+  readonlyBox: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingVertical: 10, paddingHorizontal: SPACING.md, backgroundColor: colors.bg, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border },
+  readonlyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
   input: {
-    fontSize: 14,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    color: '#334155',
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.md,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
   textarea: { minHeight: 100, textAlignVertical: 'top' },
   dateInput: {
-    fontSize: 13,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    color: '#334155',
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.md,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8 },
-  chipSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  chipText: { fontSize: 13, color: '#475569' },
-  chipTextSelected: { color: '#0ea5e9', fontWeight: '600' },
-  imagenPreview: { width: '100%', height: 240, borderRadius: 8, backgroundColor: '#f1f5f9' },
-  warningBox: { padding: 12, backgroundColor: '#fef3c7', borderLeftWidth: 4, borderLeftColor: '#f59e0b', borderRadius: 6 },
-  warningTitle: { fontSize: 12, fontWeight: '600', color: '#b45309' },
-  warningText: { fontSize: 13, color: '#78350f' },
-  divider: { height: 1, backgroundColor: '#e2e8f0', marginTop: 8 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#334155' },
-  smallBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#bae6fd', borderRadius: 6, backgroundColor: '#f0f9ff' },
-  smallBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  errorText: { fontSize: 13, color: '#f87171', textAlign: 'center' },
-  actionsCol: { gap: 10, marginTop: 8 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+  chip: { paddingVertical: SPACING.sm, paddingHorizontal: 14, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO },
+  chipSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  chipText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
+  chipTextSelected: { color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  imagenPreview: { width: '100%', height: 240, borderRadius: RADIO_MEDIO, backgroundColor: colors.navActive },
+  // Ámbar del aviso; no es colors.warning.
+  warningBox: { padding: SPACING.md, backgroundColor: statusColors.warning.bg, borderLeftWidth: 4, borderLeftColor: '#f59e0b', borderRadius: radius.sm },
+  warningTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.warning.text },
+  warningText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: '#78350f' },
+  divider: { height: 1, backgroundColor: colors.border, marginTop: SPACING.sm },
+  sectionTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  smallBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: SPACING.md, borderWidth: 1, borderColor: '#bae6fd', borderRadius: radius.sm, backgroundColor: colors.accentMuted },
+  smallBtnText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.danger, textAlign: 'center' },
+  actionsCol: { gap: 10, marginTop: SPACING.sm },
   actionsRow: { flexDirection: 'row', gap: 10 },
-  primaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, backgroundColor: '#0ea5e9', borderRadius: 10 },
-  primaryBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  successBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, backgroundColor: '#10b981', borderRadius: 10 },
-  dangerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, backgroundColor: '#ef4444', borderRadius: 10 },
-  publishBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, backgroundColor: '#3b82f6', borderRadius: 10 },
-  dangerBtnOutline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderWidth: 1, borderColor: '#fecaca', borderRadius: 10, backgroundColor: '#fef2f2' },
-  dangerBtnOutlineText: { fontSize: 14, fontWeight: '600', color: '#dc2626' },
-  secondaryBtn: { paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#fff' },
-  secondaryBtnText: { fontSize: 13, color: '#475569', fontWeight: '500' },
+  primaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: SPACING.md, backgroundColor: colors.accent, borderRadius: radius.md },
+  primaryBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  successBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: SPACING.md, backgroundColor: '#10b981', borderRadius: radius.md },
+  dangerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: SPACING.md, backgroundColor: '#ef4444', borderRadius: radius.md },
+  publishBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: SPACING.md, backgroundColor: '#3b82f6', borderRadius: radius.md },
+  dangerBtnOutline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: SPACING.md, borderWidth: 1, borderColor: '#fecaca', borderRadius: radius.md, backgroundColor: statusColors.danger.bg },
+  dangerBtnOutlineText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.danger },
+  secondaryBtn: { paddingVertical: 10, paddingHorizontal: SPACING.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
+  secondaryBtnText: { fontSize: fontSizes[13], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   disabled: { opacity: 0.6 },
-  metaFooter: { fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 12 },
+  metaFooter: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, textAlign: 'center', marginTop: SPACING.md },
 });
