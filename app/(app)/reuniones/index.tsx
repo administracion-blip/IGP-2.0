@@ -27,6 +27,14 @@ import { TasksPageHeader } from '../../components/tasks/TasksPageHeader';
 import { ModalBorrarSerie } from '../../components/tasks/ModalBorrarSerie';
 import { MIN_TOUCH } from '../../constants/layout';
 import { tasksColor } from '../../constants/tasksUiTokens';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
 import { useNombresUsuarios } from '../../hooks/useNombresUsuarios';
@@ -281,7 +289,7 @@ export default function ListadoReunionesScreen() {
   if (acceso.permisosCargando) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.centroTexto}>Cargando permisos…</Text>
       </View>
     );
@@ -290,7 +298,7 @@ export default function ListadoReunionesScreen() {
   if (!puedeVer) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="lock-outline" size={30} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={30} color={colors.textMuted} />
         <Text style={styles.centroTexto}>No tienes permiso para ver las reuniones.</Text>
       </View>
     );
@@ -310,10 +318,10 @@ export default function ListadoReunionesScreen() {
 
       {avisoCalendario ? (
         <View style={styles.bannerCalendario}>
-          <MaterialIcons name="event-busy" size={18} color="#b45309" />
+          <MaterialIcons name="event-busy" size={18} color={statusColors.warning.text} />
           <Text style={styles.bannerCalendarioTexto}>{avisoCalendario}</Text>
           <TouchableOpacity onPress={() => setAvisoCalendario(null)} accessibilityLabel="Cerrar aviso">
-            <MaterialIcons name="close" size={18} color="#b45309" />
+            <MaterialIcons name="close" size={18} color={statusColors.warning.text} />
           </TouchableOpacity>
         </View>
       ) : null}
@@ -325,7 +333,7 @@ export default function ListadoReunionesScreen() {
             onPress={() => setColaAbierta((v) => !v)}
             accessibilityLabel="Ver propuestas pendientes de la IA"
           >
-            <MaterialIcons name="auto-awesome" size={18} color="#b45309" />
+            <MaterialIcons name="auto-awesome" size={18} color={statusColors.warning.text} />
             <Text style={styles.bannerPendientesTexto}>
               {pendientesCola.length} propuesta
               {pendientesCola.length === 1 ? '' : 's'} pendiente
@@ -334,7 +342,7 @@ export default function ListadoReunionesScreen() {
             <MaterialIcons
               name={colaAbierta ? 'expand-less' : 'expand-more'}
               size={20}
-              color="#b45309"
+              color={statusColors.warning.text}
             />
           </TouchableOpacity>
           {colaAbierta ? (
@@ -358,7 +366,7 @@ export default function ListadoReunionesScreen() {
                       {(p.reunion_titulo ?? '').trim() || 'Reunión'}
                       {p.tipo === 'acuerdo' ? ' · Acuerdo' : ' · Tarea'}
                     </Text>
-                    <MaterialIcons name="chevron-right" size={18} color="#b45309" />
+                    <MaterialIcons name="chevron-right" size={18} color={statusColors.warning.text} />
                   </TouchableOpacity>
                 );
               })}
@@ -446,7 +454,7 @@ export default function ListadoReunionesScreen() {
               value={filtroProyecto}
               onChangeText={setFiltroProyecto}
               placeholder="Proyecto…"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
             />
           </View>
@@ -459,7 +467,7 @@ export default function ListadoReunionesScreen() {
               disabled={!seleccionado}
               accessibilityLabel="Abrir la ficha de la reunión seleccionada"
             >
-              <MaterialIcons name="open-in-new" size={16} color={seleccionado ? '#0ea5e9' : '#94a3b8'} />
+              <MaterialIcons name="open-in-new" size={16} color={seleccionado ? colors.accent : colors.textMuted} />
               <Text style={[styles.btnFichaTexto, !seleccionado && styles.btnTextoDeshabilitado]}>
                 Abrir ficha
               </Text>
@@ -471,10 +479,10 @@ export default function ListadoReunionesScreen() {
                 disabled={cargandoMas}
               >
                 {cargandoMas ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" />
+                  <ActivityIndicator size="small" color={colors.accent} />
                 ) : (
                   <>
-                    <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
+                    <MaterialIcons name="expand-more" size={16} color={colors.accent} />
                     <Text style={styles.btnFichaTexto}>Cargar más</Text>
                   </>
                 )}
@@ -486,7 +494,7 @@ export default function ListadoReunionesScreen() {
 
       {!puedeGestionar ? (
         <View style={styles.avisoSoloLectura}>
-          <MaterialIcons name="lock-outline" size={16} color="#64748b" />
+          <MaterialIcons name="lock-outline" size={16} color={colors.textMuted} />
           <Text style={styles.avisoSoloLecturaTexto}>
             Solo lectura: necesitas permiso de gestión de reuniones para convocar o editar.
           </Text>
@@ -523,32 +531,38 @@ function ModalReunionConUsuarios(
   return <ModalFormularioReunion visible usuarios={usuarios} {...props} />;
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tasksColor.fondoApp },
   pageHeader: { paddingHorizontal: 10, paddingTop: 10 },
-  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  centroTexto: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
 
+  /** Borde ámbar; no es colors.border. */
   bannerCalendario: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: SPACING.sm,
     marginHorizontal: 10,
     marginTop: 0,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#fffbeb',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fde68a',
   },
-  bannerCalendarioTexto: { flex: 1, fontSize: 12, color: '#92400e', lineHeight: 17 },
+  /** Ámbar oscuro; no es colors.warning. 17 px de interlineado, entre fontSizes[16] y fontSizes[18]. */
+  bannerCalendarioTexto: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#92400e', lineHeight: 17 },
 
+  /** Borde ámbar; no es colors.border. */
   bannerPendientes: {
     marginHorizontal: 10,
     marginTop: 10,
-    borderRadius: 8,
-    backgroundColor: '#fffbeb',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fde68a',
     overflow: 'hidden',
@@ -556,11 +570,12 @@ const styles = StyleSheet.create({
   bannerPendientesCabecera: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
   },
-  bannerPendientesTexto: { flex: 1, fontSize: 13, fontWeight: '600', color: '#92400e' },
+  /** Ámbar oscuro; no es colors.warning. */
+  bannerPendientesTexto: { flex: 1, fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#92400e' },
   colaLista: {
     borderTopWidth: 1,
     borderTopColor: '#fde68a',
@@ -569,35 +584,38 @@ const styles = StyleSheet.create({
   colaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
   },
   colaItemTactil: { minHeight: MIN_TOUCH },
-  colaItemTitulo: { flex: 1, fontSize: 13, fontWeight: '600', color: '#78350f' },
-  colaItemMeta: { fontSize: 11, color: '#a16207', maxWidth: '40%' },
+  /** Ámbar de la cola; no es colors.warning. */
+  colaItemTitulo: { flex: 1, fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#78350f' },
+  /** Ámbar de la meta; no es colors.warning. */
+  colaItemMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#a16207', maxWidth: '40%' },
+  /** Ámbar de la meta; no es colors.warning. */
   colaMas: {
-    fontSize: 11,
+    fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize,
     color: '#a16207',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     lineHeight: 16,
   },
 
-  filaCerrada: { backgroundColor: '#f8fafc', opacity: 0.75 },
+  filaCerrada: { backgroundColor: colors.bg, opacity: 0.75 },
 
   filtros: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
   filtroCampo: { minWidth: 140 },
   filtroProyecto: {
     minWidth: 120,
-    fontSize: 12,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[12],
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
-    color: '#334155',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
+    color: colors.textPrimary,
   },
   filtroProyectoTactil: { minHeight: MIN_TOUCH },
 
@@ -608,30 +626,32 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  btnFichaTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 12 },
+  btnFichaTactil: { minHeight: MIN_TOUCH, paddingHorizontal: SPACING.md },
   btnDeshabilitado: { opacity: 0.6 },
-  btnFichaTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
-  btnTextoDeshabilitado: { color: '#94a3b8' },
+  btnFichaTexto: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
+  btnTextoDeshabilitado: { color: colors.textMuted },
 
   avisoSoloLectura: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginHorizontal: 10,
     marginBottom: 10,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  avisoSoloLecturaTexto: { flex: 1, fontSize: 12, color: '#64748b', lineHeight: 17 },
+  /** 17 px de interlineado; entre fontSizes[16] y fontSizes[18]. */
+  avisoSoloLecturaTexto: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, lineHeight: 17 },
 
-  errorBaja: { fontSize: 12, color: '#ef4444', textAlign: 'center' },
+  /** Rojo de rechazo; no es colors.danger. */
+  errorBaja: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#ef4444', textAlign: 'center' },
 });
