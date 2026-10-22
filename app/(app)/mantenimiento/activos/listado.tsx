@@ -16,7 +16,7 @@ import { useMantenimientoLocales, valorEnLocal } from '../LocalesContext';
 import { SelectorDesplegable, type OpcionDesplegable } from '../../../components/SelectorDesplegable';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../../constants/layout';
-import { colors, inputCursorProps, radius, shadowCard, statusColors, typography } from '../../../constants/theme';
+import { colors, fontFamily, fontSizes, inputCursorProps, radius, shadowCard, statusColors, typography, SPACING } from '../../../constants/theme';
 import { apiFetch, errorMessage } from '../../../utils/api';
 import { formatId6 } from '../../../utils/idFormat';
 import { colorEstadoActivo, ESTADOS_ACTIVO, fotoGeneralUrl, labelEstadoActivo, tallaDeActivo } from '../../../lib/activos';
@@ -232,7 +232,7 @@ export default function ActivosListadoScreen() {
             {...inputCursorProps}
           />
           <TouchableOpacity style={styles.iconBtnAccent} onPress={aplicarBusqueda} accessibilityLabel="Buscar">
-            <MaterialIcons name="search" size={20} color="#fff" />
+            <MaterialIcons name="search" size={20} color={colors.surface} />
           </TouchableOpacity>
           {!soloPendientes && hasPermiso('activos.editar') ? (
             <BotonCestaActivos unidades={udCesta} onPress={() => setModalCesta(true)} />
@@ -243,7 +243,7 @@ export default function ActivosListadoScreen() {
               onPress={() => router.push('/mantenimiento/activos/alta' as never)}
               accessibilityLabel="Dar de alta"
             >
-              <MaterialIcons name="add" size={22} color="#fff" />
+              <MaterialIcons name="add" size={22} color={colors.surface} />
             </TouchableOpacity>
           ) : null}
         </View>
@@ -419,7 +419,7 @@ function Chip({
       onPress={onPress}
       style={[styles.chip, { backgroundColor: color.bg, borderColor: activo ? color.text : 'transparent' }]}
     >
-      <Text style={[styles.chipText, { color: color.text, fontWeight: activo ? '700' : '500' }]}>{label}</Text>
+      <Text style={[styles.chipText, { color: color.text, fontFamily: activo ? fontFamily.bold : fontFamily.medium, fontWeight: activo ? typography.titulo.fontWeight : typography.nav.fontWeight }]}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -509,11 +509,11 @@ function FilaActivo({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
-  topBar: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
+  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, paddingBottom: SPACING.md },
+  topBar: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginBottom: SPACING.sm },
   topBarStack: { flexDirection: 'column', alignItems: 'stretch' },
   topLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  topSearch: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 200 },
+  topSearch: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, minWidth: 200 },
   iconBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
@@ -538,89 +538,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignSelf: 'center',
   },
-  ctaEntregar: {
-    minHeight: MIN_TOUCH,
-    paddingHorizontal: 12,
-    borderRadius: radius.md,
-    backgroundColor: colors.accent,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  ctaEntregarTxt: { color: '#fff', fontWeight: '700' },
-  modalFondo: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  modalCaja: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: 16,
-    maxHeight: '88%',
-    maxWidth: 560,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  modalTitulo: { ...typography.titulo, color: '#0f172a', marginBottom: 4 },
-  modalSub: { fontSize: 13, color: colors.textSecondary, marginBottom: 12 },
-  modalLista: { maxHeight: 280, marginBottom: 8 },
-  modalFila: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
-  modalEtiqueta: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  modalMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  modalCant: {
-    width: 56,
-    height: MIN_TOUCH,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    borderRadius: radius.md,
-    textAlign: 'center',
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  modalUd: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  modalMax: { fontSize: 12, color: colors.textMuted },
-  modalError: { color: statusColors.danger.text, marginBottom: 8, fontSize: 13 },
-  modalAcciones: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 },
-  modalCancel: {
-    minHeight: MIN_TOUCH,
-    paddingHorizontal: 12,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalCancelTxt: { fontWeight: '700', color: colors.textSecondary },
   altaBtn: {
-    marginTop: 12,
+    marginTop: SPACING.md,
     minHeight: MIN_TOUCH,
-    paddingHorizontal: 16,
+    paddingHorizontal: SPACING.lg,
     backgroundColor: colors.accent,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  altaBtnTxt: { color: '#fff', fontWeight: '700' },
+  altaBtnTxt: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   avisoAlta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     backgroundColor: statusColors.success.bg,
     borderRadius: radius.md,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     marginBottom: 10,
   },
-  avisoAltaTxt: { color: statusColors.success.text, fontWeight: '600', flex: 1 },
-  title: { ...typography.titulo, color: '#0f172a' },
+  avisoAltaTxt: { color: statusColors.success.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, flex: 1 },
+  title: { ...typography.titulo, color: colors.textStrong },
   filtros: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
     zIndex: 20,
     flexGrow: 0,
     flexShrink: 0,
@@ -628,7 +572,7 @@ const styles = StyleSheet.create({
   filtrosStack: { flexDirection: 'column', alignItems: 'stretch' },
   filtroFijo: { width: 168, zIndex: 21 },
   chipsScroll: { flexGrow: 0, flexShrink: 1, minHeight: 40, maxHeight: 40 },
-  chips: { gap: 6, flexDirection: 'row', alignItems: 'center', paddingRight: 8 },
+  chips: { gap: 6, flexDirection: 'row', alignItems: 'center', paddingRight: SPACING.sm },
   chip: {
     height: 36,
     paddingHorizontal: 10,
@@ -636,7 +580,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     justifyContent: 'center',
   },
-  chipText: { fontSize: 12 },
+  chipText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12] },
   busqueda: {
     flex: 1,
     height: MIN_TOUCH,
@@ -644,23 +588,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderStrong,
     borderRadius: radius.md,
-    paddingHorizontal: 12,
-    fontSize: 14,
+    paddingHorizontal: SPACING.md,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
     color: colors.textPrimary,
     backgroundColor: colors.bgSubtle,
   },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   error: { color: statusColors.danger.text, textAlign: 'center' },
-  retry: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.accentMuted, borderRadius: radius.md },
-  retryText: { color: colors.accentPressed, fontWeight: '600' },
-  vacio: { padding: 16, color: colors.textMuted },
-  vacioBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 8 },
-  vacioTitulo: { fontSize: 16, fontWeight: '600', color: colors.textPrimary, textAlign: 'center' },
-  vacioTxt: { fontSize: 14, color: colors.textSecondary, textAlign: 'center' },
+  retry: { paddingHorizontal: SPACING.lg, paddingVertical: 10, backgroundColor: colors.accentMuted, borderRadius: radius.md },
+  retryText: { color: colors.accentPressed, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  vacio: { padding: SPACING.lg, color: colors.textMuted },
+  vacioBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACING.xl, gap: SPACING.sm },
+  vacioTitulo: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, textAlign: 'center' },
+  vacioTxt: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textSecondary, textAlign: 'center' },
   split: { flex: 1, flexDirection: 'row', gap: 10, minHeight: 0 },
   splitStack: { flexDirection: 'column' },
   lista: { flex: 0.38, minWidth: 280 },
-  listaContent: { paddingBottom: 16, gap: 6 },
+  listaContent: { paddingBottom: SPACING.lg, gap: 6 },
   detalle: {
     flex: 0.62,
     minWidth: 0,
@@ -668,9 +612,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: 12,
-    paddingLeft: 12,
-    paddingRight: 16,
+    paddingVertical: SPACING.md,
+    paddingLeft: SPACING.md,
+    paddingRight: SPACING.lg,
   },
   fila: {
     flexDirection: 'row',
@@ -684,37 +628,37 @@ const styles = StyleSheet.create({
   filaSel: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
   filaCompact: { minHeight: MIN_TOUCH + 20 },
   barraEstado: { width: 6 },
-  thumb: { width: 56, height: 56, alignSelf: 'center', marginLeft: 8, borderRadius: radius.sm, backgroundColor: colors.border },
+  thumb: { width: 56, height: 56, alignSelf: 'center', marginLeft: SPACING.sm, borderRadius: radius.sm, backgroundColor: colors.border },
   thumbVacio: { alignItems: 'center', justifyContent: 'center' },
-  filaTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 10, paddingBottom: 0 },
-  etiqueta: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  badge: { borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
-  modelo: { fontSize: 14, color: colors.textPrimary, paddingHorizontal: 10, marginTop: 4 },
+  filaTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm, padding: 10, paddingBottom: 0 },
+  etiqueta: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  badge: { borderRadius: radius.pill, paddingHorizontal: SPACING.sm, paddingVertical: 3 },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  modelo: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, paddingHorizontal: 10, marginTop: SPACING.xs },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingHorizontal: 10,
     paddingBottom: 10,
-    marginTop: 4,
+    marginTop: SPACING.xs,
   },
-  meta: { flex: 1, fontSize: 12, color: colors.textSecondary },
+  meta: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textSecondary },
   tallaChip: {
     backgroundColor: colors.accentMuted,
     borderRadius: radius.pill,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 2,
   },
-  tallaChipTxt: { fontSize: 11, fontWeight: '700', color: colors.accentPressed },
+  tallaChipTxt: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accentPressed },
   serieChip: {
     backgroundColor: ROSA_BG,
     borderRadius: radius.pill,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 2,
     maxWidth: '55%',
   },
-  serieChipTxt: { fontSize: 11, fontWeight: '700', color: ROSA_FG },
+  serieChipTxt: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: ROSA_FG },
   masBtn: {
     minHeight: MIN_TOUCH,
     alignItems: 'center',
@@ -722,7 +666,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderStrong,
     borderRadius: radius.md,
-    marginTop: 8,
+    marginTop: SPACING.sm,
   },
-  masText: { color: colors.accentPressed, fontWeight: '600' },
+  masText: { color: colors.accentPressed, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 });
