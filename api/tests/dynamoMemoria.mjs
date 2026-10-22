@@ -18,15 +18,18 @@
 import { strict as assert } from 'node:assert';
 import { tables } from '../lib/db.js';
 import { invalidarPermisosRol } from '../lib/permisos/cachePermisos.js';
+import { invalidarCacheLocales } from '../lib/locales/cacheLocales.js';
 
 /**
- * Los permisos por rol se cachean en memoria del módulo: preparar datos de prueba
- * en esa tabla (sembrar a mitad de prueba, otra tabla nueva) debe vaciarla, o la
- * prueba leería permisos de la anterior. Las escrituras vía `enviar` **no**
- * invalidan: eso le toca al código de producción, y aquí se vería si falta.
+ * Los permisos por rol y el listado de locales se cachean en memoria del módulo:
+ * preparar datos de prueba en esas tablas (sembrar a mitad de prueba, otra tabla
+ * nueva) debe vaciarlas, o la prueba leería datos de la anterior. Las escrituras
+ * vía `enviar` **no** invalidan: eso le toca al código de producción, y aquí se
+ * vería si falta.
  */
 function avisarCambio(nombreTabla) {
   if (nombreTabla === tables.rolesPermisos) invalidarPermisosRol();
+  if (nombreTabla === tables.locales) invalidarCacheLocales();
 }
 
 // ─── Expresiones ───
@@ -529,6 +532,7 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
     instalar(docClient, client) {
       docClient.send = (cmd) => api.enviar(cmd);
       invalidarPermisosRol();
+      invalidarCacheLocales();
       if (client) {
         client.send = (cmd) => {
           const nombre = cmd?.constructor?.name;

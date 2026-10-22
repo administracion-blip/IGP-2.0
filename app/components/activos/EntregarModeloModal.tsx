@@ -13,7 +13,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { type OpcionDesplegable } from '../SelectorDesplegable';
 import { StepperUnidades } from './StepperUnidades';
-import { useMantenimientoLocales, valorEnLocal } from '../../(app)/mantenimiento/LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../contexts/LocalesContext';
 import { MIN_TOUCH } from '../../constants/layout';
 import { colors, radius, statusColors, typography } from '../../constants/theme';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
@@ -43,7 +43,7 @@ function descripcionLinea(l: LineaStockModelo): string {
 
 export function EntregarModeloModal({ visible, modelo, onClose, onAnadido }: Props) {
   const { shouldStackPanels } = useBreakpoint();
-  const { locales } = useMantenimientoLocales();
+  const { locales } = useLocalesPermitidos();
   const { anadir } = useCestaActivos();
 
   const [lineas, setLineas] = useState<LineaStockModelo[]>([]);

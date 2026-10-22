@@ -26,7 +26,7 @@ import {
 import { useLocalToast } from '../../components/Toast';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
-import { useMarketingLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesMarketing, valorEnLocal } from '../../contexts/LocalesContext';
 import { IdentidadLocalPanel } from './components/IdentidadLocalPanel';
 import { formatId6 } from './lib/formatId6';
 import { esIsoFechaValida } from './lib/fechasUi';
@@ -40,7 +40,7 @@ type RefSegment = 'subir' | 'enlace';
 export default function NuevaPropuestaScreen() {
   const router = useRouter();
   const { user, hasPermiso } = useAuth();
-  const { locales, loading: loadingLocales, refetch: refetchLocales } = useMarketingLocales();
+  const { locales, loading: loadingLocales, refresh: refreshLocales } = useLocalesMarketing();
   const { show: showToast, ToastView } = useLocalToast();
   const esGestor = hasPermiso('marketing.gestionar');
 
@@ -232,7 +232,7 @@ export default function NuevaPropuestaScreen() {
             nombreLocal={localesMap[idLocal] ?? idLocal}
             puedeEditar={puedeEditarIdentidad}
             showToast={showToast}
-            onGuardado={refetchLocales}
+            onGuardado={refreshLocales}
           />
         )}
 

@@ -29,7 +29,7 @@ import {
 import { useLocalToast } from '../../../components/Toast';
 import { InputFecha } from '../../../components/InputFecha';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
-import { useMarketingLocales, valorEnLocal } from '../LocalesContext';
+import { useLocalesMarketing, valorEnLocal } from '../../../contexts/LocalesContext';
 import { IdentidadLocalPanel } from '../components/IdentidadLocalPanel';
 import { formatId6 } from '../lib/formatId6';
 import { appendImagenAlFormData } from '../lib/appendImagenFormData';
@@ -112,7 +112,7 @@ export default function PropuestaDetailScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const id = String(params.id || '');
   const { user, hasPermiso } = useAuth();
-  const { locales, refetch: refetchLocales } = useMarketingLocales();
+  const { locales, refresh: refreshLocales } = useLocalesMarketing();
   const { show: showToast, ToastView } = useLocalToast();
   const esGestor = hasPermiso('marketing.gestionar');
 
@@ -535,7 +535,7 @@ export default function PropuestaDetailScreen() {
           nombreLocal={localNombre}
           puedeEditar={puedeEditarIdentidadDet}
           showToast={showToast}
-          onGuardado={refetchLocales}
+          onGuardado={refreshLocales}
         />
 
         {/* Tipo */}

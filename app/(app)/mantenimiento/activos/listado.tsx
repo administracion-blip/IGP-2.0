@@ -12,7 +12,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import { useMantenimientoLocales, valorEnLocal } from '../LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../../contexts/LocalesContext';
 import { SelectorDesplegable, type OpcionDesplegable } from '../../../components/SelectorDesplegable';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../../constants/layout';
@@ -34,7 +34,7 @@ export default function ActivosListadoScreen() {
   const params = useLocalSearchParams<{ pendientes?: string; buscar?: string; alta?: string; sel?: string }>();
   const { hasPermiso, user } = useAuth();
   const alcanceGlobal = user?.Rol === 'Administrador' || !user?.Locales?.length;
-  const { locales, loading: localesLoading } = useMantenimientoLocales();
+  const { locales, loading: localesLoading } = useLocalesPermitidos();
   const { isPhone, shouldStackToolbar, shouldStackPanels } = useBreakpoint();
   const searchRef = useRef<TextInput>(null);
 

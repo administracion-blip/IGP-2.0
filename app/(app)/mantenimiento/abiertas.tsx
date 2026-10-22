@@ -15,7 +15,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../../constants/icons';
-import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../contexts/LocalesContext';
 import { apiFetch } from '../../utils/api';
 import {
   incidenciaEstaProgramada,
@@ -205,7 +205,7 @@ export default function IncidenciasAbiertasScreen() {
     fecha_creacion: 130,
     nombre_local: 120,
   });
-  const { locales } = useMantenimientoLocales();
+  const { locales } = useLocalesPermitidos();
   const mapLocalIdToNombre = useMemo(() => {
     const m: Record<string, string> = {};
     locales.forEach((loc) => {

@@ -13,7 +13,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplegable';
 import { StepperUnidades } from './StepperUnidades';
-import { useMantenimientoLocales, valorEnLocal } from '../../(app)/mantenimiento/LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../contexts/LocalesContext';
 import { MIN_TOUCH } from '../../constants/layout';
 import { colors, radius, statusColors, typography } from '../../constants/theme';
 import { apiFetch, errorMessage } from '../../utils/api';
@@ -60,7 +60,7 @@ export function CestaEntregaModal({ visible, onClose, onEntregado }: Props) {
   const { shouldStackPanels } = useBreakpoint();
   const { confirmar: pedirConfirmacion, ConfirmarView } = useConfirmar();
   const { lineas, unidades, grupos, quitar, setCantidad, setLocalImputado, vaciar } = useCestaActivos();
-  const { locales } = useMantenimientoLocales();
+  const { locales } = useLocalesPermitidos();
   const [empleados, setEmpleados] = useState<EmpleadoOpt[]>([]);
   const [employeeId, setEmployeeId] = useState('');
   const [entregando, setEntregando] = useState(false);

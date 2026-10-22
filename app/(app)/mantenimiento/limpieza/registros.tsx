@@ -21,7 +21,7 @@ import {
   writeAsStringAsync,
   EncodingType,
 } from 'expo-file-system/legacy';
-import { useMantenimientoLocales, valorEnLocal } from '../LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../../contexts/LocalesContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
@@ -103,7 +103,7 @@ async function appendImagen(formData: FormData, field: string, dataUrl: string, 
 
 export default function RegistrosLimpiezaScreen() {
   const router = useRouter();
-  const { locales, loading: loadingLocales } = useMantenimientoLocales();
+  const { locales, loading: loadingLocales } = useLocalesPermitidos();
   const { hasPermiso } = useAuth();
   const { isPhone } = useBreakpoint();
   const puedeCompletar = hasPermiso('limpieza.completar');

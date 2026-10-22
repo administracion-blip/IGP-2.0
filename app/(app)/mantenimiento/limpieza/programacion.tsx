@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useMantenimientoLocales, valorEnLocal } from '../LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../../contexts/LocalesContext';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
 import { RangoFechas } from '../../../components/RangoFechas';
 import { apiFetch } from '../../../utils/api';
@@ -65,7 +65,7 @@ function hoyIso() {
 
 export default function ProgramacionLimpiezaScreen() {
   const router = useRouter();
-  const { locales, loading: loadingLocales } = useMantenimientoLocales();
+  const { locales, loading: loadingLocales } = useLocalesPermitidos();
 
   const [localId, setLocalId] = useState('');
   const [tipos, setTipos] = useState<Tipo[]>([]);

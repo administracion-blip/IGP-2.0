@@ -20,7 +20,7 @@ import {
   typography,
   SPACING,
 } from '../../constants/theme';
-import { useMarketingLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesMarketing, valorEnLocal } from '../../contexts/LocalesContext';
 import { formatId6 } from './lib/formatId6';
 import { esIsoFechaValida, finMesActualIso, inicioMesActualIso, isoToDmy } from './lib/fechasUi';
 import { InputFecha } from '../../components/InputFecha';
@@ -62,7 +62,7 @@ function badgeStyles(estado: string): { backgroundColor: string; color: string }
 
 export default function CalendarioScreen() {
   const router = useRouter();
-  const { locales } = useMarketingLocales();
+  const { locales } = useLocalesMarketing();
 
   const [fechaDesde, setFechaDesde] = useState(inicioMesActualIso());
   const [fechaHasta, setFechaHasta] = useState(finMesActualIso());

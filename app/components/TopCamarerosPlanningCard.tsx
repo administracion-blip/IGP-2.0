@@ -21,13 +21,7 @@ import {
   getTopCamarerosPlanningCached,
   type TopCamarerosPlanningRow,
 } from '../lib/topCamarerosPlanningCache';
-import { apiFetch } from '../utils/api';
-
-type LocalItem = {
-  id_Locales?: string;
-  nombre?: string;
-  Nombre?: string;
-};
+import { useLocales } from '../contexts/LocalesContext';
 
 type Props = {
   localId?: string | null;
@@ -109,7 +103,7 @@ export function TopCamarerosPlanningCard({
   const { compact } = useHubNavGrid();
   const puedeVer = hasPermiso('top.ver');
 
-  const [locales, setLocales] = useState<LocalItem[]>([]);
+  const { locales, loading: loadingLocales } = useLocales();
   const [filas, setFilas] = useState<TopCamarerosPlanningRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [sinDatosRango, setSinDatosRango] = useState(false);
@@ -146,16 +140,6 @@ export function TopCamarerosPlanningCard({
     return String(loc.nombre ?? loc.Nombre ?? '').trim() || null;
   }, [localActivoId, localesPermitidos]);
 
-  const cargarLocales = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/locales');
-      const data = await res.json();
-      setLocales(Array.isArray(data.locales) ? data.locales : []);
-    } catch {
-      setLocales([]);
-    }
-  }, []);
-
   const aplicarDatos = useCallback((data: NonNullable<Awaited<ReturnType<typeof fetchTopCamarerosPlanning>>>) => {
     if (!data) {
       setFilas([]);
@@ -190,8 +174,13 @@ export function TopCamarerosPlanningCard({
       return;
     }
     if (!localActivoId) {
-      setLoading(false);
       setFilas([]);
+      if (loadingLocales) {
+        setLoading(true);
+        setSubtitulo('Cargando local…');
+        return;
+      }
+      setLoading(false);
       setSubtitulo('Local no disponible');
       return;
     }
@@ -213,13 +202,7 @@ export function TopCamarerosPlanningCard({
     const data = await fetchTopCamarerosPlanning(localActivoId);
     aplicarDatos(data);
     setLoading(false);
-  }, [puedeVer, rango, filtrarPorLocal, localId, localActivoId, aplicarDatos]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void cargarLocales();
-    }, [cargarLocales]),
-  );
+  }, [puedeVer, rango, filtrarPorLocal, localId, localActivoId, loadingLocales, aplicarDatos]);
 
   useFocusEffect(
     useCallback(() => {

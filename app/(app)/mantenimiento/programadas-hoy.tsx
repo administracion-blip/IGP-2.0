@@ -16,7 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../contexts/LocalesContext';
 import { apiFetch } from '../../utils/api';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useConfirmar } from '../../hooks/useConfirmar';
@@ -260,7 +260,7 @@ export default function ProgramadasHoyScreen() {
     }),
     [width, height],
   );
-  const { locales } = useMantenimientoLocales();
+  const { locales } = useLocalesPermitidos();
   const [fechaSeleccionada, setFechaSeleccionada] = useState(getHoyISO);
   const [todasIncidencias, setTodasIncidencias] = useState<Incidencia[]>([]);
   const [loading, setLoading] = useState(true);
@@ -299,9 +299,8 @@ export default function ProgramadasHoyScreen() {
 
   /**
    * Km de ida desde la sede central hasta el local de la reparación que se está
-   * valorando: vienen en `/api/locales?minimal=1`, que es lo que ya pide el
-   * contexto, así que no hace falta pedir la ficha completa ni cachear nada
-   * (una caché propia serviría kilómetros viejos si alguien los corrige).
+   * valorando: vienen en `/api/locales`, que ya trae la caché compartida de
+   * `LocalesContext`, así que no hace falta pedir la ficha del local aparte.
    * `null` = local todavía no cargado; cadena vacía = local sin kilómetros
    * informados, que el técnico teclea a mano.
    */

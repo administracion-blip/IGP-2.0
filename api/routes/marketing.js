@@ -34,6 +34,7 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { queryActuacionesListado } from '../lib/actuacionesIndice.js';
 import { docClient, tables } from '../lib/db.js';
+import { invalidarCacheLocales } from '../lib/locales/cacheLocales.js';
 import { hasPermission, requirePermission } from '../middleware/auth.js';
 import {
   GSI_LOCAL_ESTADO_NAME,
@@ -1307,6 +1308,8 @@ router.patch('/marketing/locales/:id/estilo', requirePermission('marketing.propo
     UpdateExpression: 'SET estilo_visual_brief = :s, estilo_visual_imagen_keys = :k, web = :w',
     ExpressionAttributeValues: { ':s': estilo, ':k': keys, ':w': web },
   }));
+  // El maestro de alcance no lee estos campos: basta con el listado de GET /locales.
+  invalidarCacheLocales();
 
   res.json({ id_local: idLocal, estilo_visual_brief: estilo, estilo_visual_imagen_keys: keys, web });
 });

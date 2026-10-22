@@ -18,6 +18,7 @@ import { BotonIconoCabecera } from '../components/ui/BotonIconoCabecera';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { ProductosCacheProvider } from '../contexts/ProductosCache';
 import { ComprasProveedorCacheProvider } from '../contexts/ComprasProveedorCache';
+import { LocalesProvider } from '../contexts/LocalesContext';
 import { fetchImagenApp } from '../lib/personalizacion';
 import { MODULOS as MENU_ITEMS, moduloDeRuta } from '../constants/modulos';
 import { colors, iconSize, radius, shadowCard, sidebar, SPACING, typography } from '../constants/theme';
@@ -311,7 +312,9 @@ export default function AppLayout() {
     <AuthProvider>
       <ProductosCacheProvider>
         <ComprasProveedorCacheProvider>
-          <AppLayoutContent />
+          <LocalesProvider>
+            <AppLayoutContent />
+          </LocalesProvider>
         </ComprasProveedorCacheProvider>
       </ProductosCacheProvider>
     </AuthProvider>

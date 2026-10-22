@@ -4,15 +4,23 @@ import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib
 import { docClient, tables } from '../lib/db.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
 import { esSedeGrupoParipeLocal } from '../lib/locales/sede.js';
+import { listarLocalesCacheados, invalidarCacheLocales } from '../lib/locales/cacheLocales.js';
 import { invalidarMaestroLocales } from '../lib/alcance.js';
 import { hasPermission, requireAnyPermission, requirePermission } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Cache en memoria para listado mínimo de locales (dropdowns). TTL 5 min.
-let cachedLocalesMinimal = null;
-let cachedLocalesMinimalTime = 0;
-const CACHE_LOCALES_TTL_MS = 5 * 60 * 1000;
+// Campos de `?minimal=1` (dropdowns).
+const CAMPOS_LOCALES_MINIMAL = ['id_Locales', 'nombre', 'id_empresa', 'estilo_visual_brief', 'km_desplazamiento'];
+
+/** Como un ProjectionExpression: los atributos que el local no tiene no aparecen. */
+function proyectarLocalMinimal(item) {
+  const salida = {};
+  for (const campo of CAMPOS_LOCALES_MINIMAL) {
+    if (item[campo] !== undefined) salida[campo] = item[campo];
+  }
+  return salida;
+}
 
 /**
  * `id_empresa` con el mismo padding a 6 dígitos que usa el maestro de empresas,
@@ -76,28 +84,12 @@ function bodyLocalesVal(body, key) {
 router.get('/locales', async (req, res) => {
   const minimal = req.query.minimal === '1' || req.query.minimal === 'true';
   const grupoParipe = req.query.grupoParipe === '1' || req.query.grupoParipe === 'true';
-  if (minimal && !grupoParipe && cachedLocalesMinimal != null && (Date.now() - cachedLocalesMinimalTime) < CACHE_LOCALES_TTL_MS) {
-    return res.json({ locales: cachedLocalesMinimal });
-  }
-  const items = [];
-  let lastKey = null;
-  do {
-    const cmd = new ScanCommand({
-      TableName: tables.locales,
-      ...(minimal && !grupoParipe && { ProjectionExpression: 'id_Locales, nombre, id_empresa, estilo_visual_brief, km_desplazamiento' }),
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    });
-    const result = await docClient.send(cmd);
-    items.push(...(result.Items || []));
-    lastKey = result.LastEvaluatedKey || null;
-  } while (lastKey);
-  let locales = items.map((item) => (item ? { ...item } : {}));
+  let locales = await listarLocalesCacheados();
+  // Con grupoParipe se devuelve el item completo aunque venga también minimal.
   if (grupoParipe) {
     locales = locales.filter(esSedeGrupoParipeLocal);
-  }
-  if (minimal && !grupoParipe) {
-    cachedLocalesMinimal = locales;
-    cachedLocalesMinimalTime = Date.now();
+  } else if (minimal) {
+    locales = locales.map(proyectarLocalMinimal);
   }
   res.json({ locales });
 });
@@ -144,7 +136,7 @@ router.post('/locales', requireAnyPermission('locales.crear', 'usuarios.crear', 
         Item: item,
         ConditionExpression: 'attribute_not_exists(id_Locales)',
       }));
-      cachedLocalesMinimal = null;
+      invalidarCacheLocales();
       invalidarMaestroLocales();
       return res.json({ ok: true, local: item });
     } catch (err) {
@@ -219,7 +211,7 @@ router.put('/locales', requirePermission('locales.editar'), async (req, res) => 
     }
     throw err;
   }
-  cachedLocalesMinimal = null;
+  invalidarCacheLocales();
   invalidarMaestroLocales();
   res.json({ ok: true, local: item });
 });
@@ -231,7 +223,7 @@ router.delete('/locales', requirePermission('locales.borrar'), async (req, res) 
     TableName: tables.locales,
     Key: { id_Locales: idLocales },
   }));
-  cachedLocalesMinimal = null;
+  invalidarCacheLocales();
   invalidarMaestroLocales();
   res.json({ ok: true });
 });

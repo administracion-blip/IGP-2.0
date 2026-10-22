@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocales } from '../contexts/LocalesContext';
 import { useHubNavGrid } from '../hooks/useHubNavGrid';
 import { MIN_TOUCH } from '../constants/layout';
 import { tasksUi } from '../constants/tasksUiTokens';
@@ -67,7 +68,18 @@ export function CampanasActivasPlanningCard({
   const puedeVer = hasPermiso('incentivos_producto.ver');
 
   const [items, setItems] = useState<CampanaConResultado[]>([]);
-  const [localesMap, setLocalesMap] = useState<Record<string, string>>({});
+  const { locales, loading: loadingLocales, error: errorLocales } = useLocales();
+  const localesMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const l of locales) {
+      const id = String(l.id_Locales ?? '').trim();
+      const nombre = String(l.nombre ?? l.Nombre ?? id).trim();
+      if (id) map[id] = nombre;
+    }
+    return map;
+  }, [locales]);
+  // Un refresco fallido conserva la lista previa: solo bloquea si no hay mapa con el que filtrar.
+  const sinMapaLocales = errorLocales != null && locales.length === 0;
   const [loading, setLoading] = useState(true);
   const [campanaIdx, setCampanaIdx] = useState(0);
 
@@ -89,20 +101,18 @@ export function CampanasActivasPlanningCard({
       return;
     }
     setLoading(true);
-    Promise.all([
-      apiFetch('/api/campanas').then((r) => r.json()),
-      apiFetch('/api/locales').then((r) => r.json()),
-    ])
-      .then(async ([dataCamp, dataLoc]) => {
+    // El filtro por local necesita el mapa id→nombre: sin él se mostrarían campañas de otros locales.
+    if (loadingLocales) return;
+    if (sinMapaLocales) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
+    const map = localesMap;
+    apiFetch('/api/campanas')
+      .then((r) => r.json())
+      .then(async (dataCamp) => {
         if (dataCamp.error) throw new Error(dataCamp.error);
-        const map: Record<string, string> = {};
-        for (const l of dataLoc.locales || []) {
-          const id = String(l.id_Locales ?? '').trim();
-          const nombre = String(l.nombre ?? l.Nombre ?? id).trim();
-          if (id) map[id] = nombre;
-        }
-        setLocalesMap(map);
-
         const lista: Campana[] = (dataCamp.items || []).filter((c: Campana) => {
           if (estadoEfectivoCampana(c) !== 'Activa') return false;
           if (!c.locales?.length) return true;
@@ -135,7 +145,7 @@ export function CampanasActivasPlanningCard({
       })
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
-  }, [puedeVer, localPermitido, cargarResultado]);
+  }, [puedeVer, localPermitido, cargarResultado, loadingLocales, sinMapaLocales, localesMap]);
 
   useFocusEffect(
     useCallback(() => {
@@ -186,6 +196,14 @@ export function CampanasActivasPlanningCard({
       <ActivityIndicator size="small" color={tasksUi.color.aviso} />,
       'Incentivos activos',
       'Cargando campañas…',
+    );
+  }
+
+  if (sinMapaLocales) {
+    return cardShell(
+      <MaterialIcons name="error-outline" size={compact ? 22 : 26} color={tasksUi.color.peligro} />,
+      'Incentivos activos',
+      'No se pudieron cargar los locales',
     );
   }
 

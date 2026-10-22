@@ -12,7 +12,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useMantenimientoLocales, valorEnLocal } from '../LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../../contexts/LocalesContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
@@ -82,7 +82,7 @@ function inicioSemanaLunes(d: Date) {
 
 export default function CalendarioLimpiezaScreen() {
   const router = useRouter();
-  const { locales, loading: loadingLocales } = useMantenimientoLocales();
+  const { locales, loading: loadingLocales } = useLocalesPermitidos();
   const { hasPermiso } = useAuth();
   const { isPhone } = useBreakpoint();
   const puedeAgregar = hasPermiso('limpieza.programar');

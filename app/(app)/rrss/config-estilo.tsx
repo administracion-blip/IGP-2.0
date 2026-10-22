@@ -23,7 +23,7 @@ import {
 } from '../../constants/theme';
 import { useLocalToast } from '../../components/Toast';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
-import { useMarketingLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesMarketing, valorEnLocal } from '../../contexts/LocalesContext';
 import { formatId6 } from './lib/formatId6';
 import { EstiloVisualImagenesEditor } from './components/EstiloVisualImagenesEditor';
 
@@ -49,7 +49,7 @@ function keysIgual(a: string[], b: string[]) {
 export default function ConfigEstiloScreen() {
   const router = useRouter();
   const { user, hasPermiso } = useAuth();
-  const { locales } = useMarketingLocales();
+  const { locales } = useLocalesMarketing();
   const { show: showToast, ToastView } = useLocalToast();
   const esGestor = hasPermiso('marketing.gestionar');
   const puedeAcceder = hasPermiso('marketing.proponer') || esGestor;

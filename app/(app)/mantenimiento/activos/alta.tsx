@@ -14,7 +14,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import { valorEnLocal, type LocalItem } from '../LocalesContext';
+import { valorEnLocal, type LocalItem } from '../../../contexts/LocalesContext';
 import { SelectorDesplegable, type OpcionDesplegable } from '../../../components/SelectorDesplegable';
 import { InputFecha } from '../../../components/InputFecha';
 import { EscanerCodigo } from '../../../components/activos/EscanerCodigo';

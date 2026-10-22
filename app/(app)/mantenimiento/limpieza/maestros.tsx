@@ -14,7 +14,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useMantenimientoLocales, valorEnLocal } from '../LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../../contexts/LocalesContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
@@ -65,7 +65,7 @@ function slugCodigo(texto: string) {
 export default function MaestrosLimpiezaScreen() {
   const router = useRouter();
   const { shouldStackPanels } = useBreakpoint();
-  const { locales, loading: loadingLocales } = useMantenimientoLocales();
+  const { locales, loading: loadingLocales } = useLocalesPermitidos();
   const { hasPermiso } = useAuth();
   const puedeEditarTipos = hasPermiso('limpieza.catalogo');
   const puedeEditarObjetos = hasPermiso('limpieza.catalogo') || hasPermiso('limpieza.programar');

@@ -14,7 +14,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../contexts/AuthContext';
-import { useMantenimientoLocales, valorEnLocal } from '../../(app)/mantenimiento/LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../contexts/LocalesContext';
 import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplegable';
 import { EscanerCodigo } from './EscanerCodigo';
 import { EtiquetaPreview } from './EtiquetaPreview';
@@ -61,7 +61,7 @@ type Props = {
 
 export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
   const { hasPermiso } = useAuth();
-  const { locales } = useMantenimientoLocales();
+  const { locales } = useLocalesPermitidos();
   const { confirmar, ConfirmarView } = useConfirmar();
   const { shouldStackToolbar } = useBreakpoint();
 

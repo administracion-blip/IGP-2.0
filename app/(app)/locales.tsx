@@ -20,6 +20,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocales } from '../contexts/LocalesContext';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../constants/layout';
 import {
@@ -151,6 +152,7 @@ function truncar(val: string): string {
 export default function LocalesScreen() {
   const router = useRouter();
   const { localPermitido } = useAuth();
+  const { refresh: refreshLocalesCompartidos } = useLocales();
   const { isPhone, isDesktop, shouldStackPanels, shouldStackToolbar, height: windowHeight } = useBreakpoint();
   const formDosColumnas = !isPhone;
   const modalCasiFull = isPhone || shouldStackPanels;
@@ -527,6 +529,7 @@ export default function LocalesScreen() {
         return;
       }
       refetchLocales();
+      void refreshLocalesCompartidos();
       setSelectedRowIndex(null);
       cerrarModalNuevo();
     } catch (e) {
@@ -554,6 +557,7 @@ export default function LocalesScreen() {
         return;
       }
       refetchLocales();
+      void refreshLocalesCompartidos();
       setSelectedRowIndex(null);
     } catch (e) {
       setError('No se pudo conectar con el servidor');

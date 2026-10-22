@@ -25,7 +25,7 @@ import {
 import { useLocalToast } from '../../components/Toast';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
-import { useMarketingLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesMarketing, valorEnLocal } from '../../contexts/LocalesContext';
 import { formatId6 } from './lib/formatId6';
 import { esIsoFechaValida, finMesSiguienteIso, inicioMesActualIso, isoToDmy } from './lib/fechasUi';
 
@@ -43,7 +43,7 @@ type ModoRespuesta = 'idle' | 'individual' | 'agrupado';
 export default function CartelesMusicoScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
-  const { locales } = useMarketingLocales();
+  const { locales } = useLocalesMarketing();
   const { show: showToast, ToastView } = useLocalToast();
 
   const esGestor = hasPermiso('marketing.gestionar');

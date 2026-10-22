@@ -29,6 +29,7 @@ import { EstadoVacio } from '../components/ui/EstadoVacio';
 import { emailValido } from '../utils/validation';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth, UserSession } from '../contexts/AuthContext';
+import { useLocales } from '../contexts/LocalesContext';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { useConfirmar } from '../hooks/useConfirmar';
 import { MIN_TOUCH } from '../constants/layout';
@@ -102,6 +103,7 @@ function truncar(val: string): string {
 export default function UsuariosScreen() {
   const router = useRouter();
   const { hasPermiso, user, setUser, logout } = useAuth();
+  const { refresh: refreshLocalesCompartidos } = useLocales();
   const { confirmar, ConfirmarView } = useConfirmar();
   const { isPhone, isDesktop, shouldStackPanels } = useBreakpoint();
   const formDosColumnas = !isPhone;
@@ -238,6 +240,7 @@ export default function UsuariosScreen() {
         return;
       }
       refetchLocales();
+      void refreshLocalesCompartidos();
       setFormLocales((prev) => prev.includes(nombre) ? prev : [...prev, nombre]);
       setLocalSearchFilter('');
       cerrarModalCrearLocal();

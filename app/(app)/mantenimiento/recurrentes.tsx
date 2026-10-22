@@ -13,7 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../contexts/LocalesContext';
 import { InputFecha } from '../../components/InputFecha';
 import { estiloCampoFechaCompacto } from '../../components/RangoFechas';
 import { apiFetch } from '../../utils/api';
@@ -116,7 +116,7 @@ function generarFechas(
 
 export default function RecurrentesScreen() {
   const router = useRouter();
-  const { locales, loading: loadingLocales, error: localesError } = useMantenimientoLocales();
+  const { locales, loading: loadingLocales, error: localesError } = useLocalesPermitidos();
   const { width } = useBreakpoint();
 
   const [userId, setUserId] = useState('');

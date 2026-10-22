@@ -17,7 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image } from 'react-native';
-import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../contexts/LocalesContext';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { apiFetch } from '../../utils/api';
 import { formatCreadoEn } from '../../utils/formatFecha';
@@ -57,7 +57,7 @@ function truncar(texto: string, max = DESC_MAX): string {
 
 export default function ReportarIncidenciaScreen() {
   const router = useRouter();
-  const { locales, loading: loadingLocales, error: localesError } = useMantenimientoLocales();
+  const { locales, loading: loadingLocales, error: localesError } = useLocalesPermitidos();
   const { width } = useBreakpoint();
   const [userId, setUserId] = useState<string>('');
   const [userName, setUserName] = useState<string>('');

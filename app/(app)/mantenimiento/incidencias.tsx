@@ -13,7 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../contexts/LocalesContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { ICONS, ICON_SIZE } from '../../constants/icons';
 import {
@@ -181,7 +181,7 @@ function estilosEstado(estado: string | undefined): { backgroundColor: string; c
 export default function MantenimientoScreen() {
   const router = useRouter();
   const { user, hasPermiso } = useAuth();
-  const { locales } = useMantenimientoLocales();
+  const { locales } = useLocalesPermitidos();
   const [countAbiertas, setCountAbiertas] = useState<number | null>(null);
   const [incidencias, setIncidencias] = useState<Incidencia[]>([]);
   const [loading, setLoading] = useState(true);

@@ -15,7 +15,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { useLocalesPermitidos, valorEnLocal } from '../../contexts/LocalesContext';
 import { apiFetch } from '../../utils/api';
 import { RangoFechas } from '../../components/RangoFechas';
 import { estadoFacturacionParte } from '../../lib/mantenimientoFacturacion';
@@ -190,7 +190,7 @@ function filtrarIncidenciasReparadas(
 
 export default function ReparacionesRealizadasScreen() {
   const router = useRouter();
-  const { locales } = useMantenimientoLocales();
+  const { locales } = useLocalesPermitidos();
   const [incidencias, setIncidencias] = useState<Incidencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
