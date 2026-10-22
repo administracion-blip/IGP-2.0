@@ -1,14 +1,13 @@
 import { verifyToken, PREFIJO_SUB_SISTEMA } from '../lib/jwt.js';
 import { cargarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acceso.js';
 import { safeEqual } from '../lib/seguridad/safeEqual.js';
-import { GetCommand } from '@aws-sdk/lib-dynamodb';
-import { docClient, tables } from '../lib/db.js';
 import {
   INTERNAL_SYNC_POST_PATHS,
   SYSTEM_TOKEN_GET_PATHS,
   normalizeApiPathname,
 } from '../lib/internalSync.js';
 import { codigosPermisoEfectivos } from '../lib/permisoAliases.js';
+import { permisosRolCacheados, tienePermisoRol } from '../lib/permisos/cachePermisos.js';
 
 export function requireAuth(req, res, next) {
   // Bypass interno (scheduler/scripts) vía x-internal-secret.
@@ -117,22 +116,14 @@ export function requireRole(...roles) {
 export async function hasPermission(user, permiso) {
   if (!user) return false;
   if (user.rol === 'Administrador') return true;
-  const codigos = codigosPermisoEfectivos(permiso);
-  for (const cod of codigos) {
-    const result = await docClient.send(new GetCommand({
-      TableName: tables.rolesPermisos,
-      Key: { PK: `ROL#${user.rol}`, SK: `PERMISO#${cod}` },
-    }));
-    if (result.Item) return true;
-  }
-  return false;
+  return tienePermisoRol(user.rol, permiso);
 }
 
 export async function hasAnyPermission(user, ...permisos) {
-  for (const permiso of permisos) {
-    if (await hasPermission(user, permiso)) return true;
-  }
-  return false;
+  if (!user || permisos.length === 0) return false;
+  if (user.rol === 'Administrador') return true;
+  const codigos = await permisosRolCacheados(user.rol);
+  return permisos.some((permiso) => codigosPermisoEfectivos(permiso).some((c) => codigos.has(c)));
 }
 
 export function requirePermission(permiso) {

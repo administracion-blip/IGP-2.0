@@ -20,15 +20,16 @@
  *    cubierto un árbol de decisión de este tamaño.
  * 3. **El contexto se carga una vez por petición.** `cargarContextoAcceso` hace
  *    dos lecturas (usuario y permisos del rol) y las cachea unos segundos, en
- *    lugar del `GetItem` por permiso que hace `hasPermission`. Un listado que
- *    comprueba tres permisos sobre cincuenta filas hacía 150 lecturas.
+ *    lugar de una lectura por permiso. Un listado que comprueba tres permisos
+ *    sobre cincuenta filas hacía 150 lecturas.
  *
  * Ver `docs/tasks/04-permisos-y-acceso.md` para la tabla completa de reglas.
  */
 
-import { GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { codigosPermisoEfectivos } from '../permisoAliases.js';
+import { permisosDelRol } from '../permisos/cachePermisos.js';
 import { normalizeLocalesUsuario, tieneAlcanceGlobalLocales } from '../usuarioLocales.js';
 import {
   PERMISOS,
@@ -157,28 +158,6 @@ export function contextoVacio() {
 function nombreVisible(ficha) {
   const completo = `${ficha?.Nombre ?? ''} ${ficha?.Apellidos ?? ''}`.trim();
   return completo || String(ficha?.Email ?? '').trim();
-}
-
-async function permisosDelRol(rol) {
-  const codigos = new Set();
-  let lastKey = null;
-  do {
-    const result = await docClient.send(
-      new QueryCommand({
-        TableName: tables.rolesPermisos,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
-        ExpressionAttributeValues: { ':pk': `ROL#${rol}`, ':sk': 'PERMISO#' },
-        ProjectionExpression: 'SK',
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }),
-    );
-    for (const item of result.Items || []) {
-      const codigo = String(item.SK || '').replace(/^PERMISO#/, '');
-      if (codigo) codigos.add(codigo);
-    }
-    lastKey = result.LastEvaluatedKey || null;
-  } while (lastKey);
-  return codigos;
 }
 
 /**

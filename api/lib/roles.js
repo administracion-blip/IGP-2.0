@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './db.js';
 import { invalidarContextoAcceso } from './tasks/acceso.js';
+import { invalidarPermisosRol } from './permisos/cachePermisos.js';
 
 export const ROL_META_SK = 'META';
 export const ROL_SISTEMA = 'Administrador';
@@ -224,6 +225,7 @@ export async function crearRol({ nombre, descripcion = '', clonarDe = '', orden 
       ConditionExpression: 'attribute_not_exists(PK)',
     })
   );
+  invalidarPermisosRol(norm.nombre);
 
   const origen = String(clonarDe ?? '').trim();
   if (origen && origen !== norm.nombre) {
@@ -231,13 +233,18 @@ export async function crearRol({ nombre, descripcion = '', clonarDe = '', orden 
     const permisos = origenItems
       .map((i) => (i.SK || '').replace(/^PERMISO#/, ''))
       .filter(Boolean);
-    for (const permiso of permisos) {
-      await docClient.send(
-        new PutCommand({
-          TableName: tables.rolesPermisos,
-          Item: { PK: pkRol(norm.nombre), SK: `PERMISO#${permiso}` },
-        })
-      );
+    try {
+      for (const permiso of permisos) {
+        await docClient.send(
+          new PutCommand({
+            TableName: tables.rolesPermisos,
+            Item: { PK: pkRol(norm.nombre), SK: `PERMISO#${permiso}` },
+          })
+        );
+      }
+    } finally {
+      // Un fallo a mitad deja permisos ya escritos.
+      invalidarPermisosRol(norm.nombre);
     }
     // `listarRolesCatalogo` admite roles legacy que solo tienen filas PERMISO# y
     // ningún META, y aquí arriba solo se comprueba el META: se puede "crear" un
@@ -276,6 +283,7 @@ export async function actualizarRolMeta(nombre, { descripcion, orden }) {
       Item: item,
     })
   );
+  invalidarPermisosRol(nombre);
 
   return mapMetaItem(item);
 }
@@ -312,7 +320,12 @@ export async function eliminarRol(nombre) {
   }
 
   const keys = items.map((i) => ({ PK: i.PK, SK: i.SK }));
-  if (keys.length > 0) await batchDeleteItems(keys);
+  try {
+    if (keys.length > 0) await batchDeleteItems(keys);
+  } finally {
+    // El borrado va por lotes: si falla uno, los anteriores ya se aplicaron.
+    invalidarPermisosRol(norm.nombre);
+  }
 
   // Se han borrado las filas PERMISO# del rol: retirar permisos tiene que surtir
   // efecto ya, no cuando caduque la caché.
@@ -344,6 +357,7 @@ export async function seedRolesCatalogoInicial() {
         ConditionExpression: 'attribute_not_exists(PK)',
       })
     );
+    invalidarPermisosRol(nombre);
     resultados.push({ nombre, accion: 'creado' });
   }
   return resultados;

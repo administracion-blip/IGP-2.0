@@ -80,7 +80,7 @@ function montar() {
 }
 
 function soloLecturasDePermisos() {
-  return db.operaciones.every((o) => o.tipo === 'GetCommand');
+  return db.operaciones.every((o) => ['GetCommand', 'QueryCommand'].includes(o.tipo));
 }
 
 // Cuerpos que, superado el permiso, fallan en validación sin escribir nada.

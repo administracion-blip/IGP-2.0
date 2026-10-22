@@ -34,7 +34,7 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { queryActuacionesListado } from '../lib/actuacionesIndice.js';
 import { docClient, tables } from '../lib/db.js';
-import { requirePermission } from '../middleware/auth.js';
+import { hasPermission, requirePermission } from '../middleware/auth.js';
 import {
   GSI_LOCAL_ESTADO_NAME,
   GSI_LOCAL_FECHA_NAME,
@@ -424,11 +424,7 @@ async function hasGestionPermission(req) {
   if (!req.user) return false;
   if (req.user.rol === 'Administrador') return true;
   try {
-    const r = await docClient.send(new GetCommand({
-      TableName: tables.rolesPermisos,
-      Key: { PK: `ROL#${req.user.rol}`, SK: 'PERMISO#marketing.gestionar' },
-    }));
-    return Boolean(r.Item);
+    return await hasPermission(req.user, 'marketing.gestionar');
   } catch (err) {
     req.log?.warn?.({ err }, '[marketing] hasGestionPermission falló');
     return false;

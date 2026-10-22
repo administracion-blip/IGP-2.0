@@ -251,6 +251,9 @@ concreta).
 - Si el rol tiene al menos un permiso en la tabla, solo se muestran las entradas cuyo código esté en la lista.
 - Los permisos de menú (`*.ver` de los módulos principales) controlan la visibilidad del menú lateral.
 - Los permisos granulares controlan botones/acciones dentro de cada pantalla.
+- El backend cachea los permisos de cada rol 60 s en memoria, por instancia (`api/lib/permisos/cachePermisos.js`).
+  Los cambios hechos desde la pantalla de permisos o roles se ven al instante en la instancia que los atiende;
+  en otras instancias, o tras ejecutar los scripts `api/scripts/seed-permisos-*`, tardan hasta 60 s.
 
 ## Ejemplo de ítems (DynamoDB)
 

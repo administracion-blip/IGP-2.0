@@ -78,7 +78,7 @@ test('formas-pago PUT: autenticado sin formas_pago.editar ni cierres.ver, 403 y 
   const forma = db.obtener(tables.formasPago, { PK: 'PM', SK: '7' });
   assert.equal(forma.arquear, true);
   assert.equal(forma.canonico, 'Tarjeta');
-  assert.ok(db.operaciones.every((o) => o.tipo === 'GetCommand'), 'solo lecturas de permisos');
+  assert.ok(db.operaciones.every((o) => ['GetCommand', 'QueryCommand'].includes(o.tipo)), 'solo lecturas de permisos');
 });
 
 test('formas-pago PUT: pasa con formas_pago.editar, con cierres.ver y como Administrador', async () => {

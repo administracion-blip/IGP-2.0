@@ -16,6 +16,18 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { tables } from '../lib/db.js';
+import { invalidarPermisosRol } from '../lib/permisos/cachePermisos.js';
+
+/**
+ * Los permisos por rol se cachean en memoria del módulo: preparar datos de prueba
+ * en esa tabla (sembrar a mitad de prueba, otra tabla nueva) debe vaciarla, o la
+ * prueba leería permisos de la anterior. Las escrituras vía `enviar` **no**
+ * invalidan: eso le toca al código de producción, y aquí se vería si falta.
+ */
+function avisarCambio(nombreTabla) {
+  if (nombreTabla === tables.rolesPermisos) invalidarPermisosRol();
+}
 
 // ─── Expresiones ───
 
@@ -483,6 +495,7 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
         assert.ok(idx?.hashKey, `El índice ${nombreIdx} necesita hashKey`);
       }
       tablas.set(nombre, { nombre, esquema, items: new Map() });
+      avisarCambio(nombre);
       for (const it of items) api.sembrar(nombre, it);
       return api;
     },
@@ -490,6 +503,7 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
     sembrar(nombre, item) {
       const t = tabla(nombre);
       t.items.set(claveDe(t, item), structuredClone(item));
+      avisarCambio(nombre);
       return api;
     },
     /** Todos los ítems de una tabla, en orden de inserción. */
@@ -514,6 +528,7 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
     /** Sustituye `send` en el cliente de documentos y en el cliente base. */
     instalar(docClient, client) {
       docClient.send = (cmd) => api.enviar(cmd);
+      invalidarPermisosRol();
       if (client) {
         client.send = (cmd) => {
           const nombre = cmd?.constructor?.name;

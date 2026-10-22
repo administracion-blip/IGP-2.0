@@ -3,6 +3,7 @@ import { QueryCommand, ScanCommand, PutCommand, DeleteCommand } from '@aws-sdk/l
 import { docClient, tables } from '../lib/db.js';
 import { hasPermission, requireAuth, requireRole } from '../middleware/auth.js';
 import { invalidarContextoAcceso } from '../lib/tasks/acceso.js';
+import { invalidarPermisosRol } from '../lib/permisos/cachePermisos.js';
 
 const router = express.Router();
 
@@ -107,6 +108,7 @@ router.post('/permisos', requireAuth, requireRole('Administrador'), async (req, 
   // El contexto de acceso cachea los permisos por usuario y no hay invalidación
   // por rol: conceder un permiso obliga a vaciar la caché entera.
   invalidarContextoAcceso();
+  invalidarPermisosRol(rol);
   return res.json({ ok: true });
 });
 
@@ -126,6 +128,7 @@ router.delete('/permisos', requireAuth, requireRole('Administrador'), async (req
   );
   // Retirar un permiso tiene que surtir efecto ya, no cuando caduque la caché.
   invalidarContextoAcceso();
+  invalidarPermisosRol(rol);
   return res.json({ ok: true });
 });
 
