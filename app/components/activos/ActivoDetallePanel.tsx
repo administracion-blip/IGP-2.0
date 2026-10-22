@@ -21,7 +21,7 @@ import { EtiquetaPreview } from './EtiquetaPreview';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../constants/layout';
-import { colors, inputCursorProps, radius, statusColors, typography } from '../../constants/theme';
+import { colors, fontFamily, fontSizes, inputCursorProps, radius, statusColors, typography, SPACING } from '../../constants/theme';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatId6 } from '../../utils/idFormat';
 import { formatCreadoEn, formatFecha } from '../../utils/formatFecha';
@@ -477,7 +477,7 @@ export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
               />
             </View>
             <TouchableOpacity style={styles.fotoBtn} onPress={() => void anadirFoto()} disabled={accion}>
-              <MaterialIcons name="add-a-photo" size={20} color="#fff" />
+              <MaterialIcons name="add-a-photo" size={20} color={colors.surface} />
               <Text style={styles.fotoBtnTxt}>Añadir</Text>
             </TouchableOpacity>
           </View>
@@ -566,7 +566,7 @@ export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
               </>
             ) : null}
             <TouchableOpacity style={styles.cta} onPress={() => void trasladar()} disabled={accion || !localDestino}>
-              {accion ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaTxt}>Trasladar</Text>}
+              {accion ? <ActivityIndicator color={colors.surface} /> : <Text style={styles.ctaTxt}>Trasladar</Text>}
             </TouchableOpacity>
           </Pressable>
         </Pressable>
@@ -583,7 +583,7 @@ export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
                 onPress={() => void cambiarEstado(e)}
                 disabled={accion}
               >
-                <Text style={{ color: colorEstadoActivo(e).text, fontWeight: '600' }}>{labelEstadoActivo(e)}</Text>
+                <Text style={{ color: colorEstadoActivo(e).text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight }}>{labelEstadoActivo(e)}</Text>
               </TouchableOpacity>
             ))}
           </Pressable>
@@ -596,7 +596,7 @@ export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
             <Text style={styles.sheetTitulo}>Sustituir serie</Text>
             <Text style={styles.hint}>La etiqueta IGP no cambia.</Text>
             <TouchableOpacity style={styles.scanMini} onPress={() => setEscaner(true)}>
-              <MaterialIcons name="qr-code-scanner" size={20} color="#fff" />
+              <MaterialIcons name="qr-code-scanner" size={20} color={colors.surface} />
               <Text style={styles.ctaTxt}>Escanear</Text>
             </TouchableOpacity>
             <TextInput
@@ -613,7 +613,7 @@ export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
               onPress={() => void sustituirSerie()}
               disabled={accion || !nuevaSerie.trim()}
             >
-              {accion ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaTxt}>Guardar</Text>}
+              {accion ? <ActivityIndicator color={colors.surface} /> : <Text style={styles.ctaTxt}>Guardar</Text>}
             </TouchableOpacity>
           </Pressable>
         </Pressable>
@@ -689,20 +689,20 @@ function TextoCambio({ ev }: { ev: EventoActivo }) {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1 },
-  body: { paddingBottom: 24, paddingRight: 16, paddingLeft: 2, gap: 4 },
-  vacioPanel: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 8 },
-  vacioTitulo: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  vacioTxt: { fontSize: 13, color: colors.textSecondary, textAlign: 'center' },
+  body: { paddingBottom: SPACING.xl, paddingRight: SPACING.lg, paddingLeft: 2, gap: SPACING.xs },
+  vacioPanel: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACING.xl, gap: SPACING.sm },
+  vacioTitulo: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  vacioTxt: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textSecondary, textAlign: 'center' },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   error: { color: statusColors.danger.text, marginBottom: 10 },
-  retry: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.accentMuted, borderRadius: radius.md },
-  retryTxt: { color: colors.accentPressed, fontWeight: '600' },
+  retry: { paddingHorizontal: SPACING.lg, paddingVertical: 10, backgroundColor: colors.accentMuted, borderRadius: radius.md },
+  retryTxt: { color: colors.accentPressed, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   cabecera: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
-  etiqueta: { ...typography.subtitulo, color: '#0f172a' },
-  modelo: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  badge: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
-  badgeTxt: { fontSize: 12, fontWeight: '700' },
-  acciones: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  etiqueta: { ...typography.subtitulo, color: colors.textStrong },
+  modelo: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textSecondary, marginTop: 2 },
+  badge: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: SPACING.xs },
+  badgeTxt: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  acciones: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: SPACING.md },
   accion: {
     minHeight: MIN_TOUCH,
     paddingHorizontal: 10,
@@ -714,33 +714,33 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: colors.bgSubtle,
   },
-  accionPeligro: { borderColor: '#fecaca', backgroundColor: '#fef2f2' },
-  accionTxt: { color: colors.accentPressed, fontWeight: '600', fontSize: 13 },
+  accionPeligro: { borderColor: '#fecaca', backgroundColor: statusColors.danger.bg },
+  accionTxt: { color: colors.accentPressed, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
   card: {
     backgroundColor: colors.bgSubtle,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 12,
-    marginBottom: 12,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
   },
-  fila: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 5 },
-  filaLab: { fontSize: 13, color: colors.textSecondary },
-  filaVal: { fontSize: 13, fontWeight: '600', color: '#0f172a', flexShrink: 1, textAlign: 'right' },
+  fila: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: SPACING.md, paddingVertical: 5 },
+  filaLab: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textSecondary },
+  filaVal: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, flexShrink: 1, textAlign: 'right' },
   serieChip: {
     backgroundColor: ROSA_BG,
     borderRadius: radius.pill,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 3,
   },
-  serieChipTxt: { fontSize: 12, fontWeight: '700', color: ROSA_FG },
-  bloqueTitulo: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginTop: 4, marginBottom: 8 },
-  hint: { fontSize: 13, color: colors.textSecondary, marginBottom: 8 },
+  serieChipTxt: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: ROSA_FG },
+  bloqueTitulo: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginTop: SPACING.xs, marginBottom: SPACING.sm },
+  hint: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textSecondary, marginBottom: SPACING.sm },
   fotosRow: { gap: 10, paddingBottom: 8, alignItems: 'flex-start' },
   fotoBox: { width: 120, position: 'relative' },
   foto: { width: 120, height: 90, borderRadius: radius.md, backgroundColor: colors.border },
   fotoVacia: { alignItems: 'center', justifyContent: 'center' },
-  fotoTipo: { fontSize: 11, color: colors.textSecondary, marginTop: 4 },
+  fotoTipo: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textSecondary, marginTop: SPACING.xs },
   fotoDel: {
     position: 'absolute',
     top: 4,
@@ -748,11 +748,11 @@ const styles = StyleSheet.create({
     width: MIN_TOUCH,
     height: MIN_TOUCH,
     borderRadius: MIN_TOUCH / 2,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fotoAcciones: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, zIndex: 8, marginBottom: 8 },
+  fotoAcciones: { flexDirection: 'row', alignItems: 'flex-end', gap: SPACING.sm, zIndex: 8, marginBottom: SPACING.sm },
   fotoAccionesStack: { flexDirection: 'column', alignItems: 'stretch' },
   fotoBtn: {
     minHeight: MIN_TOUCH,
@@ -763,29 +763,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  fotoBtnTxt: { color: '#fff', fontWeight: '700' },
+  fotoBtnTxt: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   histToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     minHeight: MIN_TOUCH,
-    marginTop: 4,
+    marginTop: SPACING.xs,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  histToggleTxt: { color: colors.accentPressed, fontWeight: '700' },
-  evento: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  histToggleTxt: { color: colors.accentPressed, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  evento: { flexDirection: 'row', gap: 10, marginBottom: SPACING.md },
+  // Círculo de 10 px; radius.sm es 6.
   eventoPunto: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent, marginTop: 5 },
-  eventoTipo: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  eventoMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  eventoNotas: { fontSize: 13, color: colors.textPrimary, marginTop: 4 },
-  eventoCambio: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
+  eventoTipo: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  eventoMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textSecondary, marginTop: 2 },
+  eventoNotas: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, marginTop: SPACING.xs },
+  eventoCambio: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textSecondary, marginTop: SPACING.xs },
   btnJustificante: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     minHeight: MIN_TOUCH,
-    marginTop: 8,
+    marginTop: SPACING.sm,
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
     borderRadius: radius.md,
@@ -793,33 +794,35 @@ const styles = StyleSheet.create({
     borderColor: colors.borderStrong,
     backgroundColor: colors.bgSubtle,
   },
-  btnJustificanteTxt: { color: colors.accentPressed, fontWeight: '600', fontSize: 13 },
+  btnJustificanteTxt: { color: colors.accentPressed, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
+  // Más oscuro que colors.overlay.
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.4)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
+  // Velo de foto al 90 %.
   overlayOscuro: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.9)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
-  sheet: { backgroundColor: '#fff', borderRadius: radius.md, padding: 16, gap: 10, width: '100%' },
+  sheet: { backgroundColor: colors.surface, borderRadius: radius.md, padding: SPACING.lg, gap: 10, width: '100%' },
   sheetEstado: { maxWidth: 280 },
   sheetTraslado: { maxWidth: 360 },
-  sheetTitulo: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  label: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
+  sheetTitulo: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textSecondary },
   input: {
     minHeight: MIN_TOUCH,
     borderWidth: 1,
     borderColor: colors.borderStrong,
     borderRadius: radius.md,
-    paddingHorizontal: 12,
-    fontSize: 15,
+    paddingHorizontal: SPACING.md,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[16],
     color: colors.textPrimary,
     backgroundColor: colors.bgSubtle,
   },
@@ -830,7 +833,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ctaTxt: { color: '#fff', fontWeight: '700' },
+  ctaTxt: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   scanMini: {
     minHeight: MIN_TOUCH,
     backgroundColor: colors.accent,
@@ -838,7 +841,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: SPACING.sm,
   },
   estadoOpt: {
     minHeight: MIN_TOUCH,
@@ -846,7 +849,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.md,
     justifyContent: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
   },
   fotoGrande: { width: '100%', height: '80%' },
 });
