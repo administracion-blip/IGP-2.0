@@ -14,6 +14,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { descargarPdfActivacion } from '../../lib/activacionPdf';
 import {
   ActivacionFichaReporte,
@@ -89,7 +96,7 @@ export default function ActivacionDetalleScreen() {
   if (loading) {
     return (
       <View style={styles.centerBox}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
@@ -97,7 +104,7 @@ export default function ActivacionDetalleScreen() {
   if (error || !activacion) {
     return (
       <View style={styles.centerBox}>
-        <MaterialIcons name="error-outline" size={36} color="#f87171" />
+        <MaterialIcons name="error-outline" size={36} color={colors.danger} />
         <Text style={styles.emptyText}>{error ?? 'Activación no encontrada.'}</Text>
         <TouchableOpacity onPress={cargar}>
           <Text style={styles.retry}>Reintentar</Text>
@@ -120,7 +127,7 @@ export default function ActivacionDetalleScreen() {
           topBar={
             <View style={activacionFichaStyles.topBar}>
               <TouchableOpacity style={activacionFichaStyles.volverBtn} onPress={() => router.back()}>
-                <MaterialIcons name="arrow-back" size={16} color="#475569" />
+                <MaterialIcons name="arrow-back" size={16} color={colors.textPrimary} />
                 <Text style={activacionFichaStyles.volverText}>Volver</Text>
               </TouchableOpacity>
               <View style={activacionFichaStyles.topActions}>
@@ -131,9 +138,9 @@ export default function ActivacionDetalleScreen() {
                   disabled={pdfLoading}
                 >
                   {pdfLoading ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
+                    <ActivityIndicator size="small" color={colors.accent} />
                   ) : (
-                    <MaterialIcons name="picture-as-pdf" size={16} color="#0ea5e9" />
+                    <MaterialIcons name="picture-as-pdf" size={16} color={colors.accent} />
                   )}
                   <Text style={activacionFichaStyles.btnPdfText}>{pdfLoading ? 'Generando…' : 'PDF'}</Text>
                 </TouchableOpacity>
@@ -142,7 +149,7 @@ export default function ActivacionDetalleScreen() {
                     style={activacionFichaStyles.btnEditar}
                     onPress={() => router.push(`/reservas/activacion-nueva?id=${activacion.id_activacion}` as never)}
                   >
-                    <MaterialIcons name="edit" size={15} color="#fff" />
+                    <MaterialIcons name="edit" size={15} color={colors.surface} />
                     <Text style={activacionFichaStyles.btnEditarText}>Editar</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -156,9 +163,19 @@ export default function ActivacionDetalleScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e2e8f0' },
-  scrollContent: { padding: 12, paddingBottom: 28, alignItems: 'center' },
-  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
-  retry: { fontSize: 13, fontWeight: '700', color: '#0ea5e9' },
+  container: { flex: 1, backgroundColor: colors.border },
+  scrollContent: { padding: SPACING.md, paddingBottom: 28, alignItems: 'center' },
+  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  emptyText: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  retry: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[13],
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.accent,
+  },
 });
