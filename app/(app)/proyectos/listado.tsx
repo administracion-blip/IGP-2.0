@@ -28,6 +28,14 @@ import { TasksPageHeader } from '../../components/tasks/TasksPageHeader';
 import { estilosModalTasks as modal } from '../../components/tasks/estilosTasks';
 import { MIN_TOUCH } from '../../constants/layout';
 import { tasksColor } from '../../constants/tasksUiTokens';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
 import { useNombresUsuarios } from '../../hooks/useNombresUsuarios';
@@ -250,7 +258,7 @@ export default function ListadoProyectosScreen() {
   if (acceso.permisosCargando) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.centroTexto}>Cargando permisos…</Text>
       </View>
     );
@@ -259,7 +267,7 @@ export default function ListadoProyectosScreen() {
   if (!puedeVer) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="lock-outline" size={30} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={30} color={colors.textMuted} />
         <Text style={styles.centroTexto}>No tienes permiso para ver los proyectos.</Text>
       </View>
     );
@@ -370,7 +378,7 @@ export default function ListadoProyectosScreen() {
                   onPress={() => setSoloMios((v) => !v)}
                   accessibilityLabel="Ver solo mis proyectos"
                 >
-                  <MaterialIcons name="person" size={14} color={soloMios ? '#0369a1' : '#64748b'} />
+                  <MaterialIcons name="person" size={14} color={soloMios ? statusColors.info.text : colors.textMuted} />
                   <Text style={[styles.chipTexto, soloMios && styles.chipTextoActivo]}>Mis proyectos</Text>
                 </TouchableOpacity>
               </View>
@@ -383,7 +391,7 @@ export default function ListadoProyectosScreen() {
                   disabled={!seleccionado}
                   accessibilityLabel="Abrir la ficha del proyecto seleccionado"
                 >
-                  <MaterialIcons name="open-in-new" size={16} color={seleccionado ? '#0ea5e9' : '#94a3b8'} />
+                  <MaterialIcons name="open-in-new" size={16} color={seleccionado ? colors.accent : colors.textMuted} />
                   <Text style={[styles.btnFichaTexto, !seleccionado && styles.btnTextoDeshabilitado]}>
                     Abrir ficha
                   </Text>
@@ -395,10 +403,10 @@ export default function ListadoProyectosScreen() {
                     disabled={cargandoMas}
                   >
                     {cargandoMas ? (
-                      <ActivityIndicator size="small" color="#0ea5e9" />
+                      <ActivityIndicator size="small" color={colors.accent} />
                     ) : (
                       <>
-                        <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
+                        <MaterialIcons name="expand-more" size={16} color={colors.accent} />
                         <Text style={styles.btnFichaTexto}>Cargar más</Text>
                       </>
                     )}
@@ -434,7 +442,7 @@ export default function ListadoProyectosScreen() {
 
       {!puedeCrear && !puedeEditar && !puedeBorrar ? (
         <View style={styles.avisoSoloLectura}>
-          <MaterialIcons name="lock-outline" size={16} color="#64748b" />
+          <MaterialIcons name="lock-outline" size={16} color={colors.textMuted} />
           <Text style={styles.avisoSoloLecturaTexto}>
             Solo lectura: necesitas permiso de creación o edición para dar de alta y cambiar proyectos.
           </Text>
@@ -469,7 +477,7 @@ export default function ListadoProyectosScreen() {
       >
         <Pressable style={modal.overlay} onPress={() => !guardando && setProyectoBaja(null)}>
           <Pressable style={modal.confirmCard}>
-            <MaterialIcons name="warning" size={36} color="#d97706" style={modal.confirmIcono} />
+            <MaterialIcons name="warning" size={36} color={colors.warning} style={modal.confirmIcono} />
             <Text style={modal.confirmTitle}>Borrar el proyecto</Text>
             <Text style={modal.confirmText}>
               <Text style={modal.confirmDestacado}>{proyectoBaja?.nombre}</Text> se borrará
@@ -491,7 +499,7 @@ export default function ListadoProyectosScreen() {
                 disabled={guardando}
               >
                 {guardando ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
                   <Text style={modal.btnTextPeligro}>Borrar</Text>
                 )}
@@ -519,6 +527,9 @@ function ModalProyectoConUsuarios(
   return <ModalFormularioProyecto visible usuarios={usuarios} {...props} />;
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tasksColor.fondoApp },
   pageHeader: { paddingHorizontal: 10, paddingTop: 10 },
@@ -528,10 +539,10 @@ const styles = StyleSheet.create({
   splitTabla: { flex: 1, minWidth: 0, minHeight: 0 },
   peekLateral: { marginRight: 10, marginBottom: 10, alignSelf: 'stretch' },
   peekApilado: { marginHorizontal: 10, marginBottom: 10 },
-  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  centroTexto: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
 
-  filaCerrada: { backgroundColor: '#f8fafc', opacity: 0.75 },
+  filaCerrada: { backgroundColor: colors.bg, opacity: 0.75 },
 
   filtros: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
   filtroCampo: { minWidth: 150 },
@@ -541,15 +552,15 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  chipTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 12 },
-  chipActivo: { borderColor: '#0ea5e9', backgroundColor: '#e0f2fe' },
-  chipTexto: { fontSize: 12, color: '#64748b' },
-  chipTextoActivo: { color: '#0369a1', fontWeight: '700' },
+  chipTactil: { minHeight: MIN_TOUCH, paddingHorizontal: SPACING.md },
+  chipActivo: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  chipTexto: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  chipTextoActivo: { color: statusColors.info.text, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   accionesDerecha: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   btnFicha: {
@@ -558,30 +569,32 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  btnFichaTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 12 },
+  btnFichaTactil: { minHeight: MIN_TOUCH, paddingHorizontal: SPACING.md },
   btnDeshabilitado: { opacity: 0.6 },
-  btnFichaTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
-  btnTextoDeshabilitado: { color: '#94a3b8' },
+  btnFichaTexto: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
+  btnTextoDeshabilitado: { color: colors.textMuted },
 
   avisoSoloLectura: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginHorizontal: 10,
     marginBottom: 10,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  avisoSoloLecturaTexto: { flex: 1, fontSize: 12, color: '#64748b', lineHeight: 17 },
+  /** 17 px de interlineado; entre fontSizes[16] y fontSizes[18]. */
+  avisoSoloLecturaTexto: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, lineHeight: 17 },
 
-  errorBaja: { fontSize: 12, color: '#ef4444', textAlign: 'center' },
+  /** Rojo de rechazo; no es colors.danger. */
+  errorBaja: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#ef4444', textAlign: 'center' },
 });
