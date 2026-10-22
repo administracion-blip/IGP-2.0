@@ -24,6 +24,13 @@ import { TasksPageHeader } from '../../components/tasks/TasksPageHeader';
 import { estilosModalTasks as modal } from '../../components/tasks/estilosTasks';
 import { MIN_TOUCH } from '../../constants/layout';
 import { tasksColor } from '../../constants/tasksUiTokens';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
 import { useNombresUsuarios } from '../../hooks/useNombresUsuarios';
@@ -173,7 +180,7 @@ export default function PlantillasProyectoScreen() {
   if (acceso.permisosCargando) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.centroTexto}>Cargando permisos…</Text>
       </View>
     );
@@ -182,7 +189,7 @@ export default function PlantillasProyectoScreen() {
   if (!puedeVer) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="lock-outline" size={30} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={30} color={colors.textMuted} />
         <Text style={styles.centroTexto}>No tienes permiso para ver las plantillas.</Text>
       </View>
     );
@@ -269,7 +276,7 @@ export default function PlantillasProyectoScreen() {
                 <MaterialIcons
                   name="playlist-add-check"
                   size={16}
-                  color={seleccionado ? '#16a34a' : '#94a3b8'}
+                  color={seleccionado ? colors.success : colors.textMuted}
                 />
                 <Text
                   style={[styles.btnAccionTextoVerde, !seleccionado && styles.btnTextoDeshabilitado]}
@@ -285,10 +292,10 @@ export default function PlantillasProyectoScreen() {
                 disabled={cargandoMas}
               >
                 {cargandoMas ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" />
+                  <ActivityIndicator size="small" color={colors.accent} />
                 ) : (
                   <>
-                    <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
+                    <MaterialIcons name="expand-more" size={16} color={colors.accent} />
                     <Text style={styles.btnAccionTexto}>Cargar más</Text>
                   </>
                 )}
@@ -300,7 +307,7 @@ export default function PlantillasProyectoScreen() {
 
       {!puedeGestionar ? (
         <View style={styles.avisoSoloLectura}>
-          <MaterialIcons name="lock-outline" size={16} color="#64748b" />
+          <MaterialIcons name="lock-outline" size={16} color={colors.textMuted} />
           <Text style={styles.avisoSoloLecturaTexto}>
             {puedeCrear
               ? 'Puedes usar plantillas para crear proyectos. Para crear o editar plantillas hace falta el permiso de plantillas.'
@@ -346,7 +353,7 @@ export default function PlantillasProyectoScreen() {
       >
         <Pressable style={modal.overlay} onPress={() => !guardando && setPlantillaBaja(null)}>
           <Pressable style={modal.confirmCard}>
-            <MaterialIcons name="warning" size={36} color="#d97706" style={modal.confirmIcono} />
+            <MaterialIcons name="warning" size={36} color={colors.warning} style={modal.confirmIcono} />
             <Text style={modal.confirmTitle}>Borrar la plantilla</Text>
             <Text style={modal.confirmText}>
               <Text style={modal.confirmDestacado}>{plantillaBaja?.nombre}</Text> se borrará
@@ -367,7 +374,7 @@ export default function PlantillasProyectoScreen() {
                 disabled={guardando}
               >
                 {guardando ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
                   <Text style={modal.btnTextPeligro}>Borrar</Text>
                 )}
@@ -388,11 +395,14 @@ function ModalInstanciarConUsuarios(
   return <ModalInstanciarPlantilla visible usuarios={usuarios} {...props} />;
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tasksColor.fondoApp },
   pageHeader: { paddingHorizontal: 10, paddingTop: 10 },
-  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  centroTexto: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
 
   accionesDerecha: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   btnAccion: {
@@ -401,31 +411,33 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  btnAccionTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 12 },
+  btnAccionTactil: { minHeight: MIN_TOUCH, paddingHorizontal: SPACING.md },
   btnDeshabilitado: { opacity: 0.6 },
-  btnAccionTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
-  btnAccionTextoVerde: { fontSize: 12, fontWeight: '600', color: '#16a34a' },
-  btnTextoDeshabilitado: { color: '#94a3b8' },
+  btnAccionTexto: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
+  btnAccionTextoVerde: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.success },
+  btnTextoDeshabilitado: { color: colors.textMuted },
 
   avisoSoloLectura: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginHorizontal: 10,
     marginBottom: 10,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  avisoSoloLecturaTexto: { flex: 1, fontSize: 12, color: '#64748b', lineHeight: 17 },
+  /** 17 px de interlineado; entre fontSizes[16] y fontSizes[18]. */
+  avisoSoloLecturaTexto: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, lineHeight: 17 },
 
-  errorBaja: { fontSize: 12, color: '#ef4444', textAlign: 'center' },
+  /** Rojo de rechazo; no es colors.danger. */
+  errorBaja: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#ef4444', textAlign: 'center' },
 });
