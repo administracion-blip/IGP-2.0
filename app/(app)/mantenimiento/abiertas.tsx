@@ -10,7 +10,6 @@ import {
   Platform,
   Modal,
   Image,
-  useWindowDimensions,
   type ImageStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -42,6 +41,15 @@ import {
 } from '../../components/mantenimiento/MantenimientoLocalColumnBoard';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { BREAKPOINTS } from '../../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -180,14 +188,14 @@ function isDateInPast(iso: string): boolean {
 
 export default function IncidenciasAbiertasScreen() {
   const router = useRouter();
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const { width } = useBreakpoint();
+  const { width, height } = useBreakpoint();
   const isAccordionMode = width < BREAKPOINTS.tablet;
+  // 1280 px: columnas del tablero; no está en los breakpoints de layout.
   const boardCols = width >= 1280 ? 6 : 4;
   const photoExpandedSize = useMemo(() => ({
-    width: Math.min(windowWidth * 0.9, 900),
-    height: Math.min(windowHeight * 0.85, 700),
-  }), [windowWidth, windowHeight]);
+    width: Math.min(width * 0.9, 900),
+    height: Math.min(height * 0.85, 700),
+  }), [width, height]);
   const [incidencias, setIncidencias] = useState<Incidencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -698,7 +706,7 @@ export default function IncidenciasAbiertasScreen() {
                 style={styles.cardDeshacerBtn}
                 activeOpacity={0.7}
               >
-                <MaterialIcons name="undo" size={12} color="#dc2626" />
+                <MaterialIcons name="undo" size={12} color={colors.danger} />
                 <Text style={styles.cardDeshacerText}>Quitar programación</Text>
               </TouchableOpacity>
             ) : null}
@@ -740,7 +748,7 @@ export default function IncidenciasAbiertasScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando incidencias…</Text>
       </View>
     );
@@ -749,7 +757,7 @@ export default function IncidenciasAbiertasScreen() {
   if (error) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="error-outline" size={48} color="#f87171" />
+        <MaterialIcons name="error-outline" size={48} color={colors.danger} />
         <Text style={styles.errorText}>{error}</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={() => { setLoading(true); setError(null); refetchIncidencias(); }}>
           <Text style={styles.retryBtnText}>Reintentar</Text>
@@ -762,7 +770,7 @@ export default function IncidenciasAbiertasScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Incidencias abiertas</Text>
       </View>
@@ -772,21 +780,21 @@ export default function IncidenciasAbiertasScreen() {
           style={styles.reportarBtn}
           onPress={() => router.push('/mantenimiento/reportar')}
         >
-          <MaterialIcons name={ICONS.add} size={ICON_SIZE} color="#0ea5e9" />
+          <MaterialIcons name={ICONS.add} size={ICON_SIZE} color={colors.accent} />
           <Text style={styles.reportarBtnText}>Reportar incidencia</Text>
         </TouchableOpacity>
         <View style={styles.searchWrap}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
             placeholder="Buscar en la tabla…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={() => { setLoading(true); refetchIncidencias(); }}>
-          <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />
+          <MaterialIcons name="refresh" size={ICON_SIZE} color={colors.accent} />
         </TouchableOpacity>
         <View style={styles.viewModeWrap}>
           <TouchableOpacity
@@ -794,14 +802,14 @@ export default function IncidenciasAbiertasScreen() {
             onPress={() => setViewMode('tabla')}
             accessibilityLabel="Vista tabla"
           >
-            <MaterialIcons name="view-list" size={20} color={viewMode === 'tabla' ? '#0ea5e9' : '#94a3b8'} />
+            <MaterialIcons name="view-list" size={20} color={viewMode === 'tabla' ? colors.accent : colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.viewModeBtn, viewMode === 'deck' && styles.viewModeBtnActive]}
             onPress={() => setViewMode('deck')}
             accessibilityLabel="Vista tarjetas"
           >
-            <MaterialIcons name="view-module" size={20} color={viewMode === 'deck' ? '#0ea5e9' : '#94a3b8'} />
+            <MaterialIcons name="view-module" size={20} color={viewMode === 'deck' ? colors.accent : colors.textMuted} />
           </TouchableOpacity>
         </View>
         <TouchableOpacity
@@ -810,14 +818,14 @@ export default function IncidenciasAbiertasScreen() {
           activeOpacity={0.7}
           accessibilityLabel="Filtrar solo programadas"
         >
-          <MaterialIcons name="event-available" size={18} color={soloProgramadas ? '#fff' : '#0ea5e9'} />
+          <MaterialIcons name="event-available" size={18} color={soloProgramadas ? colors.surface : colors.accent} />
           <Text style={[styles.filterProgramadasText, soloProgramadas && styles.filterProgramadasTextActive]}>
             Programadas
           </Text>
         </TouchableOpacity>
         {multiSelectMode && (
           <TouchableOpacity style={styles.cancelSelectBtn} onPress={salirMultiSelect}>
-            <MaterialIcons name="close" size={ICON_SIZE} color="#64748b" />
+            <MaterialIcons name="close" size={ICON_SIZE} color={colors.textMuted} />
             <Text style={styles.cancelSelectBtnText}>Cancelar selección</Text>
           </TouchableOpacity>
         )}
@@ -827,7 +835,7 @@ export default function IncidenciasAbiertasScreen() {
           disabled={!haySeleccion || guardando}
           accessibilityLabel="Borrar incidencia"
         >
-          <MaterialIcons name={ICONS.delete} size={ICON_SIZE} color={!haySeleccion || guardando ? '#94a3b8' : '#dc2626'} />
+          <MaterialIcons name={ICONS.delete} size={ICON_SIZE} color={!haySeleccion || guardando ? colors.textMuted : colors.danger} />
         </TouchableOpacity>
       </View>
 
@@ -837,7 +845,7 @@ export default function IncidenciasAbiertasScreen() {
             <>
               <View style={styles.calendarHeader}>
                 <TouchableOpacity onPress={() => { const ws = getWeekStart(calendarDate); ws.setDate(ws.getDate() - 7); setCalendarDate(ws); }}>
-                  <MaterialIcons name="chevron-left" size={24} color="#334155" />
+                  <MaterialIcons name="chevron-left" size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
                 <Text style={styles.calendarTitle}>
                   {(() => {
@@ -847,7 +855,7 @@ export default function IncidenciasAbiertasScreen() {
                   })()}
                 </Text>
                 <TouchableOpacity onPress={() => { const ws = getWeekStart(calendarDate); ws.setDate(ws.getDate() + 7); setCalendarDate(ws); }}>
-                  <MaterialIcons name="chevron-right" size={24} color="#334155" />
+                  <MaterialIcons name="chevron-right" size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
               </View>
               <View style={styles.calendarWeekRow}>
@@ -904,7 +912,7 @@ export default function IncidenciasAbiertasScreen() {
                                 {
                                   onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
                                   onClick: (e: React.MouseEvent) => e.stopPropagation(),
-                                  style: { marginTop: 4, alignSelf: 'center' },
+                                  style: { marginTop: SPACING.xs, alignSelf: 'center' },
                                 },
                                 programadasListBtn
                               )
@@ -931,7 +939,7 @@ export default function IncidenciasAbiertasScreen() {
                     <div
                       key={`${nombre}-${iso}`}
                       {...dropHandlersWeekWithDragOver}
-                      style={{ flex: 1, minWidth: 0, display: 'flex', alignSelf: 'stretch', border: '0.5px solid #f1f5f9', boxSizing: 'border-box', borderRadius: 8, overflow: 'hidden' }}
+                      style={{ flex: 1, minWidth: 0, display: 'flex', alignSelf: 'stretch', border: `0.5px solid ${colors.navActive}`, boxSizing: 'border-box', borderRadius: RADIO_MEDIO, overflow: 'hidden' }}
                     >
                       {weekDayContent}
                     </div>
@@ -961,7 +969,7 @@ export default function IncidenciasAbiertasScreen() {
               disabled={pageIndexClamped <= 0}
               accessibilityLabel="Página anterior"
             >
-              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
             <Text style={styles.pageText}>
               Página {pageIndexClamped + 1} de {totalPages}
@@ -972,7 +980,7 @@ export default function IncidenciasAbiertasScreen() {
               disabled={pageIndexClamped >= totalPages - 1}
               accessibilityLabel="Página siguiente"
             >
-              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
           </View>
         )}
@@ -1019,7 +1027,7 @@ export default function IncidenciasAbiertasScreen() {
                 <MaterialIcons
                   name={selectedIndices.size === incidenciasPagina.length && incidenciasPagina.length > 0 ? 'check-box' : 'check-box-outline-blank'}
                   size={20}
-                  color={selectedIndices.size === incidenciasPagina.length && incidenciasPagina.length > 0 ? '#0ea5e9' : '#94a3b8'}
+                  color={selectedIndices.size === incidenciasPagina.length && incidenciasPagina.length > 0 ? colors.accent : colors.textMuted}
                 />
               </TouchableOpacity>
             )}
@@ -1056,7 +1064,7 @@ export default function IncidenciasAbiertasScreen() {
                   <MaterialIcons
                     name={selectedIndices.has(idx) ? 'check-box' : 'check-box-outline-blank'}
                     size={20}
-                    color={selectedIndices.has(idx) ? '#0ea5e9' : '#94a3b8'}
+                    color={selectedIndices.has(idx) ? colors.accent : colors.textMuted}
                   />
                 </View>
               )}
@@ -1092,7 +1100,7 @@ export default function IncidenciasAbiertasScreen() {
                   Reparaciones programadas — {programadasDiaModalIso ? formatearSoloFecha(programadasDiaModalIso) : ''}
                 </Text>
                 <TouchableOpacity onPress={() => setProgramadasDiaModalIso(null)} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <ScrollView
@@ -1207,7 +1215,7 @@ export default function IncidenciasAbiertasScreen() {
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{incidenciasToDelete.length === 1 ? 'Borrar Incidencia' : 'Borrar Incidencias'}</Text>
                 <TouchableOpacity onPress={cerrarModalBorrar} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <View style={styles.modalBody}>
@@ -1271,7 +1279,7 @@ export default function IncidenciasAbiertasScreen() {
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity style={styles.photoCloseBtn} onPress={() => setExpandedPhotoUri(null)}>
-              <MaterialIcons name="close" size={28} color="#fff" />
+              <MaterialIcons name="close" size={28} color={colors.surface} />
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -1280,82 +1288,86 @@ export default function IncidenciasAbiertasScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
-  retryBtn: { paddingVertical: 8, paddingHorizontal: 16, backgroundColor: '#0ea5e9', borderRadius: 8 },
-  retryBtnText: { fontSize: 12, color: '#fff', fontWeight: '600' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, textAlign: 'center' },
+  retryBtn: { paddingVertical: SPACING.sm, paddingHorizontal: SPACING.lg, backgroundColor: colors.accent, borderRadius: RADIO_MEDIO },
+  retryBtnText: { fontSize: fontSizes[12], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xs, gap: SPACING.sm },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.md },
   reportarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
   },
-  reportarBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
-  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 140, maxWidth: 280, height: 32, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 8 },
+  reportarBtnText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 140, maxWidth: 280, height: 32, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, paddingHorizontal: SPACING.sm },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
-  refreshBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
-  viewModeWrap: { flexDirection: 'row', alignItems: 'center', gap: 0, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden' },
-  viewModeBtn: { padding: 6, backgroundColor: '#f8fafc' },
-  viewModeBtnActive: { backgroundColor: '#e0f2fe' },
-  deleteBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#fef2f2' },
+  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, paddingVertical: 0 },
+  refreshBtn: { padding: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.bg },
+  viewModeWrap: { flexDirection: 'row', alignItems: 'center', gap: 0, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' },
+  viewModeBtn: { padding: 6, backgroundColor: colors.bg },
+  viewModeBtnActive: { backgroundColor: colors.accentMuted },
+  deleteBtn: { padding: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: statusColors.danger.bg },
   deleteBtnDisabled: { opacity: 0.6 },
   subtitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
-    gap: 12,
+    marginBottom: SPACING.sm,
+    gap: SPACING.md,
     flexWrap: 'wrap',
   },
-  subtitle: { fontSize: 12, color: '#64748b' },
-  pagination: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  pageBtn: { padding: 4 },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  pagination: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  pageBtn: { padding: SPACING.xs },
   pageBtnDisabled: { opacity: 0.5 },
-  pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
+  pageText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginHorizontal: SPACING.xs },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 20 },
   calendarAboveCount: { width: '100%', paddingBottom: 6 },
   calendarCard: {
     width: '100%',
     alignSelf: 'stretch',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 8,
+    borderColor: colors.border,
+    padding: SPACING.sm,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
-  calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  calendarTitle: { fontSize: 16, fontWeight: '600', color: '#334155', flex: 1, textAlign: 'center' },
+  calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.xs },
+  calendarTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, flex: 1, textAlign: 'center' },
   calendarDayDragOver: { backgroundColor: '#fbcfe8', borderColor: '#db2777', borderWidth: 2 },
-  calendarDayBadge: { backgroundColor: '#e2e8f0', borderRadius: 5, paddingVertical: 2, paddingHorizontal: 4, alignSelf: 'center', marginBottom: 2 },
-  calendarDayBadgeToday: { backgroundColor: '#0ea5e9' },
-  calendarDayBadgeText: { fontSize: 11, fontWeight: '700', color: '#475569', lineHeight: 14 },
-  calendarDayBadgeTextToday: { color: '#fff' },
+  // 5 px; radius.sm es 6.
+  calendarDayBadge: { backgroundColor: colors.border, borderRadius: 5, paddingVertical: 2, paddingHorizontal: SPACING.xs, alignSelf: 'center', marginBottom: 2 },
+  calendarDayBadgeToday: { backgroundColor: colors.accent },
+  calendarDayBadgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, lineHeight: 14, fontVariant: ['tabular-nums'] },
+  calendarDayBadgeTextToday: { color: colors.surface },
   calendarDayPast: { opacity: 0.5 },
-  calendarDayTotalLabel: { fontSize: 9, fontWeight: '700', color: '#c026d3', marginTop: 0, marginBottom: 0, lineHeight: 12, textAlign: 'center' },
-  calendarDayPorLocal: { fontSize: 8, color: '#64748b', marginTop: 0, marginBottom: 0, lineHeight: 10, textAlign: 'center' },
+  calendarDayTotalLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#c026d3', marginTop: 0, marginBottom: 0, lineHeight: 12, textAlign: 'center' },
+  calendarDayPorLocal: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 0, marginBottom: 0, lineHeight: 10, textAlign: 'center' },
   calendarDayListBtn: {
-    marginTop: 4,
-    padding: 4,
-    borderRadius: 6,
+    marginTop: SPACING.xs,
+    padding: SPACING.xs,
+    borderRadius: radius.sm,
     backgroundColor: '#fae8ff',
     borderWidth: 1,
     borderColor: '#e9d5ff',
@@ -1364,13 +1376,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   calendarWeekRow: { flexDirection: 'row', gap: 6 },
-  calendarWeekDayCol: { flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 6, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 0.5, borderColor: '#f1f5f9', overflow: 'hidden' },
-  calendarWeekDayLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 6 },
-  calendarWeekDayNum: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  deckEmpty: { padding: 24, alignItems: 'center' },
-  deckEmptyText: { fontSize: 13, color: '#94a3b8' },
+  calendarWeekDayCol: { flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 6, backgroundColor: colors.bg, borderRadius: RADIO_MEDIO, borderWidth: 0.5, borderColor: colors.navActive, overflow: 'hidden' },
+  calendarWeekDayLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: 6 },
+  deckEmpty: { padding: SPACING.xl, alignItems: 'center' },
+  deckEmptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
   boardScrollWrap: { flex: 1 },
-  boardScrollContent: { flexGrow: 1, paddingBottom: 24, paddingHorizontal: 4 },
+  boardScrollContent: { flexGrow: 1, paddingBottom: SPACING.xl, paddingHorizontal: SPACING.xs },
   cardExtras: {
     marginTop: 6,
     gap: 6,
@@ -1387,13 +1398,13 @@ const styles = StyleSheet.create({
   },
   cardProgramado: {
     paddingVertical: 3,
-    paddingHorizontal: 8,
-    backgroundColor: '#dcfce7',
-    borderRadius: 6,
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: statusColors.success.bg,
+    borderRadius: radius.sm,
     flexShrink: 1,
     minWidth: 0,
   },
-  cardProgramadoText: { fontSize: 10, fontWeight: '700', color: '#166534' },
+  cardProgramadoText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#166534' },
   cardDeshacerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1401,32 +1412,34 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingVertical: 5,
     paddingHorizontal: 7,
-    backgroundColor: '#fef2f2',
-    borderRadius: 6,
+    backgroundColor: statusColors.danger.bg,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  cardDeshacerText: { fontSize: 10, fontWeight: '600', color: '#dc2626' },
+  cardDeshacerText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.danger },
   cardEstado: {
     paddingVertical: 2,
     paddingHorizontal: 6,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 6,
+    backgroundColor: colors.navActive,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     flexShrink: 0,
   },
-  cardEstadoText: { fontSize: 9, fontWeight: '600', color: '#64748b' },
+  cardEstadoText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  // Más oscuro que colors.overlay (visor de foto).
   photoOverlay: { flex: 1, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
   photoOverlayWeb: Platform.OS === 'web' ? { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 } : {},
   photoExpandedWrap: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', position: 'absolute' as const, left: 0, right: 0, top: 0, bottom: 0 },
   photoExpandedTouch: { justifyContent: 'center', alignItems: 'center' },
   photoExpanded: { maxWidth: '100%', maxHeight: '100%' },
-  photoCloseBtn: { position: 'absolute', top: 16, right: 16, padding: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 24 },
-  table: { minWidth: '100%', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
-  rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
-  cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 6, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },
-  cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
+  // 24 px, por encima de radius.xl (16). Velado más oscuro que colors.overlay.
+  photoCloseBtn: { position: 'absolute', top: 16, right: 16, padding: SPACING.sm, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 24 },
+  table: { minWidth: '100%', borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, overflow: 'hidden', backgroundColor: colors.surface },
+  rowHeader: { flexDirection: 'row', backgroundColor: colors.border, borderBottomWidth: 1, borderBottomColor: colors.borderStrong },
+  cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 6, paddingHorizontal: SPACING.sm, borderRightWidth: 1, borderRightColor: colors.borderStrong, position: 'relative' },
+  cellHeaderText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   resizeHandle: {
     position: 'absolute',
     top: 0,
@@ -1435,66 +1448,67 @@ const styles = StyleSheet.create({
     height: '100%',
     cursor: 'col-resize' as 'pointer',
   },
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
-  rowSelected: { backgroundColor: '#e0f2fe' },
-  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
+  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  rowSelected: { backgroundColor: colors.accentMuted },
+  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm, borderRightWidth: 1, borderRightColor: colors.border },
   cellCheckbox: { width: 40, minWidth: 40, alignItems: 'center', justifyContent: 'center' },
-  cellText: { fontSize: 11, color: '#475569' },
+  cellText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
   filterProgramadasBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
   },
-  filterProgramadasBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  filterProgramadasText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
-  filterProgramadasTextActive: { color: '#fff' },
+  filterProgramadasBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  filterProgramadasText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  filterProgramadasTextActive: { color: colors.surface },
   cancelSelectBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
   },
-  cancelSelectBtnText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  cancelSelectBtnText: { fontSize: fontSizes[12], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  // Más oscuro que colors.overlay.
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
-  modalContentWrap: { width: '100%', maxWidth: 360, padding: 24, alignItems: 'center' },
-  modalProgramadasWrap: { width: '100%', maxWidth: 560, padding: 24, alignItems: 'center', maxHeight: '92%' as const },
+  modalContentWrap: { width: '100%', maxWidth: 360, padding: SPACING.xl, alignItems: 'center' },
+  modalProgramadasWrap: { width: '100%', maxWidth: 560, padding: SPACING.xl, alignItems: 'center', maxHeight: '92%' as const },
   modalProgramadasScroll: { maxHeight: 420 },
-  modalProgramadasScrollContent: { paddingHorizontal: 16, paddingBottom: 16 },
-  modalProgramadasGroup: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  modalProgramadasScrollContent: { paddingHorizontal: SPACING.lg, paddingBottom: SPACING.lg },
+  modalProgramadasGroup: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
   modalProgramadasGroupFirst: { marginTop: 0, paddingTop: 0, borderTopWidth: 0 },
-  modalProgramadasGroupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 2, gap: 8 },
-  modalProgramadasGroupTitle: { fontSize: 13, fontWeight: '700', color: '#0369a1', flex: 1, minWidth: 0 },
-  modalProgramadasGroupBadge: { backgroundColor: '#e0f2fe', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, flexShrink: 0 },
-  modalProgramadasGroupBadgeText: { fontSize: 10, fontWeight: '600', color: '#0369a1' },
+  modalProgramadasGroupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.sm, paddingHorizontal: 2, gap: SPACING.sm },
+  modalProgramadasGroupTitle: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, flex: 1, minWidth: 0 },
+  modalProgramadasGroupBadge: { backgroundColor: colors.accentMuted, paddingHorizontal: SPACING.sm, paddingVertical: 3, borderRadius: RADIO_MEDIO, flexShrink: 0 },
+  modalProgramadasGroupBadgeText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
   modalProgramadasRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
   modalProgramadasRowFotosCol: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     flexShrink: 0,
     width: 128,
     justifyContent: 'flex-start',
   },
   modalProgramadasRowTextCol: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 6 },
-  modalProgramadasTitulo: { fontSize: 13, fontWeight: '700', color: '#334155', lineHeight: 18 },
+  modalProgramadasTitulo: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, lineHeight: 18 },
   modalProgramadasRowChips: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1502,8 +1516,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   modalProgramadasZonaInline: {
-    fontSize: 11,
-    color: '#64748b',
+    fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize,
+    color: colors.textMuted,
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 48,
@@ -1511,40 +1525,40 @@ const styles = StyleSheet.create({
   },
   modalProgramadasEstadoPill: {
     paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    backgroundColor: '#f1f5f9',
+    paddingHorizontal: SPACING.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     flexShrink: 0,
     maxWidth: '100%',
   },
-  modalProgramadasEstadoPillText: { fontSize: 10, fontWeight: '600', color: '#475569' },
+  modalProgramadasEstadoPillText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   modalProgramadasPrioridadPill: {
     paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 6,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: radius.sm,
     flexShrink: 0,
     maxWidth: '100%',
   },
-  modalProgramadasPrioridadPillText: { fontSize: 10, fontWeight: '700', color: '#fff' },
-  modalProgramadasFotoThumbWrap: { borderRadius: 6, overflow: 'hidden' },
-  modalProgramadasFotoThumb: { width: 40, height: 40, borderRadius: 6, backgroundColor: '#e2e8f0' },
+  modalProgramadasPrioridadPillText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
+  modalProgramadasFotoThumbWrap: { borderRadius: radius.sm, overflow: 'hidden' },
+  modalProgramadasFotoThumb: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.border },
   modalProgramadasFotoEmpty: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     borderStyle: 'dashed',
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
   },
-  modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
-  modalClose: { padding: 4 },
+  modalCard: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.xl, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  modalClose: { padding: SPACING.xs },
   modalBody: { padding: 20 },
-  modalMessage: { fontSize: 14, color: '#475569', marginBottom: 20, lineHeight: 20 },
-  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
-  modalBtnNo: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#f1f5f9', borderRadius: 10 },
-  modalBtnNoText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
-  modalBtnSi: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#dc2626', borderRadius: 10 },
-  modalBtnSiText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  modalMessage: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, marginBottom: 20, lineHeight: 20 },
+  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACING.md },
+  modalBtnNo: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: colors.navActive, borderRadius: radius.md },
+  modalBtnNoText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  modalBtnSi: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: colors.danger, borderRadius: radius.md },
+  modalBtnSiText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
 });
