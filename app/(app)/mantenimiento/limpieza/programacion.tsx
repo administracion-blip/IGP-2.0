@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Modal,
   Switch,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -17,6 +16,15 @@ import { useMantenimientoLocales, valorEnLocal } from '../LocalesContext';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
 import { RangoFechas } from '../../../components/RangoFechas';
 import { apiFetch } from '../../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 
 type Regla = {
   id_regla: string;
@@ -234,17 +242,17 @@ export default function ProgramacionLimpiezaScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Programación de limpieza</Text>
       </View>
 
       {loadingLocales ? (
-        <View style={styles.center}><ActivityIndicator size="small" color="#0ea5e9" /></View>
+        <View style={styles.center}><ActivityIndicator size="small" color={colors.accent} /></View>
       ) : (
         <>
           <SelectorDesplegable
-            style={{ marginBottom: 12 }}
+            style={{ marginBottom: SPACING.md }}
             placeholder="Selecciona local"
             icono="store"
             tituloLista="Local"
@@ -267,8 +275,8 @@ export default function ProgramacionLimpiezaScreen() {
               onChangeHasta={setGenHasta}
             />
             <TouchableOpacity style={styles.genBtn} onPress={generar} disabled={generando || !localId}>
-              {generando ? <ActivityIndicator size="small" color="#fff" /> : (
-                <><MaterialIcons name="playlist-add-check" size={18} color="#fff" /><Text style={styles.genBtnText}>Generar desde reglas activas</Text></>
+              {generando ? <ActivityIndicator size="small" color={colors.surface} /> : (
+                <><MaterialIcons name="playlist-add-check" size={18} color={colors.surface} /><Text style={styles.genBtnText}>Generar desde reglas activas</Text></>
               )}
             </TouchableOpacity>
           </View>
@@ -276,7 +284,7 @@ export default function ProgramacionLimpiezaScreen() {
           <View style={styles.listHeader}>
             <Text style={styles.sectionTitle}>Reglas de frecuencia</Text>
             <TouchableOpacity style={styles.addBtn} onPress={abrirNuevo} disabled={objetos.length === 0}>
-              <MaterialIcons name="add" size={18} color="#fff" />
+              <MaterialIcons name="add" size={18} color={colors.surface} />
               <Text style={styles.addBtnText}>Nueva regla</Text>
             </TouchableOpacity>
           </View>
@@ -285,7 +293,7 @@ export default function ProgramacionLimpiezaScreen() {
           ) : null}
 
           {loading ? (
-            <View style={styles.center}><ActivityIndicator size="small" color="#0ea5e9" /></View>
+            <View style={styles.center}><ActivityIndicator size="small" color={colors.accent} /></View>
           ) : (
             <ScrollView contentContainerStyle={styles.list}>
               {reglas.length === 0 ? (
@@ -299,10 +307,10 @@ export default function ProgramacionLimpiezaScreen() {
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => abrirEditar(r)} style={styles.iconBtn}>
-                    <MaterialIcons name="edit" size={18} color="#0ea5e9" />
+                    <MaterialIcons name="edit" size={18} color={colors.accent} />
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => borrar(r)} style={styles.iconBtn}>
-                    <MaterialIcons name="delete" size={18} color="#dc2626" />
+                    <MaterialIcons name="delete" size={18} color={colors.danger} />
                   </TouchableOpacity>
                 </View>
               ))}
@@ -317,7 +325,7 @@ export default function ProgramacionLimpiezaScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editId ? 'Editar regla' : 'Nueva regla'}</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
@@ -339,7 +347,7 @@ export default function ProgramacionLimpiezaScreen() {
                 value={nombreTarea}
                 onChangeText={setNombreTarea}
                 placeholder="Repaso diario, Limpieza profunda…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
               />
 
               <Text style={styles.label}>Frecuencia</Text>
@@ -354,7 +362,7 @@ export default function ProgramacionLimpiezaScreen() {
               {frecuencia === 'cada_n_dias' ? (
                 <>
                   <Text style={styles.label}>Cada cuántos días</Text>
-                  <TextInput style={styles.input} value={cadaNDias} onChangeText={setCadaNDias} keyboardType="number-pad" placeholder="2" placeholderTextColor="#94a3b8" />
+                  <TextInput style={styles.input} value={cadaNDias} onChangeText={setCadaNDias} keyboardType="number-pad" placeholder="2" placeholderTextColor={colors.textMuted} />
                 </>
               ) : null}
 
@@ -386,7 +394,7 @@ export default function ProgramacionLimpiezaScreen() {
               </View>
 
               <TouchableOpacity style={styles.saveBtn} onPress={guardar} disabled={guardando}>
-                {guardando ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Guardar</Text>}
+                {guardando ? <ActivityIndicator size="small" color={colors.surface} /> : <Text style={styles.saveBtnText}>Guardar</Text>}
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -396,42 +404,48 @@ export default function ProgramacionLimpiezaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  backBtn: { padding: 4 },
-  title: { flex: 1, fontSize: 18, fontWeight: '700', color: '#334155' },
-  center: { paddingVertical: 24, alignItems: 'center' },
-  errorText: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
-  infoText: { fontSize: 12, color: '#16a34a', marginBottom: 8 },
-  genCard: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 14, marginBottom: 16 },
-  genTitle: { fontSize: 14, fontWeight: '700', color: '#334155', marginBottom: 8 },
-  genBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#0ea5e9', borderRadius: 8, paddingVertical: 10, marginTop: 12 },
-  genBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
-  listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#0ea5e9', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
-  addBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
-  list: { gap: 8, paddingBottom: 20 },
-  vacio: { fontSize: 13, color: '#94a3b8', paddingVertical: 8 },
-  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 12, gap: 4 },
-  cardTitle: { fontSize: 14, fontWeight: '600', color: '#334155' },
-  cardMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: SPACING.md },
+  backBtn: { padding: SPACING.xs },
+  title: { flex: 1, fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  center: { paddingVertical: SPACING.xl, alignItems: 'center' },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, marginBottom: SPACING.sm },
+  infoText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.success, marginBottom: SPACING.sm },
+  genCard: { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 14, marginBottom: SPACING.lg },
+  genTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, marginBottom: SPACING.sm },
+  genBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.accent, borderRadius: RADIO_MEDIO, paddingVertical: 10, marginTop: SPACING.md },
+  genBtnText: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
+  listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.sm },
+  sectionTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  addBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, backgroundColor: colors.accent, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md, borderRadius: RADIO_MEDIO },
+  addBtnText: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
+  list: { gap: SPACING.sm, paddingBottom: 20 },
+  vacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, paddingVertical: SPACING.sm },
+  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: SPACING.md, gap: SPACING.xs },
+  cardTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  cardMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
   iconBtn: { padding: 6 },
+  // Más oscuro que colors.overlay.
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalCard: { width: '100%', maxWidth: 500, maxHeight: '85%', backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155' },
-  modalScroll: { padding: 16 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6, marginTop: 10 },
-  ayuda: { fontSize: 11, color: '#64748b', marginTop: 6, lineHeight: 15 },
-  input: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, fontSize: 14, color: '#334155', backgroundColor: '#fff', ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) },
+  modalCard: { width: '100%', maxWidth: 500, maxHeight: '85%', backgroundColor: colors.surface, borderRadius: RADIO_TARJETA, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  modalScroll: { padding: SPACING.lg },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: 6, marginTop: 10 },
+  ayuda: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 6, lineHeight: 15 },
+  input: { borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, paddingVertical: 10, paddingHorizontal: SPACING.md, fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, backgroundColor: colors.surface },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-  chipActive: { borderColor: '#7dd3fc', backgroundColor: '#e0f2fe' },
-  chipText: { fontSize: 12, color: '#64748b' },
-  chipTextActive: { color: '#0369a1', fontWeight: '600' },
+  chip: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg },
+  chipActive: { borderColor: '#7dd3fc', backgroundColor: colors.accentMuted },
+  chipText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  chipTextActive: { color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
-  saveBtn: { backgroundColor: '#0ea5e9', borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 20, marginBottom: 10 },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  saveBtn: { backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: SPACING.md, alignItems: 'center', marginTop: 20, marginBottom: 10 },
+  saveBtnText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[14] },
 });
