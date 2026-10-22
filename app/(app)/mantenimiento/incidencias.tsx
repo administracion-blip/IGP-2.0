@@ -17,6 +17,15 @@ import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { ICONS, ICON_SIZE } from '../../constants/icons';
 import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
+import {
   ERP_LIST_HEADER_TEXT_PROPS,
   ERP_LIST_MIN_COL_WIDTH,
   erpListTableStyles,
@@ -159,13 +168,13 @@ function estilosEstado(estado: string | undefined): { backgroundColor: string; c
     case 'NUEVA':
       return { backgroundColor: '#dbeafe', color: '#1e40af' };
     case 'Programado':
-      return { backgroundColor: '#fef3c7', color: '#b45309' };
+      return { backgroundColor: statusColors.warning.bg, color: statusColors.warning.text };
     case 'Reparacion':
       return { backgroundColor: '#d1fae5', color: '#047857' };
     case 'CANCELADA':
-      return { backgroundColor: '#fee2e2', color: '#b91c1c' };
+      return { backgroundColor: statusColors.danger.bg, color: statusColors.danger.text };
     default:
-      return { backgroundColor: '#f1f5f9', color: '#475569' };
+      return { backgroundColor: colors.navActive, color: colors.textPrimary };
   }
 }
 
@@ -320,7 +329,7 @@ export default function MantenimientoScreen() {
       .catch(() => setMapaUsuarios({}));
   }, []);
 
-  const badgeColor = countAbiertas === 0 ? '#22c55e' : '#dc2626';
+  const badgeColor = countAbiertas === 0 ? '#22c55e' : colors.danger;
 
   const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_COL_WIDTH, [columnWidths]);
 
@@ -363,7 +372,7 @@ export default function MantenimientoScreen() {
   );
 
   const cellTextStyle = useMemo(
-    () => [erpListTableStyles.cellText, { fontSize: TABLE_FONT_SIZE, lineHeight: TABLE_FONT_SIZE + 3 }],
+    () => [erpListTableStyles.cellText, { fontFamily: fontFamily.regular, fontSize: TABLE_FONT_SIZE, lineHeight: TABLE_FONT_SIZE + 3 }],
     [],
   );
 
@@ -631,7 +640,7 @@ export default function MantenimientoScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push('/mantenimiento' as never)} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Mantenimiento</Text>
@@ -641,11 +650,11 @@ export default function MantenimientoScreen() {
 
       <View style={styles.buttonsRow}>
         <TouchableOpacity style={styles.btn} onPress={() => router.push('/mantenimiento/reportar')} activeOpacity={0.7}>
-          <MaterialIcons name="add-circle-outline" size={22} color="#0ea5e9" />
+          <MaterialIcons name="add-circle-outline" size={22} color={colors.accent} />
           <Text style={styles.btnText}>Reportar incidencia</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.btn, styles.btnWithBadge]} onPress={() => router.push('/mantenimiento/abiertas')} activeOpacity={0.7}>
-          <MaterialIcons name="list-alt" size={22} color="#0ea5e9" />
+          <MaterialIcons name="list-alt" size={22} color={colors.accent} />
           <Text style={styles.btnText}>Incidencias abiertas</Text>
           {countAbiertas !== null && (
             <View style={[styles.badge, { backgroundColor: badgeColor }]} pointerEvents="none">
@@ -654,20 +663,20 @@ export default function MantenimientoScreen() {
           )}
         </TouchableOpacity>
         <TouchableOpacity style={styles.btn} onPress={() => router.push('/mantenimiento/programadas-hoy')} activeOpacity={0.7}>
-          <MaterialIcons name="today" size={22} color="#0ea5e9" />
+          <MaterialIcons name="today" size={22} color={colors.accent} />
           <Text style={styles.btnText}>Reparaciones de hoy</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.btn} onPress={() => router.push('/mantenimiento/reparaciones-realizadas')} activeOpacity={0.7}>
-          <MaterialIcons name="check-circle-outline" size={22} color="#0ea5e9" />
+          <MaterialIcons name="check-circle-outline" size={22} color={colors.accent} />
           <Text style={styles.btnText}>Reparaciones realizadas</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.btn} onPress={() => router.push('/mantenimiento/recurrentes')} activeOpacity={0.7}>
-          <MaterialIcons name="event-repeat" size={22} color="#0ea5e9" />
+          <MaterialIcons name="event-repeat" size={22} color={colors.accent} />
           <Text style={styles.btnText}>Reparaciones recurrentes</Text>
         </TouchableOpacity>
         {hasPermiso('mantenimiento.facturar') ? (
           <TouchableOpacity style={styles.btn} onPress={() => router.push('/mantenimiento/facturacion' as never)} activeOpacity={0.7}>
-            <MaterialIcons name="receipt-long" size={22} color="#0ea5e9" />
+            <MaterialIcons name="receipt-long" size={22} color={colors.accent} />
             <Text style={styles.btnText}>Facturación mensual</Text>
           </TouchableOpacity>
         ) : null}
@@ -686,17 +695,17 @@ export default function MantenimientoScreen() {
               disabled={btn.disabled}
               accessibilityLabel={btn.label}
             >
-              <MaterialIcons name={btn.icon} size={ICON_SIZE} color={btn.disabled ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name={btn.icon} size={ICON_SIZE} color={btn.disabled ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
           ))}
           {multiSelectMode && (
             <TouchableOpacity style={styles.cancelSelectBtn} onPress={salirMultiSelect}>
-              <MaterialIcons name="close" size={ICON_SIZE} color="#64748b" />
+              <MaterialIcons name="close" size={ICON_SIZE} color={colors.textMuted} />
               <Text style={styles.cancelSelectBtnText}>Cancelar selección</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity style={styles.toolbarBtn} onPress={refetch} disabled={loading} accessibilityLabel="Actualizar">
-            {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />}
+            {loading ? <ActivityIndicator size="small" color={colors.accent} /> : <MaterialIcons name="refresh" size={ICON_SIZE} color={colors.accent} />}
           </TouchableOpacity>
         </View>
         {seleccionFacturadaCount > 0 ? (
@@ -744,11 +753,11 @@ export default function MantenimientoScreen() {
         {totalPages > 1 && (
           <View style={styles.pagination}>
             <TouchableOpacity style={[styles.pageBtn, pageIndexClamped <= 0 && styles.pageBtnDisabled]} onPress={goPrevPage} disabled={pageIndexClamped <= 0}>
-              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
             <Text style={styles.pageText}>Página {pageIndexClamped + 1} de {totalPages}</Text>
             <TouchableOpacity style={[styles.pageBtn, pageIndexClamped >= totalPages - 1 && styles.pageBtnDisabled]} onPress={goNextPage} disabled={pageIndexClamped >= totalPages - 1}>
-              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
           </View>
         )}
@@ -756,7 +765,7 @@ export default function MantenimientoScreen() {
 
       {loading && incidencias.length === 0 ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Cargando incidencias…</Text>
         </View>
       ) : (
@@ -785,8 +794,8 @@ export default function MantenimientoScreen() {
                         size={18}
                         color={
                           selectedIndices.size === incidenciasPagina.length && incidenciasPagina.length > 0
-                            ? '#0ea5e9'
-                            : '#94a3b8'
+                            ? colors.accent
+                            : colors.textMuted
                         }
                       />
                     </TouchableOpacity>
@@ -841,7 +850,7 @@ export default function MantenimientoScreen() {
                               <MaterialIcons
                                 name={selectedIndices.has(idx) ? 'check-box' : 'check-box-outline-blank'}
                                 size={18}
-                                color={selectedIndices.has(idx) ? '#0ea5e9' : '#94a3b8'}
+                                color={selectedIndices.has(idx) ? colors.accent : colors.textMuted}
                               />
                             </View>
                           ) : null}
@@ -853,7 +862,7 @@ export default function MantenimientoScreen() {
                             const cellTextBase = [
                               cellTextStyle,
                               esNegrita && styles.cellTextBold,
-                              estadoStyles && { color: estadoStyles.color, fontWeight: '600' as const },
+                              estadoStyles && { color: estadoStyles.color, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
                             ];
 
                             if (col === 'espera') {
@@ -874,16 +883,16 @@ export default function MantenimientoScreen() {
                                   key={col}
                                   style={[
                                     erpListTableStyles.cell,
-                                    { width: getColWidth(col), flexDirection: 'row', alignItems: 'center', gap: 4 },
-                                    alerta && { backgroundColor: '#fef2f2' },
+                                    { width: getColWidth(col), flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+                                    alerta && { backgroundColor: statusColors.danger.bg },
                                   ]}
                                 >
-                                  {alerta ? <MaterialIcons name="warning" size={14} color="#dc2626" /> : null}
+                                  {alerta ? <MaterialIcons name="warning" size={14} color={colors.danger} /> : null}
                                   <Text
                                     style={[
                                       cellTextStyle,
                                       { flex: 1 },
-                                      alerta && { color: '#dc2626', fontWeight: '700' },
+                                      alerta && { color: colors.danger, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
                                     ]}
                                   >
                                     {text}
@@ -916,7 +925,7 @@ export default function MantenimientoScreen() {
                                       }}
                                       accessibilityLabel={`Ver ${listaFotos.length} fotos`}
                                     >
-                                      <MaterialIcons name="photo-library" size={18} color="#0ea5e9" />
+                                      <MaterialIcons name="photo-library" size={18} color={colors.accent} />
                                       <Text style={styles.fotosIconCount}>{listaFotos.length}</Text>
                                     </TouchableOpacity>
                                   ) : (
@@ -934,7 +943,7 @@ export default function MantenimientoScreen() {
                                   { width: getColWidth(col) },
                                   estadoStyles && {
                                     backgroundColor: estadoStyles.backgroundColor,
-                                    borderRadius: 6,
+                                    borderRadius: radius.sm,
                                   },
                                 ]}
                               >
@@ -964,7 +973,7 @@ export default function MantenimientoScreen() {
                   {incidenciasToDelete.length === 1 ? 'Borrar incidencia' : 'Borrar incidencias'}
                 </Text>
                 <TouchableOpacity onPress={cerrarModalBorrar} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <View style={styles.modalBody}>
@@ -996,18 +1005,18 @@ export default function MantenimientoScreen() {
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Editar incidencia</Text>
                 <TouchableOpacity onPress={() => setModalEditarVisible(false)} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <ScrollView style={styles.modalEditScroll} keyboardShouldPersistTaps="handled">
                 <View style={styles.modalBody}>
                   <View style={styles.modalField}>
                     <Text style={styles.modalLabel}>Título *</Text>
-                    <TextInput style={styles.modalInput} value={editTitulo} onChangeText={setEditTitulo} placeholder="Título" placeholderTextColor="#94a3b8" />
+                    <TextInput style={styles.modalInput} value={editTitulo} onChangeText={setEditTitulo} placeholder="Título" placeholderTextColor={colors.textMuted} />
                   </View>
                   <View style={styles.modalField}>
                     <Text style={styles.modalLabel}>Descripción</Text>
-                    <TextInput style={[styles.modalInput, styles.modalTextArea]} value={editDescripcion} onChangeText={setEditDescripcion} placeholder="Descripción" placeholderTextColor="#94a3b8" multiline numberOfLines={3} />
+                    <TextInput style={[styles.modalInput, styles.modalTextArea]} value={editDescripcion} onChangeText={setEditDescripcion} placeholder="Descripción" placeholderTextColor={colors.textMuted} multiline numberOfLines={3} />
                   </View>
                   <View style={styles.modalField}>
                     <Text style={styles.modalLabel}>Zona</Text>
@@ -1054,7 +1063,7 @@ export default function MantenimientoScreen() {
                               style={styles.modalQuitarFechaBtn}
                               onPress={() => setEditFechaProgramada('')}
                             >
-                              <MaterialIcons name="event-busy" size={18} color="#64748b" />
+                              <MaterialIcons name="event-busy" size={18} color={colors.textMuted} />
                               <Text style={styles.modalQuitarFechaText}>Quitar</Text>
                             </TouchableOpacity>
                           )}
@@ -1068,7 +1077,7 @@ export default function MantenimientoScreen() {
                       <Text style={styles.modalBtnNoText}>Cancelar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.modalBtnGuardar} onPress={ejecutarEdicion} disabled={guardando}>
-                      {guardando ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnGuardarText}>Guardar</Text>}
+                      {guardando ? <ActivityIndicator size="small" color={colors.surface} /> : <Text style={styles.modalBtnGuardarText}>Guardar</Text>}
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1089,35 +1098,40 @@ export default function MantenimientoScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10, minHeight: 0 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.lg, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 14, color: '#64748b', lineHeight: 20, marginTop: 2 },
-  buttonsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, overflow: 'visible', marginBottom: 16 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, lineHeight: 20, marginTop: 2 },
+  buttonsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.md, overflow: 'visible', marginBottom: SPACING.lg },
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#f8fafc',
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     alignSelf: 'flex-start',
   },
-  btnText: { fontSize: 14, fontWeight: '500', color: '#0ea5e9' },
+  btnText: { fontSize: fontSizes[14], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.accent },
   btnWithBadge: { position: 'relative', overflow: 'visible' },
   badge: {
     position: 'absolute',
@@ -1125,28 +1139,28 @@ const styles = StyleSheet.create({
     right: -14,
     minWidth: 29,
     height: 29,
-    borderRadius: 14,
+    borderRadius: RADIO_TARJETA,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 5,
   },
-  badgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.md },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  toolbarBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
+  toolbarBtn: { padding: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.bg },
   toolbarBtnDisabled: { opacity: 0.6 },
   cancelSelectBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
   },
-  cancelSelectBtnText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  cancelSelectBtnText: { fontSize: fontSizes[12], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   facturadoAviso: {
     flex: 1,
     minWidth: 0,
@@ -1158,82 +1172,83 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0fdfa',
     borderWidth: 1,
     borderColor: '#99f6e4',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  facturadoAvisoText: { flex: 1, minWidth: 0, fontSize: 11, color: '#0f766e', lineHeight: 15 },
-  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  errorText: { fontSize: 12, color: '#f87171', flex: 1 },
-  retryBtn: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#fef2f2', borderRadius: 8 },
-  retryBtnText: { fontSize: 12, color: '#dc2626', fontWeight: '600' },
-  subtitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
-  subtitleTable: { fontSize: 12, color: '#64748b' },
-  pagination: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  pageBtn: { padding: 4 },
+  facturadoAvisoText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#0f766e', lineHeight: 15 },
+  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flex: 1 },
+  retryBtn: { paddingVertical: 6, paddingHorizontal: SPACING.md, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  retryBtnText: { fontSize: fontSizes[12], color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.sm, gap: SPACING.md, flexWrap: 'wrap' },
+  subtitleTable: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  pagination: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  pageBtn: { padding: SPACING.xs },
   pageBtnDisabled: { opacity: 0.5 },
-  pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
-  center: { paddingVertical: 24, alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  tableHeaderText: { fontSize: TABLE_FONT_SIZE, lineHeight: TABLE_FONT_SIZE + 3 },
-  cellTextBold: { fontWeight: '700', color: '#334155' },
+  pageText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginHorizontal: SPACING.xs, fontVariant: ['tabular-nums'] },
+  center: { paddingVertical: SPACING.xl, alignItems: 'center', gap: 10 },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  tableHeaderText: { fontFamily: fontFamily.regular, fontSize: TABLE_FONT_SIZE, lineHeight: TABLE_FONT_SIZE + 3 },
+  cellTextBold: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   fotosIconBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
     paddingVertical: 2,
     paddingHorizontal: 4,
-    borderRadius: 6,
-    backgroundColor: '#f0f9ff',
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentMuted,
   },
-  fotosIconCount: { fontSize: 10, fontWeight: '700', color: '#0369a1' },
+  fotosIconCount: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, fontVariant: ['tabular-nums'] },
+  /** Más oscuro que colors.overlay. */
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
-  modalContentWrap: { width: '100%', maxWidth: 360, padding: 24, alignItems: 'center' },
-  modalEditWrap: { width: '100%', maxWidth: 480, padding: 24, alignItems: 'center' },
+  modalContentWrap: { width: '100%', maxWidth: 360, padding: SPACING.xl, alignItems: 'center' },
+  modalEditWrap: { width: '100%', maxWidth: 480, padding: SPACING.xl, alignItems: 'center' },
   modalEditScroll: { maxHeight: 500 },
-  modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
-  modalClose: { padding: 4 },
+  modalCard: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.xl, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  modalClose: { padding: SPACING.xs },
   modalBody: { padding: 20 },
-  modalMessage: { fontSize: 14, color: '#475569', marginBottom: 20, lineHeight: 20 },
-  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 },
-  modalBtnNo: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#f1f5f9', borderRadius: 10 },
-  modalBtnNoText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
-  modalBtnSi: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#dc2626', borderRadius: 10 },
-  modalBtnSiText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  modalBtnGuardar: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#0ea5e9', borderRadius: 10 },
-  modalBtnGuardarText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  modalMessage: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, marginBottom: 20, lineHeight: 20 },
+  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACING.md, marginTop: SPACING.sm },
+  modalBtnNo: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: colors.navActive, borderRadius: radius.md },
+  modalBtnNoText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  modalBtnSi: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: colors.danger, borderRadius: radius.md },
+  modalBtnSiText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  modalBtnGuardar: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: colors.accent, borderRadius: radius.md },
+  modalBtnGuardarText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
   modalField: { marginBottom: 14 },
-  modalLabel: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 },
-  modalInput: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, fontSize: 14, color: '#334155', backgroundColor: '#fff' },
+  modalLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: 6 },
+  modalInput: { borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, paddingVertical: 10, paddingHorizontal: SPACING.md, fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, backgroundColor: colors.surface },
   modalTextArea: { minHeight: 60, textAlignVertical: 'top' },
-  modalSelectWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  modalOptionBtn: { paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8 },
-  modalOptionBtnSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  modalOptionText: { fontSize: 12, color: '#475569' },
-  modalOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
-  modalFechaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  modalSelectWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+  modalOptionBtn: { paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO },
+  modalOptionBtnSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  modalOptionText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  modalOptionTextSelected: { color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  modalFechaRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   modalFechaInput: { flex: 1, minWidth: 140 },
   modalQuitarFechaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 8,
+    gap: SPACING.xs,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.navActive,
   },
-  modalQuitarFechaText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  modalQuitarFechaText: { fontSize: fontSizes[12], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   modalFacturadaBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
     backgroundColor: '#f0fdfa',
     borderWidth: 1,
     borderColor: '#99f6e4',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  modalFacturadaText: { flex: 1, minWidth: 0, fontSize: 11, color: '#0f766e', lineHeight: 16 },
-  modalHint: { fontSize: 11, color: '#94a3b8', marginTop: 4 },
+  modalFacturadaText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#0f766e', lineHeight: 16 },
+  modalHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: SPACING.xs },
 });
