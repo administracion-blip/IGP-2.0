@@ -20,6 +20,15 @@ import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 import { formatId6 } from '../../utils/idFormat';
 import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
+import {
   type CashflowEstado,
   type CashflowMovimiento,
   type CashflowResumen,
@@ -258,7 +267,7 @@ export default function CashflowIndexScreen() {
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleWrap}>
             <Text style={styles.cardTitle} numberOfLines={1}>{m.concepto}</Text>
-            <View style={[styles.badge, { backgroundColor: esPago ? '#fee2e2' : '#dcfce7', borderColor: esPago ? '#fca5a5' : '#86efac' }]}>
+            <View style={[styles.badge, { backgroundColor: esPago ? statusColors.danger.bg : statusColors.success.bg, borderColor: esPago ? '#fca5a5' : '#86efac' }]}>
               <Text style={[styles.badgeText, { color: esPago ? '#991b1b' : '#166534' }]}>
                 {esPago ? 'Pago' : 'Cobro'}
               </Text>
@@ -269,7 +278,7 @@ export default function CashflowIndexScreen() {
             <View
               style={[
                 styles.dotSem,
-                { backgroundColor: m.estado === 'Anulado' ? '#94a3b8' : esPago ? '#dc2626' : '#16a34a' },
+                { backgroundColor: m.estado === 'Anulado' ? colors.textMuted : esPago ? colors.danger : colors.success },
               ]}
             />
           </View>
@@ -312,7 +321,7 @@ export default function CashflowIndexScreen() {
     if (movimientos.length === 0 && !error) {
       return (
         <View style={styles.emptyWrap}>
-          <MaterialIcons name="account-balance-wallet" size={40} color="#cbd5e1" />
+          <MaterialIcons name="account-balance-wallet" size={40} color={colors.borderStrong} />
           <Text style={styles.emptyText}>No hay movimientos en el rango seleccionado.</Text>
         </View>
       );
@@ -320,7 +329,7 @@ export default function CashflowIndexScreen() {
     if (movimientosFiltrados.length === 0) {
       return (
         <View style={styles.emptyWrap}>
-          <MaterialIcons name="search-off" size={40} color="#cbd5e1" />
+          <MaterialIcons name="search-off" size={40} color={colors.borderStrong} />
           <Text style={styles.emptyText}>
             {hayBusqueda ? 'No hay movimientos que coincidan con la búsqueda.' : 'No hay movimientos con este filtro.'}
           </Text>
@@ -332,7 +341,7 @@ export default function CashflowIndexScreen() {
       <View style={styles.listaAgrupada}>
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeader}>
-            <MaterialIcons name="pending-actions" size={16} color="#d97706" />
+            <MaterialIcons name="pending-actions" size={16} color={colors.warning} />
             <Text style={styles.sectionTitle}>
               Pendientes ({gruposMovimientos.pendientes.length})
             </Text>
@@ -370,16 +379,16 @@ export default function CashflowIndexScreen() {
       {resumen ? (
         <>
           <View style={styles.kpiRow}>
-            <KpiCard label="Pagos" value={formatMoneda(resumen.pagos)} color="#dc2626" />
-            <KpiCard label="Cobros banco" value={formatMoneda(resumen.cobrosBanco)} color="#16a34a" />
+            <KpiCard label="Pagos" value={formatMoneda(resumen.pagos)} color={colors.danger} />
+            <KpiCard label="Cobros banco" value={formatMoneda(resumen.cobrosBanco)} color={colors.success} />
           </View>
           <View style={styles.kpiRow}>
             <KpiCard label="Reparto socios" value={formatMoneda(resumen.cobrosReparto)} />
-            <KpiCard label="Neto banco" value={formatMoneda(resumen.neto)} color="#0ea5e9" />
+            <KpiCard label="Neto banco" value={formatMoneda(resumen.neto)} color={colors.accent} />
           </View>
           <View style={styles.kpiRow}>
             <KpiCard label="En lista" value={String(movimientosFiltrados.length)} />
-            <KpiCard label="Pendientes" value={String(conteoPorEstado.Pendiente_firma + conteoPorEstado.Pendiente_validacion)} color="#d97706" />
+            <KpiCard label="Pendientes" value={String(conteoPorEstado.Pendiente_firma + conteoPorEstado.Pendiente_validacion)} color={colors.warning} />
           </View>
         </>
       ) : (
@@ -394,7 +403,7 @@ export default function CashflowIndexScreen() {
   if (!hasPermiso('cashflow.ver')) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
         <Text style={styles.errorText}>No tienes permiso para ver Cashflow.</Text>
       </View>
     );
@@ -404,12 +413,12 @@ export default function CashflowIndexScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.push('/' as never)} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Cashflow</Text>
         {puedeRegistrar ? (
           <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/cashflow/nuevo' as never)}>
-            <MaterialIcons name="add" size={16} color="#fff" />
+            <MaterialIcons name="add" size={16} color={colors.surface} />
             <Text style={styles.createBtnText}>Nuevo</Text>
           </TouchableOpacity>
         ) : null}
@@ -508,19 +517,19 @@ export default function CashflowIndexScreen() {
         </View>
 
         <View style={styles.searchWrap}>
-          <MaterialIcons name="search" size={18} color="#94a3b8" />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} />
           <TextInput
             style={styles.searchInput}
             value={busqueda}
             onChangeText={setBusqueda}
             placeholder="Buscar por concepto, contraparte, NIF, recibo, local…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
             autoCorrect={false}
             autoCapitalize="none"
           />
           {busqueda.length > 0 ? (
             <TouchableOpacity onPress={() => setBusqueda('')} hitSlop={8}>
-              <MaterialIcons name="close" size={16} color="#94a3b8" />
+              <MaterialIcons name="close" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           ) : null}
         </View>
@@ -533,7 +542,7 @@ export default function CashflowIndexScreen() {
       <View style={[styles.split, shouldStackPanels && styles.splitStack]}>
         <View style={[styles.panelLista, !shouldStackPanels && styles.panelListaBorder]}>
           {loading ? (
-            <View style={styles.center}><ActivityIndicator color="#0ea5e9" /></View>
+            <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>
           ) : (
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
               {movimientos.length > 0 && movimientosFiltrados.length > 0 ? (
@@ -555,49 +564,52 @@ export default function CashflowIndexScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  center: { padding: 40, alignItems: 'center', gap: 8 },
-  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
-  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: { padding: 40, alignItems: 'center', gap: SPACING.sm },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: SPACING.md },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    gap: 12,
+    borderBottomColor: colors.border,
+    gap: SPACING.md,
   },
   backBtn: { padding: 4 },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  headerTitle: { flex: 1, fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
   createBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accent,
   },
-  createBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+  createBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
 
   toolbar: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
+    borderBottomColor: colors.border,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
   },
-  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   filtrosCol: { flexDirection: 'column' },
   filtroCol: { flexGrow: 1, minWidth: 120, maxWidth: 200 },
   filtroColWide: { flexGrow: 1, minWidth: 180, maxWidth: 320 },
-  labelFiltros: { fontSize: 10, fontWeight: '600', color: '#64748b', marginBottom: 4, textTransform: 'uppercase' },
-  inputFechaCompact: { fontSize: 13, paddingVertical: 8, paddingHorizontal: 10, minHeight: 40 },
+  labelFiltros: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: 4, textTransform: 'uppercase' },
+  inputFechaCompact: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], paddingVertical: SPACING.sm, paddingHorizontal: 10, minHeight: 40 },
 
   chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   estadoChip: {
@@ -607,65 +619,66 @@ const styles = StyleSheet.create({
     paddingLeft: 10,
     paddingRight: 6,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
-  estadoChipText: { fontSize: 11, fontWeight: '600' },
-  estadoChipTextSel: { fontWeight: '800' },
+  estadoChipText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  estadoChipTextSel: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  /** Velo muy suave; no es colors.overlay. */
   estadoChipCount: {
     minWidth: 20,
     paddingHorizontal: 6,
     paddingVertical: 1,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     backgroundColor: 'rgba(15,23,42,0.06)',
     alignItems: 'center',
   },
   estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
-  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
+  estadoChipCountText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#f8fafc',
+    gap: SPACING.sm,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
   },
-  searchInput: { flex: 1, fontSize: 14, color: '#334155', paddingVertical: 4, minHeight: 36 },
+  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, paddingVertical: 4, minHeight: 36 },
 
   errorBar: {
-    marginHorizontal: 16,
-    marginTop: 8,
+    marginHorizontal: SPACING.lg,
+    marginTop: SPACING.sm,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: '#fef2f2',
+    borderRadius: radius.sm,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  errorText: { fontSize: 12, color: '#dc2626' },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
 
   split: { flex: 1, flexDirection: 'row', minHeight: 0 },
   splitStack: { flexDirection: 'column' },
   panelLista: { flex: 1, minWidth: 0 },
-  panelListaBorder: { borderRightWidth: 1, borderRightColor: '#e2e8f0' },
-  panelKpiWrap: { minWidth: 280, backgroundColor: '#fff' },
+  panelListaBorder: { borderRightWidth: 1, borderRightColor: colors.border },
+  panelKpiWrap: { minWidth: 280, backgroundColor: colors.surface },
   panelKpiWrapSide: { flex: 0.42, maxWidth: 420 },
-  panelKpiWrapStack: { flex: undefined, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  panelKpiWrapStack: { flex: undefined, borderTopWidth: 1, borderTopColor: colors.border },
 
   list: { flex: 1 },
-  listContent: { padding: 12, gap: 10, paddingBottom: 24 },
-  resultCount: { fontSize: 11, color: '#64748b', fontWeight: '600', marginBottom: 4 },
+  listContent: { padding: SPACING.md, gap: 10, paddingBottom: SPACING.xl },
+  resultCount: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, marginBottom: 4 },
   listaAgrupada: { gap: 10 },
-  sectionBlock: { gap: 8 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
-  sectionTitle: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
-  sectionHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', paddingHorizontal: 4 },
+  sectionBlock: { gap: SPACING.sm },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingHorizontal: 4 },
+  sectionTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  sectionHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic', paddingHorizontal: 4 },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -673,35 +686,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    gap: 8,
+    borderBottomColor: colors.navActive,
+    gap: SPACING.sm,
   },
   cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, flexWrap: 'wrap' },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
+  cardTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flexShrink: 1 },
+  badge: { paddingHorizontal: SPACING.sm, paddingVertical: 2, borderRadius: radius.md, borderWidth: 1 },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  /** 4 px; por debajo de radius.sm (6). */
   dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  cardImporte: { fontSize: 14, fontWeight: '800' },
-  importePago: { color: '#dc2626' },
-  importeCobro: { color: '#16a34a' },
-  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
-  cardField: { minWidth: 84, marginRight: 8 },
-  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
-  cardFieldValue: { fontSize: 13, color: '#334155' },
+  cardImporte: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontVariant: ['tabular-nums'] },
+  importePago: { color: colors.danger },
+  importeCobro: { color: colors.success },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: SPACING.sm },
+  cardField: { minWidth: 84, marginRight: SPACING.sm },
+  cardFieldLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
 
-  panelKpi: { flex: 1, padding: 12, gap: 10 },
+  panelKpi: { flex: 1, padding: SPACING.md, gap: 10 },
   kpiRow: { flexDirection: 'row', gap: 6 },
   kpiCard: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
   },
-  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
-  resumenHint: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+  kpiLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase' },
+  kpiValue: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginTop: 2, fontVariant: ['tabular-nums'] },
+  resumenHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 16 },
 });
