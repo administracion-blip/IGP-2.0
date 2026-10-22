@@ -29,6 +29,15 @@ import { InputFecha } from '../../../components/InputFecha';
 import { estiloCampoFechaCompacto } from '../../../components/RangoFechas';
 import { LimpiezaAgenda, type RegistroAgenda } from '../../../components/limpieza/LimpiezaAgenda';
 import { apiFetch } from '../../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 
 type ProductoDosis = { producto: string; dosis: string; epi: string };
 type Tipo = {
@@ -56,9 +65,9 @@ type Registro = {
 type EmpleadoItem = { employee_id?: string | number; full_name?: string };
 
 const ESTADO_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  pendiente: { bg: '#fef3c7', color: '#b45309', label: 'Pendiente' },
-  hecha: { bg: '#dcfce7', color: '#15803d', label: 'Hecha' },
-  retrasada: { bg: '#fee2e2', color: '#b91c1c', label: 'Retrasada' },
+  pendiente: { bg: statusColors.warning.bg, color: statusColors.warning.text, label: 'Pendiente' },
+  hecha: { bg: statusColors.success.bg, color: statusColors.success.text, label: 'Hecha' },
+  retrasada: { bg: statusColors.danger.bg, color: statusColors.danger.text, label: 'Retrasada' },
   reprogramada: { bg: '#e0e7ff', color: '#4338ca', label: 'Reprogramada' },
 };
 
@@ -370,13 +379,13 @@ export default function RegistrosLimpiezaScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Checklist de limpieza</Text>
       </View>
 
       {loadingLocales ? (
-        <View style={styles.center}><ActivityIndicator size="small" color="#0ea5e9" /></View>
+        <View style={styles.center}><ActivityIndicator size="small" color={colors.accent} /></View>
       ) : (
         <>
           <View style={[styles.filtros, isPhone && styles.filtrosStacked]}>
@@ -434,12 +443,12 @@ export default function RegistrosLimpiezaScreen() {
                     <MaterialIcons
                       name={selectedKeys.size === registros.length && registros.length > 0 ? 'check-box' : 'check-box-outline-blank'}
                       size={20}
-                      color={selectedKeys.size === registros.length && registros.length > 0 ? '#0ea5e9' : '#94a3b8'}
+                      color={selectedKeys.size === registros.length && registros.length > 0 ? colors.accent : colors.textMuted}
                     />
                     <Text style={styles.toolbarBtnText}>Todas</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.toolbarBtn} onPress={salirMultiSelect} activeOpacity={0.7}>
-                    <MaterialIcons name="close" size={18} color="#64748b" />
+                    <MaterialIcons name="close" size={18} color={colors.textMuted} />
                     <Text style={styles.toolbarBtnText}>Cancelar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -448,7 +457,7 @@ export default function RegistrosLimpiezaScreen() {
                     disabled={selectedKeys.size === 0 || borrando}
                     activeOpacity={0.7}
                   >
-                    <MaterialIcons name="delete-outline" size={20} color={selectedKeys.size === 0 || borrando ? '#94a3b8' : '#dc2626'} />
+                    <MaterialIcons name="delete-outline" size={20} color={selectedKeys.size === 0 || borrando ? colors.textMuted : colors.danger} />
                     <Text style={[styles.deleteBtnText, (selectedKeys.size === 0 || borrando) && styles.deleteBtnTextDisabled]}>
                       Borrar{selectedKeys.size > 0 ? ` (${selectedKeys.size})` : ''}
                     </Text>
@@ -456,8 +465,8 @@ export default function RegistrosLimpiezaScreen() {
                 </>
               ) : (
                 <TouchableOpacity style={styles.toolbarBtn} onPress={() => setMultiSelectMode(true)} activeOpacity={0.7}>
-                  <MaterialIcons name="checklist" size={18} color="#0ea5e9" />
-                  <Text style={[styles.toolbarBtnText, { color: '#0ea5e9' }]}>Seleccionar</Text>
+                  <MaterialIcons name="checklist" size={18} color={colors.accent} />
+                  <Text style={[styles.toolbarBtnText, { color: colors.accent }]}>Seleccionar</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -466,7 +475,7 @@ export default function RegistrosLimpiezaScreen() {
           {error && !selected ? <Text style={styles.errorText}>{error}</Text> : null}
 
           {loading ? (
-            <View style={styles.center}><ActivityIndicator size="large" color="#0ea5e9" /></View>
+            <View style={styles.center}><ActivityIndicator size="large" color={colors.accent} /></View>
           ) : (
             <ScrollView contentContainerStyle={styles.list}>
               {registros.length > 0 ? (
@@ -492,7 +501,7 @@ export default function RegistrosLimpiezaScreen() {
                       <MaterialIcons
                         name={isSelected ? 'check-box' : 'check-box-outline-blank'}
                         size={22}
-                        color={isSelected ? '#0ea5e9' : '#94a3b8'}
+                        color={isSelected ? colors.accent : colors.textMuted}
                         style={{ marginRight: 4 }}
                       />
                     ) : null}
@@ -507,13 +516,13 @@ export default function RegistrosLimpiezaScreen() {
                       </Text>
                     </View>
                     {tipo?.requiere_vaciado_previo ? (
-                      <MaterialIcons name="ac-unit" size={18} color="#0284c7" style={{ marginRight: 6 }} />
+                      <MaterialIcons name="ac-unit" size={18} color={colors.accentPressed} style={{ marginRight: 6 }} />
                     ) : null}
                     <View style={[styles.badge, { backgroundColor: est.bg }]}>
                       <Text style={[styles.badgeText, { color: est.color }]}>{est.label}</Text>
                     </View>
                     {!multiSelectMode ? (
-                      <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+                      <MaterialIcons name="chevron-right" size={22} color={colors.textMuted} />
                     ) : null}
                   </TouchableOpacity>
                 );
@@ -543,14 +552,14 @@ export default function RegistrosLimpiezaScreen() {
                 ) : null}
               </View>
               <TouchableOpacity onPress={cerrarDetalle} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <MaterialIcons name="close" size={24} color="#64748b" />
+                <MaterialIcons name="close" size={24} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
               {tipoSel?.requiere_vaciado_previo ? (
                 <View style={styles.avisoVaciado}>
-                  <MaterialIcons name="warning-amber" size={16} color="#b45309" />
+                  <MaterialIcons name="warning-amber" size={16} color={statusColors.warning.text} />
                   <Text style={styles.avisoVaciadoText}>Requiere vaciado previo: no rellenar antes de limpiar.</Text>
                 </View>
               ) : null}
@@ -595,10 +604,10 @@ export default function RegistrosLimpiezaScreen() {
                     activeOpacity={0.85}
                   >
                     {enviando ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={colors.surface} />
                     ) : (
                       <>
-                        <MaterialIcons name="photo-camera" size={22} color="#fff" />
+                        <MaterialIcons name="photo-camera" size={22} color={colors.surface} />
                         <Text style={styles.fotoBtnText}>Hacer foto y marcar como hecha</Text>
                       </>
                     )}
@@ -607,7 +616,7 @@ export default function RegistrosLimpiezaScreen() {
                 </>
               ) : selected?.estado === 'hecha' ? (
                 <View style={styles.hechaWrap}>
-                  <MaterialIcons name="verified" size={20} color="#16a34a" />
+                  <MaterialIcons name="verified" size={20} color={colors.success} />
                   <Text style={styles.hechaText}>
                     Hecha{selected.realizado_por_nombre ? ` por ${selected.realizado_por_nombre}` : ''}
                     {selected.completado_at ? ` · ${new Date(selected.completado_at).toLocaleString('es-ES')}` : ''}
@@ -628,7 +637,7 @@ export default function RegistrosLimpiezaScreen() {
                   {registrosSeleccionados.length === 1 ? 'Borrar registro' : 'Borrar registros'}
                 </Text>
                 <TouchableOpacity onPress={cerrarModalBorrar} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <Text style={styles.modalBorrarMsg}>
@@ -647,7 +656,7 @@ export default function RegistrosLimpiezaScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.modalBtnSi} onPress={ejecutarBorrado} disabled={borrando}>
                   {borrando ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={colors.surface} />
                   ) : (
                     <Text style={styles.modalBtnSiText}>Sí, borrar</Text>
                   )}
@@ -661,67 +670,77 @@ export default function RegistrosLimpiezaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  backBtn: { padding: 4 },
-  title: { flex: 1, fontSize: 18, fontWeight: '700', color: '#334155' },
-  filtros: { flexDirection: 'row', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' },
-  filtrosStacked: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
-  modoToggle: { flexDirection: 'row', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden' },
-  modoBtn: { paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#f8fafc' },
-  modoBtnActive: { backgroundColor: '#e0f2fe' },
-  modoBtnText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-  modoBtnTextActive: { color: '#0369a1' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: SPACING.md },
+  backBtn: { padding: SPACING.xs },
+  title: { flex: 1, fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  filtros: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md, alignItems: 'center', flexWrap: 'wrap' },
+  filtrosStacked: { flexDirection: 'column', alignItems: 'stretch', gap: SPACING.sm },
+  modoToggle: { flexDirection: 'row', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' },
+  modoBtn: { paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md, backgroundColor: colors.bg },
+  modoBtnActive: { backgroundColor: colors.accentMuted },
+  modoBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  modoBtnTextActive: { color: statusColors.info.text },
   fechaWrap: { width: 130 },
-  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
-  toolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 8 },
-  toolbarBtnText: { fontSize: 13, color: '#64748b', fontWeight: '600' },
-  deleteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca', backgroundColor: '#fef2f2' },
-  deleteBtnDisabled: { borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-  deleteBtnText: { fontSize: 13, fontWeight: '700', color: '#dc2626' },
-  deleteBtnTextDisabled: { color: '#94a3b8' },
+  toolbar: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: 10, flexWrap: 'wrap' },
+  toolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: 6, paddingHorizontal: SPACING.sm },
+  toolbarBtnText: { fontSize: fontSizes[13], color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, marginLeft: 'auto', paddingVertical: 6, paddingHorizontal: 10, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: '#fecaca', backgroundColor: statusColors.danger.bg },
+  deleteBtnDisabled: { borderColor: colors.border, backgroundColor: colors.bg },
+  deleteBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.danger },
+  deleteBtnTextDisabled: { color: colors.textMuted },
   center: { paddingVertical: 40, alignItems: 'center' },
-  errorText: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
-  errorTextModal: { fontSize: 13, color: '#dc2626', marginTop: 12 },
-  resumen: { fontSize: 12, color: '#64748b', marginBottom: 4 },
-  list: { gap: 8, paddingBottom: 20 },
-  vacio: { fontSize: 13, color: '#94a3b8', padding: 16, lineHeight: 19 },
-  card: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 14, minHeight: 60 },
-  cardSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: '#334155' },
-  cardMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  badge: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, marginBottom: SPACING.sm },
+  errorTextModal: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.danger, marginTop: SPACING.md },
+  resumen: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginBottom: SPACING.xs },
+  list: { gap: SPACING.sm, paddingBottom: 20 },
+  vacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, padding: SPACING.lg, lineHeight: 19 },
+  card: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 14, minHeight: 60 },
+  cardSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  cardTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  cardMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
+  badge: { paddingVertical: SPACING.xs, paddingHorizontal: 10, borderRadius: radius.pill },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  // Más oscuro que colors.overlay.
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
   overlayCentered: { justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalCard: { backgroundColor: '#fff', borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '90%', overflow: 'hidden' },
-  modalCardCentered: { width: '100%', maxWidth: 520, borderRadius: 16 },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#334155' },
-  modalSub: { fontSize: 12, color: '#b91c1c', marginTop: 2 },
-  modalScroll: { padding: 16 },
-  avisoVaciado: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fcd34d', borderRadius: 8, padding: 10, marginBottom: 4 },
-  avisoVaciadoText: { flex: 1, fontSize: 12, color: '#b45309' },
-  sectionLabel: { fontSize: 12, fontWeight: '700', color: '#475569', marginTop: 14, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 },
-  proc: { fontSize: 14, color: '#334155', lineHeight: 20 },
-  prodLine: { fontSize: 13, color: '#475569', lineHeight: 20 },
-  fotoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#16a34a', borderRadius: 12, paddingVertical: 16, marginTop: 16, minHeight: 52 },
-  fotoBtnDisabled: { backgroundColor: '#94a3b8' },
-  fotoBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  ayuda: { fontSize: 11, color: '#64748b', marginTop: 8, textAlign: 'center', marginBottom: 10 },
-  hechaWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f0fdf4', borderRadius: 10, padding: 14, marginTop: 14, marginBottom: 10 },
-  hechaText: { flex: 1, fontSize: 13, color: '#15803d' },
+  // 18 px: entre radius.xl (16) y el siguiente salto.
+  modalCard: { backgroundColor: colors.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '90%', overflow: 'hidden' },
+  modalCardCentered: { width: '100%', maxWidth: 520, borderRadius: radius.xl },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  // 17 px: entre fontSizes[16] y fontSizes[18].
+  modalTitle: { fontSize: 17, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  modalSub: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.danger.text, marginTop: 2 },
+  modalScroll: { padding: SPACING.lg },
+  avisoVaciado: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: statusColors.warning.bg, borderWidth: 1, borderColor: '#fcd34d', borderRadius: RADIO_MEDIO, padding: 10, marginBottom: SPACING.xs },
+  avisoVaciadoText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.warning.text },
+  sectionLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, marginTop: 14, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 },
+  proc: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, lineHeight: 20 },
+  prodLine: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, lineHeight: 20 },
+  fotoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, backgroundColor: colors.success, borderRadius: radius.lg, paddingVertical: SPACING.lg, marginTop: SPACING.lg, minHeight: 52 },
+  fotoBtnDisabled: { backgroundColor: colors.textMuted },
+  fotoBtnText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[16] },
+  ayuda: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: SPACING.sm, textAlign: 'center', marginBottom: 10 },
+  hechaWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, backgroundColor: '#f0fdf4', borderRadius: radius.md, padding: 14, marginTop: 14, marginBottom: 10 },
+  hechaText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: statusColors.success.text },
+  // Más oscuro que colors.overlay.
   modalBorrarOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalBorrarWrap: { width: '100%', maxWidth: 420 },
-  modalBorrarCard: { backgroundColor: '#fff', borderRadius: 14, padding: 18, gap: 12 },
+  modalBorrarCard: { backgroundColor: colors.surface, borderRadius: RADIO_TARJETA, padding: 18, gap: SPACING.md },
   modalBorrarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  modalBorrarTitle: { fontSize: 17, fontWeight: '700', color: '#334155' },
-  modalBorrarMsg: { fontSize: 14, color: '#475569', lineHeight: 20 },
-  modalBorrarAviso: { fontSize: 12, color: '#b45309', backgroundColor: '#fffbeb', borderRadius: 8, padding: 10, lineHeight: 17 },
-  modalBorrarFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 4 },
-  modalBtnNo: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  modalBtnNoText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
-  modalBtnSi: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#dc2626', minWidth: 100, alignItems: 'center' },
-  modalBtnSiText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  // 17 px: entre fontSizes[16] y fontSizes[18].
+  modalBorrarTitle: { fontSize: 17, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  modalBorrarMsg: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, lineHeight: 20 },
+  modalBorrarAviso: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.warning.text, backgroundColor: statusColors.warning.bg, borderRadius: RADIO_MEDIO, padding: 10, lineHeight: 17 },
+  modalBorrarFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: SPACING.xs },
+  modalBtnNo: { paddingVertical: 10, paddingHorizontal: SPACING.lg, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border },
+  modalBtnNoText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  modalBtnSi: { paddingVertical: 10, paddingHorizontal: SPACING.lg, borderRadius: RADIO_MEDIO, backgroundColor: colors.danger, minWidth: 100, alignItems: 'center' },
+  modalBtnSiText: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
 });
