@@ -4,7 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { ActivoDetallePanel } from '../../../components/activos/ActivoDetallePanel';
 import { MIN_TOUCH } from '../../../constants/layout';
-import { colors, radius, typography } from '../../../constants/theme';
+import { colors, radius, typography, SPACING } from '../../../constants/theme';
 
 export default function ActivoFichaScreen() {
   const router = useRouter();
@@ -40,8 +40,8 @@ export default function ActivoFichaScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, padding: 16 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  container: { flex: 1, backgroundColor: colors.surface, padding: SPACING.lg },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: SPACING.md },
   iconBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
@@ -51,6 +51,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { ...typography.titulo, color: '#0f172a' },
-  vacio: { padding: 16, color: colors.textMuted },
+  title: { ...typography.titulo, color: colors.textStrong },
+  vacio: { padding: SPACING.lg, color: colors.textMuted },
 });
