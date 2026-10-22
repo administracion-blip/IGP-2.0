@@ -14,6 +14,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { apiFetch } from '../../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 import { formatId6 } from '../../../utils/idFormat';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
 import { InputFecha } from '../../../components/InputFecha';
@@ -194,7 +203,7 @@ export default function NuevaEntradaScreen() {
   if (!puedeCrear) {
     return (
       <View style={styles.locked}>
-        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
         <Text style={styles.lockedText}>No tienes permiso para crear entradas.</Text>
         <TouchableOpacity style={styles.backLink} onPress={() => router.back()}>
           <Text style={styles.backLinkText}>Volver</Text>
@@ -214,7 +223,7 @@ export default function NuevaEntradaScreen() {
           style={styles.backBtn}
           accessibilityLabel="Volver al listado"
         >
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Nueva entrada</Text>
@@ -267,7 +276,7 @@ export default function NuevaEntradaScreen() {
               value={code}
               onChangeText={setCode}
               placeholder="Se genera automáticamente si se deja vacío"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="characters"
               editable={!guardando}
             />
@@ -279,7 +288,7 @@ export default function NuevaEntradaScreen() {
               value={clienteNombre}
               onChangeText={setClienteNombre}
               placeholder="Nombre"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               editable={!guardando}
             />
           </View>
@@ -292,7 +301,7 @@ export default function NuevaEntradaScreen() {
             value={telefono}
             onChangeText={setTelefono}
             placeholder="+34 600 000 000"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
             keyboardType="phone-pad"
             editable={!guardando}
           />
@@ -365,10 +374,10 @@ export default function NuevaEntradaScreen() {
           disabled={guardando}
         >
           {guardando ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={colors.surface} />
           ) : (
             <>
-              <MaterialIcons name="add-circle-outline" size={20} color="#fff" />
+              <MaterialIcons name="add-circle-outline" size={20} color={colors.surface} />
               <Text style={styles.btnCrearText}>Crear entrada</Text>
             </>
           )}
@@ -378,75 +387,78 @@ export default function NuevaEntradaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff', padding: 16 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
+  container: { flex: 1, backgroundColor: colors.surface, padding: SPACING.lg },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.lg, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 14, color: '#64748b', marginTop: 2 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, marginTop: 2 },
   form: { paddingBottom: 40, gap: 14, maxWidth: 720 },
   formCompact: { maxWidth: '100%' },
-  grid: { flexDirection: 'row', gap: 12 },
+  grid: { flexDirection: 'row', gap: SPACING.md },
   gridOnTop: { position: 'relative', zIndex: 30 },
   gridBelow: { position: 'relative', zIndex: 0 },
   gridStack: { flexDirection: 'column' },
   field: { flex: 1, gap: 6, position: 'relative', zIndex: 1 },
-  label: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  label: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
-    fontSize: 14,
-    color: '#0f172a',
-    backgroundColor: '#f8fafc',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textStrong,
+    backgroundColor: colors.bg,
   },
-  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  chipSelected: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
-  chipText: { fontSize: 13, color: '#64748b', fontWeight: '600' },
-  chipTextSelected: { color: '#0369a1' },
-  error: { color: '#dc2626', fontSize: 13 },
+  chipSelected: { backgroundColor: colors.accentMuted, borderColor: colors.accent },
+  chipText: { fontSize: fontSizes[13], color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  chipTextSelected: { color: statusColors.info.text },
+  error: { color: colors.danger, fontFamily: fontFamily.regular, fontSize: fontSizes[13] },
   btnCrear: {
-    marginTop: 8,
+    marginTop: SPACING.sm,
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#0ea5e9',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 10,
+    gap: SPACING.sm,
+    backgroundColor: colors.accent,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: radius.md,
     minWidth: 180,
     justifyContent: 'center',
   },
-  btnCrearText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  btnCrearText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[14] },
   locked: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    padding: 24,
-    backgroundColor: '#fff',
+    padding: SPACING.xl,
+    backgroundColor: colors.surface,
   },
-  lockedText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
-  backLink: { marginTop: 8, padding: 10 },
-  backLinkText: { color: '#0ea5e9', fontWeight: '600' },
+  lockedText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
+  backLink: { marginTop: SPACING.sm, padding: 10 },
+  backLinkText: { color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 });
