@@ -20,7 +20,7 @@ import { InputFecha } from '../../../components/InputFecha';
 import { EscanerCodigo } from '../../../components/activos/EscanerCodigo';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../../constants/layout';
-import { colors, inputCursorProps, radius, statusColors, typography } from '../../../constants/theme';
+import { colors, fontFamily, fontSizes, inputCursorProps, radius, statusColors, typography, SPACING } from '../../../constants/theme';
 import { apiFetch, errorMessage } from '../../../utils/api';
 import { formatId6 } from '../../../utils/idFormat';
 import { urlQrEtiqueta } from '../../../lib/activosEtiqueta';
@@ -346,7 +346,7 @@ export default function ActivosAltaScreen() {
           onPress={guardar}
           disabled={guardando || cargandoCat}
         >
-          {guardando ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaTxt}>Guardar</Text>}
+          {guardando ? <ActivityIndicator color={colors.surface} /> : <Text style={styles.ctaTxt}>Guardar</Text>}
         </TouchableOpacity>
       </View>
 
@@ -545,7 +545,7 @@ export default function ActivosAltaScreen() {
                   <>
                     <View style={styles.serieFila}>
                       <TouchableOpacity style={styles.scanBtn} onPress={() => setEscaner(true)}>
-                        <MaterialIcons name="qr-code-scanner" size={20} color="#fff" />
+                        <MaterialIcons name="qr-code-scanner" size={20} color={colors.surface} />
                         <Text style={styles.scanBtnTxt}>Escanear</Text>
                       </TouchableOpacity>
                       <TextInput
@@ -725,8 +725,8 @@ function Stepper({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 },
+  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, paddingBottom: SPACING.md },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.md, marginBottom: SPACING.sm },
   topBarStack: { flexDirection: 'column', alignItems: 'stretch' },
   topLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
   iconBtn: {
@@ -738,20 +738,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { ...typography.titulo, color: '#0f172a' },
-  vacio: { padding: 16, color: colors.textMuted },
+  title: { ...typography.titulo, color: colors.textStrong },
+  vacio: { padding: SPACING.lg, color: colors.textMuted },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     backgroundColor: statusColors.danger.bg,
     borderRadius: radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
-  error: { color: statusColors.danger.text, flex: 1, fontSize: 13 },
+  error: { color: statusColors.danger.text, flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13] },
   split: { flex: 1, flexDirection: 'row', gap: 10, minHeight: 0 },
   splitStack: { flexDirection: 'column' },
   panelIzq: { flex: 0.42, minWidth: 280 },
@@ -764,18 +764,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  formContent: { paddingBottom: 16, paddingRight: 10, gap: 12 },
-  previewContent: { paddingVertical: 12, paddingLeft: 12, paddingRight: 16, flexGrow: 1 },
+  formContent: { paddingBottom: SPACING.lg, paddingRight: 10, gap: SPACING.md },
+  previewContent: { paddingVertical: SPACING.md, paddingLeft: SPACING.md, paddingRight: SPACING.lg, flexGrow: 1 },
   camposFila: { flexDirection: 'row', gap: 10, zIndex: 10 },
   col: { flexDirection: 'column' },
   campo: { flex: 1, minWidth: 120, zIndex: 10 },
   campoCantidad: { width: 168, flexGrow: 0, flexShrink: 0, zIndex: 10 },
-  lineasTallaBox: { gap: 8 },
-  tallaChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, flex: 1, minWidth: 180 },
+  lineasTallaBox: { gap: SPACING.sm },
+  tallaChips: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, flex: 1, minWidth: 180 },
   tallaChip: {
     height: MIN_TOUCH,
     minWidth: MIN_TOUCH,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
     borderColor: colors.borderStrong,
     borderRadius: radius.md,
@@ -788,10 +788,10 @@ const styles = StyleSheet.create({
     borderColor: ROSA_BORDE,
   },
   tallaChipOff: { opacity: 0.35 },
-  tallaChipTxt: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
+  tallaChipTxt: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   tallaChipTxtOn: { color: ROSA_FG },
   tallaChipTxtOff: { color: colors.textMuted },
-  lineaTalla: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  lineaTalla: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm },
   lineaTallaQuitar: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
@@ -805,33 +805,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    gap: 4,
+    gap: SPACING.xs,
     minHeight: MIN_TOUCH,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
   },
-  addTallaTxt: { fontSize: 14, fontWeight: '700', color: colors.accentPressed },
-  lineasTallaTotal: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
-  chip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill },
+  addTallaTxt: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accentPressed },
+  lineasTallaTotal: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textSecondary },
+  chip: { paddingHorizontal: SPACING.sm, paddingVertical: 3, borderRadius: radius.pill },
   chipSerie: { backgroundColor: ROSA_BG },
   chipSerieTxt: { color: ROSA_FG },
   chipLote: { backgroundColor: colors.accentMuted },
   chipLoteTxt: { color: colors.accentPressed },
-  chipTxt: { fontSize: 12, fontWeight: '700' },
+  chipTxt: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   label: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
     color: colors.textSecondary,
     letterSpacing: 0.3,
     textTransform: 'uppercase',
-    marginBottom: 4,
+    marginBottom: SPACING.xs,
   },
   input: {
     minHeight: MIN_TOUCH,
     borderWidth: 1,
     borderColor: colors.borderStrong,
     borderRadius: radius.md,
-    paddingHorizontal: 12,
-    fontSize: 14,
+    paddingHorizontal: SPACING.md,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
     color: colors.textPrimary,
     backgroundColor: colors.bgSubtle,
   },
@@ -859,30 +859,31 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 56,
     height: MIN_TOUCH,
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0f172a',
+    fontSize: fontSizes[18],
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textStrong,
     textAlign: 'center',
     paddingHorizontal: 0,
+    fontVariant: ['tabular-nums'],
   },
-  hint: { fontSize: 13, color: colors.textSecondary, marginBottom: 12 },
-  serieFila: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 },
+  hint: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textSecondary, marginBottom: SPACING.md },
+  serieFila: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center', marginBottom: SPACING.sm },
   scanBtn: {
     height: MIN_TOUCH,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderRadius: radius.md,
     backgroundColor: colors.accent,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  scanBtnTxt: { color: '#fff', fontWeight: '700' },
+  scanBtnTxt: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   serieInput: { flex: 1, backgroundColor: colors.surface },
-  listaSeries: { gap: 6, marginBottom: 12 },
+  listaSeries: { gap: 6, marginBottom: SPACING.md },
   serieItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     minHeight: MIN_TOUCH,
     paddingHorizontal: 10,
     borderRadius: radius.md,
@@ -891,12 +892,12 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   serieItemActivo: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
-  serieIdx: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, width: 18 },
-  serieVal: { flex: 1, fontSize: 14, color: '#0f172a', fontWeight: '600' },
-  serieValVacio: { fontWeight: '400', color: colors.textMuted },
-  vacioBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 8 },
-  vacioTitulo: { fontSize: 16, fontWeight: '600', color: colors.textPrimary, textAlign: 'center' },
-  vacioTxt: { fontSize: 14, color: colors.textSecondary, textAlign: 'center' },
+  serieIdx: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textSecondary, width: 18, fontVariant: ['tabular-nums'] },
+  serieVal: { flex: 1, fontSize: fontSizes[14], color: colors.textStrong, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  serieValVacio: { fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted },
+  vacioBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACING.xl, gap: SPACING.sm },
+  vacioTitulo: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, textAlign: 'center' },
+  vacioTxt: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textSecondary, textAlign: 'center' },
   maquetaFila: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -921,21 +922,21 @@ const styles = StyleSheet.create({
   maqueta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: SPACING.md,
     padding: 10,
     borderRadius: radius.md,
     borderWidth: 1.5,
-    borderColor: '#0f172a',
-    backgroundColor: '#fff',
+    borderColor: colors.textStrong,
+    backgroundColor: colors.surface,
   },
-  maquetaQr: { width: 72, height: 72, backgroundColor: '#fff' },
-  maquetaId: { fontSize: 18, fontWeight: '800', color: '#0f172a', letterSpacing: 0.4 },
-  maquetaMod: { fontSize: 13, color: colors.textPrimary, marginTop: 3 },
-  maquetaMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  maquetaNota: { fontSize: 11, color: colors.textMuted, marginTop: 6, fontWeight: '600' },
+  maquetaQr: { width: 72, height: 72, backgroundColor: colors.surface },
+  maquetaId: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, letterSpacing: 0.4 },
+  maquetaMod: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, marginTop: 3 },
+  maquetaMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textSecondary, marginTop: 2 },
+  maquetaNota: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 6, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   cta: {
     height: MIN_TOUCH,
-    paddingHorizontal: 16,
+    paddingHorizontal: SPACING.lg,
     backgroundColor: colors.accent,
     borderRadius: radius.md,
     alignItems: 'center',
@@ -943,5 +944,5 @@ const styles = StyleSheet.create({
     minWidth: 120,
   },
   ctaOff: { opacity: 0.6 },
-  ctaTxt: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  ctaTxt: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[16] },
 });
