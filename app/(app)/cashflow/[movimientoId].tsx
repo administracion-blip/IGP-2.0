@@ -18,6 +18,15 @@ import { useLocalToast } from '../../components/Toast';
 import { buildFirmaFormData } from '../../utils/uploadFirmaPng';
 import { apiFetch, errorMessage } from '../../utils/api';
 import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
+import {
   type CashflowEstado,
   type CashflowMovimiento,
   ESTADO_CASHFLOW_META,
@@ -210,7 +219,7 @@ export default function CashflowDetalleScreen() {
   if (!hasPermiso('cashflow.ver')) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
         <Text style={styles.errorText}>No tienes permiso para ver Cashflow.</Text>
       </View>
     );
@@ -219,7 +228,7 @@ export default function CashflowDetalleScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color="#0ea5e9" size="large" />
+        <ActivityIndicator color={colors.accent} size="large" />
       </View>
     );
   }
@@ -229,7 +238,7 @@ export default function CashflowDetalleScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Movimiento cashflow</Text>
         </View>
@@ -254,7 +263,7 @@ export default function CashflowDetalleScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerText}>
           <Text style={styles.headerTitle} numberOfLines={1}>{mov.concepto}</Text>
@@ -333,14 +342,14 @@ export default function CashflowDetalleScreen() {
         <View style={styles.acciones}>
             {mov.estado === 'Pendiente_firma' && puedeRegistrar ? (
               <TouchableOpacity style={styles.btnPrimary} onPress={() => setModalFirma(true)}>
-                <MaterialIcons name="draw" size={20} color="#fff" />
+                <MaterialIcons name="draw" size={20} color={colors.surface} />
                 <Text style={styles.btnPrimaryText}>Firmar recibí</Text>
               </TouchableOpacity>
             ) : null}
 
             {mov.numeroRecibo ? (
               <TouchableOpacity style={styles.btnSecondary} onPress={abrirRecibo}>
-                <MaterialIcons name="picture-as-pdf" size={20} color="#0369a1" />
+                <MaterialIcons name="picture-as-pdf" size={20} color={statusColors.info.text} />
                 <Text style={styles.btnSecondaryText}>Ver PDF recibí</Text>
               </TouchableOpacity>
             ) : null}
@@ -348,10 +357,10 @@ export default function CashflowDetalleScreen() {
             {mov.estado === 'Pendiente_validacion' && puedeValidar ? (
               <TouchableOpacity style={styles.btnSuccess} onPress={validar} disabled={accionando}>
                 {accionando ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={colors.surface} />
                 ) : (
                   <>
-                    <MaterialIcons name="verified" size={20} color="#fff" />
+                    <MaterialIcons name="verified" size={20} color={colors.surface} />
                     <Text style={styles.btnPrimaryText}>Validar movimiento</Text>
                   </>
                 )}
@@ -380,7 +389,7 @@ export default function CashflowDetalleScreen() {
                 </View>
               ) : (
                 <TouchableOpacity style={styles.btnDangerOutline} onPress={() => setMostrarAnular(true)}>
-                  <MaterialIcons name="block" size={18} color="#b91c1c" />
+                  <MaterialIcons name="block" size={18} color={statusColors.danger.text} />
                   <Text style={styles.btnDangerText}>Anular</Text>
                 </TouchableOpacity>
               )
@@ -412,131 +421,134 @@ function InfoField({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc', position: 'relative' },
+  container: { flex: 1, backgroundColor: colors.bg, position: 'relative' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    gap: 12,
+    borderBottomColor: colors.border,
+    gap: SPACING.md,
   },
   backBtn: { padding: 4 },
   headerText: { flex: 1, minWidth: 0 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
-  estadoBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
-  estadoText: { fontSize: 11, fontWeight: '700' },
+  headerTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, marginTop: 2 },
+  estadoBadge: { paddingHorizontal: SPACING.sm, paddingVertical: 3, borderRadius: radius.md, borderWidth: 1 },
+  estadoText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   scroll: { flex: 1 },
-  scrollContent: { padding: 12, paddingBottom: 32, maxWidth: 640, width: '100%', alignSelf: 'center', gap: 12 },
+  scrollContent: { padding: SPACING.md, paddingBottom: 32, maxWidth: 640, width: '100%', alignSelf: 'center', gap: SPACING.md },
   kpiRow: { flexDirection: 'row', gap: 6 },
   kpiCard: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
   },
-  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  kpiValue: { fontSize: 18, fontWeight: '800', color: '#0f172a', marginTop: 2 },
-  importePago: { color: '#dc2626' },
-  importeCobro: { color: '#16a34a' },
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  kpiLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase' },
+  kpiValue: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginTop: 2, fontVariant: ['tabular-nums'] },
+  importePago: { color: colors.danger },
+  importeCobro: { color: colors.success },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   cardHeader: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  cardHeaderTitle: { fontSize: 12, fontWeight: '700', color: '#0f172a', textTransform: 'uppercase', letterSpacing: 0.3 },
-  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 8, gap: 8 },
+  cardHeaderTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, textTransform: 'uppercase', letterSpacing: 0.3 },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: SPACING.sm, gap: SPACING.sm },
   lineaRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  lineaDesc: { flex: 1, fontSize: 13, color: '#475569' },
-  lineaImp: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  infoField: { minWidth: 120, marginRight: 8, marginBottom: 4 },
-  infoLabel: { fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', fontWeight: '600' },
-  infoValue: { fontSize: 14, color: '#334155', marginTop: 2 },
+  lineaDesc: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
+  lineaImp: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, fontVariant: ['tabular-nums'] },
+  infoField: { minWidth: 120, marginRight: SPACING.sm, marginBottom: 4 },
+  infoLabel: { fontSize: fontSizes.badge, color: colors.textMuted, textTransform: 'uppercase', fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  infoValue: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, marginTop: 2 },
   errorBar: {
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: '#fef2f2',
+    borderRadius: radius.sm,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  errorText: { fontSize: 12, color: '#dc2626' },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
   acciones: { gap: 10 },
   btnPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#0ea5e9',
+    gap: SPACING.sm,
+    backgroundColor: colors.accent,
     paddingVertical: 14,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  btnPrimaryText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[16] },
   btnSecondary: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#e0f2fe',
-    paddingVertical: 12,
-    borderRadius: 8,
+    gap: SPACING.sm,
+    backgroundColor: colors.accentMuted,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIO_MEDIO,
   },
-  btnSecondaryText: { color: '#0369a1', fontWeight: '700', fontSize: 14 },
+  btnSecondaryText: { color: statusColors.info.text, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[14] },
   btnSuccess: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#16a34a',
+    gap: SPACING.sm,
+    backgroundColor: colors.success,
     paddingVertical: 14,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
   btnDangerOutline: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#fecaca',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
-  btnDangerText: { color: '#b91c1c', fontWeight: '700' },
-  anularBox: { backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#fecaca', padding: 12 },
-  label: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 4 },
+  btnDangerText: { color: statusColors.danger.text, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  anularBox: { backgroundColor: colors.surface, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: '#fecaca', padding: SPACING.md },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: 4 },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
-    fontSize: 14,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
     minHeight: 60,
     marginBottom: 10,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
-  anularRow: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
+  anularRow: { flexDirection: 'row', gap: SPACING.sm, justifyContent: 'flex-end' },
   btnGhost: { paddingVertical: 10, paddingHorizontal: 14 },
-  btnGhostText: { color: '#64748b', fontWeight: '600' },
-  btnDanger: { backgroundColor: '#dc2626', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 },
-  errorText: { fontSize: 12, color: '#dc2626', textAlign: 'center' },
+  btnGhostText: { color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  btnDanger: { backgroundColor: colors.danger, paddingVertical: 10, paddingHorizontal: 14, borderRadius: RADIO_MEDIO },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, textAlign: 'center' },
 });
