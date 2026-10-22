@@ -10,6 +10,15 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiFetch } from '../../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 import type { ToastType } from '../../../components/Toast';
 import { EstiloVisualImagenesEditor } from './EstiloVisualImagenesEditor';
 
@@ -179,7 +188,7 @@ export function IdentidadLocalPanel({
   return (
     <View style={styles.wrap}>
       <View style={styles.headerRow}>
-        <MaterialIcons name="palette" size={20} color="#0369a1" />
+        <MaterialIcons name="palette" size={20} color={statusColors.info.text} />
         <View style={styles.headerText}>
           <Text style={styles.title}>Identidad visual del local</Text>
           <Text style={styles.subtitle}>{tituloLocal}</Text>
@@ -191,7 +200,7 @@ export function IdentidadLocalPanel({
 
       {cargando ? (
         <View style={styles.loading}>
-          <ActivityIndicator size="small" color="#0ea5e9" />
+          <ActivityIndicator size="small" color={colors.accent} />
           <Text style={styles.loadingText}>Cargando identidad…</Text>
         </View>
       ) : puedeEditar ? (
@@ -205,7 +214,7 @@ export function IdentidadLocalPanel({
               value={web}
               onChangeText={(t) => setWeb(t.slice(0, MAX_WEB_URL_CHARS))}
               placeholder="https://ejemplo.com"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
@@ -217,7 +226,7 @@ export function IdentidadLocalPanel({
             onChangeText={(t) => setTexto(t.slice(0, MAX_CHARS))}
             multiline
             placeholder="Ej.: Paleta cálida terracota y beige, tipografía serif moderna, ambiente bistró urbano…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
           <View style={styles.footerRow}>
             <Text style={[styles.counter, texto.length > MAX_CHARS && styles.counterWarn]}>
@@ -229,9 +238,9 @@ export function IdentidadLocalPanel({
               disabled={!hayCambios || guardando}
             >
               {guardando ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={colors.surface} />
               ) : (
-                <MaterialIcons name="save" size={18} color="#fff" />
+                <MaterialIcons name="save" size={18} color={colors.surface} />
               )}
               <Text style={styles.saveBtnText}>Guardar</Text>
             </TouchableOpacity>
@@ -242,11 +251,11 @@ export function IdentidadLocalPanel({
           <EstiloVisualImagenesEditor keys={keys} onKeysChange={() => {}} puedeEditar={false} showToast={showToast} />
           {web.trim() ? (
             <TouchableOpacity style={styles.webReadonlyRow} onPress={() => abrirWeb(web)} activeOpacity={0.7}>
-              <MaterialIcons name="language" size={18} color="#0369a1" />
+              <MaterialIcons name="language" size={18} color={statusColors.info.text} />
               <Text style={styles.webReadonlyLink} numberOfLines={2}>
                 {web.trim()}
               </Text>
-              <MaterialIcons name="open-in-new" size={18} color="#0369a1" />
+              <MaterialIcons name="open-in-new" size={18} color={statusColors.info.text} />
             </TouchableOpacity>
           ) : (
             <Text style={styles.readonlyMuted}>Sin web configurada.</Text>
@@ -261,71 +270,76 @@ export function IdentidadLocalPanel({
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
+  // Borde cielo; no es colors.border.
   wrap: {
-    backgroundColor: '#f0f9ff',
-    borderRadius: 12,
+    backgroundColor: colors.accentMuted,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    padding: 12,
-    gap: 8,
-    marginBottom: 12,
+    padding: SPACING.md,
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
   },
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   headerText: { flex: 1, gap: 2 },
-  title: { fontSize: 14, fontWeight: '700', color: '#0c4a6e' },
-  subtitle: { fontSize: 12, color: '#0369a1' },
-  hint: { fontSize: 11, color: '#475569', lineHeight: 16 },
-  loading: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  fieldGap: { gap: 4 },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  fieldHint: { fontSize: 11, color: '#64748b', lineHeight: 15 },
+  // Azul oscuro del título; no es colors.textStrong.
+  title: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#0c4a6e' },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.info.text },
+  hint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary, lineHeight: 16 },
+  loading: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingVertical: SPACING.md },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  fieldGap: { gap: SPACING.xs },
+  fieldLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  fieldHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 15 },
   input: {
-    fontSize: 13,
-    color: '#334155',
-    backgroundColor: '#fff',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
   },
   textarea: { minHeight: 100, textAlignVertical: 'top' },
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  counter: { fontSize: 11, color: '#64748b' },
-  counterWarn: { color: '#dc2626', fontWeight: '600' },
+  counter: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
+  counterWarn: { color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   saveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
-    paddingVertical: 8,
+    backgroundColor: colors.accent,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 14,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
   saveBtnDisabled: { opacity: 0.5 },
-  saveBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+  saveBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
   webReadonlyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     padding: 10,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
-  webReadonlyLink: { flex: 1, fontSize: 13, color: '#0369a1', textDecorationLine: 'underline' },
-  readonlyMuted: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
+  webReadonlyLink: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: statusColors.info.text, textDecorationLine: 'underline' },
+  readonlyMuted: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic' },
   readonly: {
     padding: 10,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     gap: 6,
   },
-  readonlyText: { fontSize: 13, color: '#334155', lineHeight: 18 },
-  readonlyNote: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic' },
+  readonlyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, lineHeight: 18 },
+  readonlyNote: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontStyle: 'italic' },
 });
