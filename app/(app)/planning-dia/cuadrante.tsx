@@ -23,6 +23,15 @@ import { SelectorRangoSemana } from '../../components/SelectorRangoSemana';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 import { useAuth } from '../../contexts/AuthContext';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 type LocalItem = {
   id_Locales?: string;
@@ -281,12 +290,12 @@ export default function CuadrantePersonalScreen() {
 
   const FlagChip = ({ flag }: { flag: string }) => {
     const cfg: Record<string, { label: string; bg: string; fg: string; icon: 'warning' | 'schedule' | 'event-busy' | 'logout' }> = {
-      sin_planificado: { label: 'Sin turno', bg: '#fef3c7', fg: '#b45309', icon: 'event-busy' },
-      sin_real: { label: 'Sin fichaje', bg: '#fef3c7', fg: '#b45309', icon: 'schedule' },
-      tarde: { label: 'Tarde', bg: '#fee2e2', fg: '#dc2626', icon: 'warning' },
-      salida_anticipada: { label: 'Salida ant.', bg: '#fef3c7', fg: '#b45309', icon: 'logout' },
+      sin_planificado: { label: 'Sin turno', bg: statusColors.warning.bg, fg: statusColors.warning.text, icon: 'event-busy' },
+      sin_real: { label: 'Sin fichaje', bg: statusColors.warning.bg, fg: statusColors.warning.text, icon: 'schedule' },
+      tarde: { label: 'Tarde', bg: statusColors.danger.bg, fg: colors.danger, icon: 'warning' },
+      salida_anticipada: { label: 'Salida ant.', bg: statusColors.warning.bg, fg: statusColors.warning.text, icon: 'logout' },
     };
-    const c = cfg[flag] || { label: flag, bg: '#e2e8f0', fg: '#475569', icon: 'warning' as const };
+    const c = cfg[flag] || { label: flag, bg: colors.border, fg: colors.textPrimary, icon: 'warning' as const };
     return (
       <View style={[styles.flagChip, { backgroundColor: c.bg }]}>
         <MaterialIcons name={c.icon} size={10} color={c.fg} />
@@ -298,7 +307,7 @@ export default function CuadrantePersonalScreen() {
   if (localesLoading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando locales…</Text>
       </View>
     );
@@ -307,7 +316,7 @@ export default function CuadrantePersonalScreen() {
   if (localesError) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="error-outline" size={48} color="#f87171" />
+        <MaterialIcons name="error-outline" size={48} color={colors.danger} />
         <Text style={styles.errorText}>{localesError}</Text>
       </View>
     );
@@ -317,7 +326,7 @@ export default function CuadrantePersonalScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View>
           <Text style={styles.title}>Cuadrante de personal</Text>
@@ -327,14 +336,14 @@ export default function CuadrantePersonalScreen() {
 
       {localesConFactorial.length === 0 ? (
         <View style={styles.warningBox}>
-          <MaterialIcons name="info-outline" size={20} color="#b45309" />
+          <MaterialIcons name="info-outline" size={20} color={statusColors.warning.text} />
           <View style={{ flex: 1 }}>
             <Text style={styles.warningTitle}>Sin locales conectados a Factorial</Text>
             <Text style={styles.warningText}>
               Para usar el cuadrante configura &quot;Factorial location ID&quot; en al menos un local.
             </Text>
             <TouchableOpacity style={styles.warningBtn} onPress={() => router.push('/locales' as never)}>
-              <MaterialIcons name="open-in-new" size={14} color="#0ea5e9" />
+              <MaterialIcons name="open-in-new" size={14} color={colors.accent} />
               <Text style={styles.warningBtnText}>Ir al módulo de Locales</Text>
             </TouchableOpacity>
           </View>
@@ -364,7 +373,7 @@ export default function CuadrantePersonalScreen() {
                     <MaterialIcons
                       name={localDropdownOpen ? 'expand-less' : 'expand-more'}
                       size={18}
-                      color="#64748b"
+                      color={colors.textMuted}
                     />
                   </TouchableOpacity>
                   {localDropdownOpen && (
@@ -374,16 +383,16 @@ export default function CuadrantePersonalScreen() {
                       value={localSearch}
                       onChangeText={setLocalSearch}
                       placeholder="Buscar local…"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                     />
                     <View style={styles.dropdownBulkRow}>
                       <TouchableOpacity onPress={seleccionarTodosFiltrados} style={styles.dropdownBulkBtn}>
-                        <MaterialIcons name="done-all" size={14} color="#0ea5e9" />
+                        <MaterialIcons name="done-all" size={14} color={colors.accent} />
                         <Text style={styles.dropdownBulkText}>Todos (lista)</Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={quitarSeleccionFiltrados} style={styles.dropdownBulkBtn}>
-                        <MaterialIcons name="remove-done" size={14} color="#64748b" />
-                        <Text style={[styles.dropdownBulkText, { color: '#64748b' }]}>Quitar lista</Text>
+                        <MaterialIcons name="remove-done" size={14} color={colors.textMuted} />
+                        <Text style={[styles.dropdownBulkText, { color: colors.textMuted }]}>Quitar lista</Text>
                       </TouchableOpacity>
                     </View>
                     <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled">
@@ -405,7 +414,7 @@ export default function CuadrantePersonalScreen() {
                               <MaterialIcons
                                 name={on ? 'check-box' : 'check-box-outline-blank'}
                                 size={20}
-                                color={on ? '#0ea5e9' : '#94a3b8'}
+                                color={on ? colors.accent : colors.textMuted}
                               />
                               <Text style={styles.dropdownOptionText} numberOfLines={1}>{l.nombre || '—'}</Text>
                             </TouchableOpacity>
@@ -435,9 +444,9 @@ export default function CuadrantePersonalScreen() {
                 activeOpacity={0.7}
               >
                 {loading ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
-                  <MaterialIcons name="search" size={16} color="#fff" />
+                  <MaterialIcons name="search" size={16} color={colors.surface} />
                 )}
                 <Text style={styles.consultarBtnText}>{loading ? 'Consultando…' : 'Consultar'}</Text>
               </TouchableOpacity>
@@ -449,7 +458,7 @@ export default function CuadrantePersonalScreen() {
 
           {error ? (
             <View style={styles.errorBar}>
-              <MaterialIcons name="error-outline" size={16} color="#dc2626" />
+              <MaterialIcons name="error-outline" size={16} color={colors.danger} />
               <Text style={styles.errorBarText}>{error}</Text>
             </View>
           ) : null}
@@ -468,18 +477,18 @@ export default function CuadrantePersonalScreen() {
                 </Text>
               </View>
 
-              <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 24 }}>
+              <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: SPACING.xl }}>
                 {!data.por_local?.length ||
                 data.por_local.every((b) => b.dias.every((d) => d.filas.length === 0)) ? (
                   <View style={styles.emptyWrap}>
-                    <MaterialIcons name="event-available" size={40} color="#cbd5e1" />
+                    <MaterialIcons name="event-available" size={40} color={colors.borderStrong} />
                     <Text style={styles.emptyText}>Sin turnos ni fichajes en el rango seleccionado.</Text>
                   </View>
                 ) : (
                   data.por_local.map((block) => (
                     <View key={block.local_id} style={styles.localGroup}>
                       <View style={styles.localGroupHeader}>
-                        <MaterialIcons name="storefront" size={18} color="#0369a1" />
+                        <MaterialIcons name="storefront" size={18} color={statusColors.info.text} />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.localGroupTitle}>{block.nombre}</Text>
                           <Text style={styles.localGroupMeta}>
@@ -491,7 +500,7 @@ export default function CuadrantePersonalScreen() {
                       {block.dias.map((dia) => (dia.filas.length === 0 ? null : (
                         <View key={`${block.local_id}-${dia.fecha}`} style={styles.diaBlock}>
                           <View style={styles.diaHeader}>
-                            <MaterialIcons name="event" size={16} color="#0ea5e9" />
+                            <MaterialIcons name="event" size={16} color={colors.accent} />
                             <Text style={styles.diaTitle}>{formatFecha(dia.fecha)}</Text>
                             <View style={styles.diaTotalsWrap}>
                               <Text style={styles.diaTotalsText}>
@@ -536,7 +545,7 @@ export default function CuadrantePersonalScreen() {
                                 const nGrupo = tamanoGrupoEmpleado(dia.filas, idx);
                                 const tramo = indiceTramoEnGrupo(dia.filas, idx);
                                 const gIdx = grupoEmpleadoIndex(dia.filas, idx);
-                                const rowBg = gIdx % 2 === 0 ? '#ffffff' : '#f8fafc';
+                                const rowBg = gIdx % 2 === 0 ? colors.surface : colors.bg;
 
                                 return (
                                 <View
@@ -587,7 +596,7 @@ export default function CuadrantePersonalScreen() {
                                   <View style={[styles.cell, styles.cellEstado, { width: COL_WIDTHS.flags }]}>
                                     {f.flags.length === 0 ? (
                                       <View style={styles.flagChipOk}>
-                                        <MaterialIcons name="check" size={10} color="#16a34a" />
+                                        <MaterialIcons name="check" size={10} color={colors.success} />
                                         <Text style={styles.flagChipOkText}>OK</Text>
                                       </View>
                                     ) : (
@@ -613,33 +622,36 @@ export default function CuadrantePersonalScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, textAlign: 'center' },
 
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: 10 },
   backBtn: {
-    width: 36, height: 36, borderRadius: 8, backgroundColor: '#f1f5f9',
+    width: 36, height: 36, borderRadius: RADIO_MEDIO, backgroundColor: colors.navActive,
     alignItems: 'center', justifyContent: 'center',
   },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
 
   warningBox: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-    backgroundColor: '#fef3c7', borderWidth: 1, borderColor: '#fde68a',
-    borderRadius: 10, padding: 16, marginTop: 12,
+    backgroundColor: statusColors.warning.bg, borderWidth: 1, borderColor: '#fde68a',
+    borderRadius: radius.md, padding: SPACING.lg, marginTop: SPACING.md,
   },
-  warningTitle: { fontSize: 14, fontWeight: '600', color: '#92400e', marginBottom: 4 },
-  warningText: { fontSize: 12, color: '#92400e', marginBottom: 10 },
+  warningTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#92400e', marginBottom: SPACING.xs },
+  warningText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#92400e', marginBottom: 10 },
   warningBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
-    paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
-    backgroundColor: '#fff', borderWidth: 1, borderColor: '#0ea5e9',
+    paddingVertical: 6, paddingHorizontal: SPACING.md, borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent,
   },
-  warningBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
+  warningBtnText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 
   dropdownBackdrop: {
     ...Platform.select({
@@ -656,7 +668,7 @@ const styles = StyleSheet.create({
   },
 
   filtersBlock: {
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
     position: 'relative' as const,
     zIndex: 1,
     overflow: 'visible' as const,
@@ -667,7 +679,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: SPACING.md,
     overflow: 'visible' as const,
   },
   filtersRowOnTop: { position: 'relative' as const, zIndex: DROPDOWN_Z + 2 },
@@ -681,29 +693,29 @@ const styles = StyleSheet.create({
   localPickerAnchor: {
     position: 'relative' as const,
   },
-  filterLabel: { fontSize: 10, fontWeight: '500', color: '#475569', marginBottom: 4 },
+  filterLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
 
   formInput: {
-    backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0',
-    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
-    fontSize: 13, color: '#334155', minHeight: 32,
+    backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border,
+    borderRadius: RADIO_MEDIO, paddingHorizontal: 10, paddingVertical: 6,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, minHeight: 32,
   },
   formInputRow: { flexDirection: 'row', alignItems: 'center' },
-  formInputText: { fontSize: 13, color: '#334155', flex: 1 },
-  formInputPlaceholder: { color: '#94a3b8' },
+  formInputText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, flex: 1 },
+  formInputPlaceholder: { color: colors.textMuted },
 
   inputDmy: {
-    backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0',
-    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
-    fontSize: 13, color: '#334155', minHeight: 32,
+    backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border,
+    borderRadius: RADIO_MEDIO, paddingHorizontal: 10, paddingVertical: 6,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, minHeight: 32,
   },
 
   dropdownWrap: {
-    marginTop: 4,
-    backgroundColor: '#fff',
+    marginTop: SPACING.xs,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     overflow: 'hidden',
     maxHeight: 300,
     position: 'absolute' as const,
@@ -717,122 +729,122 @@ const styles = StyleSheet.create({
   },
 
   dropdownSearch: {
-    paddingVertical: 6, paddingHorizontal: 8, fontSize: 11,
-    color: '#334155', backgroundColor: '#f8fafc',
-    borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
+    paddingVertical: 6, paddingHorizontal: SPACING.sm, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize,
+    color: colors.textPrimary, backgroundColor: colors.bg,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   dropdownBulkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: SPACING.md,
     paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    backgroundColor: '#fff',
+    borderBottomColor: colors.navActive,
+    backgroundColor: colors.surface,
   },
-  dropdownBulkBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  dropdownBulkText: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
+  dropdownBulkBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  dropdownBulkText: { fontSize: typography.etiqueta.fontSize, color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   dropdownScroll: { maxHeight: 220 },
   dropdownOption: {
-    paddingVertical: 8, paddingHorizontal: 10,
-    borderBottomWidth: 1, borderBottomColor: '#f1f5f9',
+    paddingVertical: SPACING.sm, paddingHorizontal: 10,
+    borderBottomWidth: 1, borderBottomColor: colors.navActive,
   },
   dropdownOptionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  dropdownOptionText: { fontSize: 12, color: '#334155', flex: 1 },
+  dropdownOptionText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, flex: 1 },
 
   consultarBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingVertical: 8, paddingHorizontal: 14,
-    borderRadius: 8, backgroundColor: '#0ea5e9',
+    paddingVertical: SPACING.sm, paddingHorizontal: 14,
+    borderRadius: RADIO_MEDIO, backgroundColor: colors.accent,
     minHeight: 32,
   },
   consultarBtnDisabled: { opacity: 0.5 },
-  consultarBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  consultarBtnText: { color: colors.surface, fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 
   errorBar: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca',
-    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8,
-    marginBottom: 8,
+    backgroundColor: statusColors.danger.bg, borderWidth: 1, borderColor: '#fecaca',
+    paddingVertical: 6, paddingHorizontal: 10, borderRadius: RADIO_MEDIO,
+    marginBottom: SPACING.sm,
   },
-  errorBarText: { fontSize: 12, color: '#dc2626', flex: 1 },
+  errorBarText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flex: 1 },
 
   totalsBar: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#e0f2fe', borderWidth: 1, borderColor: '#bae6fd',
-    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8,
-    marginBottom: 8, flexWrap: 'wrap',
+    backgroundColor: colors.accentMuted, borderWidth: 1, borderColor: '#bae6fd',
+    paddingVertical: 6, paddingHorizontal: 10, borderRadius: RADIO_MEDIO,
+    marginBottom: SPACING.sm, flexWrap: 'wrap',
   },
-  totalsText: { fontSize: 12, color: '#0c4a6e', flex: 1 },
-  totalsStrong: { fontWeight: '700' },
+  totalsText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#0c4a6e', flex: 1 },
+  totalsStrong: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   scroll: { flex: 1, position: 'relative' as const, zIndex: 0 },
-  emptyWrap: { alignItems: 'center', paddingVertical: 40, gap: 8 },
-  emptyText: { fontSize: 12, color: '#64748b' },
+  emptyWrap: { alignItems: 'center', paddingVertical: 40, gap: SPACING.sm },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
 
   localGroup: {
-    marginBottom: 12,
+    marginBottom: SPACING.md,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    borderRadius: 10,
+    borderRadius: radius.md,
     overflow: 'hidden',
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
   },
   localGroupHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#e0f2fe',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: colors.accentMuted,
     borderBottomWidth: 1,
     borderBottomColor: '#bae6fd',
   },
-  localGroupTitle: { fontSize: 16, fontWeight: '700', color: '#0c4a6e' },
-  localGroupMeta: { fontSize: 11, color: '#0c4a6e', marginTop: 4, opacity: 0.9 },
+  localGroupTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#0c4a6e' },
+  localGroupMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#0c4a6e', marginTop: SPACING.xs, opacity: 0.9 },
 
-  diaBlock: { marginBottom: 10, marginHorizontal: 8, marginTop: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
+  diaBlock: { marginBottom: 10, marginHorizontal: SPACING.sm, marginTop: 6, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, overflow: 'hidden', backgroundColor: colors.surface },
   diaHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexWrap: 'wrap',
     paddingHorizontal: 10, paddingVertical: 6,
-    backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
+    backgroundColor: colors.bg, borderBottomWidth: 1, borderBottomColor: colors.border,
   },
-  diaTitle: { fontSize: 14, fontWeight: '600', color: '#334155' },
+  diaTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   diaTotalsWrap: { flex: 1, alignItems: 'flex-end' },
-  diaTotalsText: { fontSize: 11, color: '#64748b' },
+  diaTotalsText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
 
-  tableGroupHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
+  tableGroupHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.borderStrong },
   cellGroupHeader: {
-    paddingVertical: 4, paddingHorizontal: 6,
-    borderRightWidth: 1, borderRightColor: '#cbd5e1',
+    paddingVertical: SPACING.xs, paddingHorizontal: 6,
+    borderRightWidth: 1, borderRightColor: colors.borderStrong,
     justifyContent: 'center', alignItems: 'center',
     backgroundColor: '#eef2f6',
   },
   cellGroupHeaderPlan: { backgroundColor: '#dbeafe' },
-  cellGroupHeaderReal: { backgroundColor: '#dcfce7' },
-  cellGroupHeaderText: { fontSize: 10, fontWeight: '700', color: '#334155', textAlign: 'center' },
+  cellGroupHeaderReal: { backgroundColor: statusColors.success.bg },
+  cellGroupHeaderText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, textAlign: 'center' },
 
-  tableHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
+  tableHeader: { flexDirection: 'row', backgroundColor: colors.border, borderBottomWidth: 1, borderBottomColor: colors.borderStrong },
   cellHeader: {
-    paddingVertical: 4, paddingHorizontal: 6,
-    borderRightWidth: 1, borderRightColor: '#cbd5e1',
+    paddingVertical: SPACING.xs, paddingHorizontal: 6,
+    borderRightWidth: 1, borderRightColor: colors.borderStrong,
     justifyContent: 'center',
   },
-  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155' },
+  cellHeaderText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
 
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border },
   cell: {
     paddingVertical: 3, paddingHorizontal: 6,
-    borderRightWidth: 1, borderRightColor: '#e2e8f0',
+    borderRightWidth: 1, borderRightColor: colors.border,
     justifyContent: 'center', alignItems: 'flex-start',
   },
   cellEmpleado: { justifyContent: 'flex-start' },
@@ -842,13 +854,15 @@ const styles = StyleSheet.create({
     paddingLeft: 5,
     backgroundColor: 'transparent',
   },
-  cellText: { fontSize: 10, color: '#475569' },
-  cellTextNombre: { fontSize: 10, fontWeight: '600', color: '#334155' },
-  cellTextTramo: { fontSize: 10, color: '#64748b', fontStyle: 'italic' },
-  cellMultitramo: { fontSize: 9, color: '#0369a1', marginTop: 2, fontWeight: '500' },
-  cellSubtext: { fontSize: 8, color: '#94a3b8', marginTop: 2 },
-  desvPositiva: { color: '#dc2626', fontWeight: '600' },
-  desvNegativa: { color: '#b45309', fontWeight: '600' },
+  cellText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textPrimary, fontVariant: ['tabular-nums'] },
+  cellTextNombre: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  cellTextTramo: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, fontStyle: 'italic' },
+  /** 9 px sube a 11 (suelo de etiqueta). */
+  cellMultitramo: { fontSize: typography.etiqueta.fontSize, color: statusColors.info.text, marginTop: 2, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  /** 8 px sube a 11 (suelo de etiqueta). */
+  cellSubtext: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 2 },
+  desvPositiva: { color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  desvNegativa: { color: statusColors.warning.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 
   cellEstado: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 3,
@@ -856,13 +870,15 @@ const styles = StyleSheet.create({
   },
   flagChip: {
     flexDirection: 'row', alignItems: 'center', gap: 2,
-    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5,
+    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5, // 5 px; radius.sm es 6
   },
-  flagChipText: { fontSize: 9, fontWeight: '600' },
+  /** 9 px sube a 11 (suelo de etiqueta). */
+  flagChipText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   flagChipOk: {
     flexDirection: 'row', alignItems: 'center', gap: 2,
-    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5,
-    backgroundColor: '#dcfce7',
+    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5, // 5 px; radius.sm es 6
+    backgroundColor: statusColors.success.bg,
   },
-  flagChipOkText: { fontSize: 9, fontWeight: '600', color: '#16a34a' },
+  /** 9 px sube a 11 (suelo de etiqueta). */
+  flagChipOkText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.success },
 });
