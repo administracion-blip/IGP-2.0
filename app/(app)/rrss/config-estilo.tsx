@@ -12,6 +12,15 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useLocalToast } from '../../components/Toast';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useMarketingLocales, valorEnLocal } from './LocalesContext';
@@ -163,12 +172,12 @@ export default function ConfigEstiloScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.accent} />
           </TouchableOpacity>
           <Text style={styles.title}>Estilo visual por local</Text>
         </View>
         <View style={styles.empty}>
-          <MaterialIcons name="lock" size={32} color="#94a3b8" />
+          <MaterialIcons name="lock" size={32} color={colors.textMuted} />
           <Text style={styles.emptyText}>
             Necesitas el permiso marketing.proponer o marketing.gestionar para editar la identidad del local.
           </Text>
@@ -181,7 +190,7 @@ export default function ConfigEstiloScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.accent} />
         </TouchableOpacity>
         <Text style={styles.title}>Estilo visual por local</Text>
       </View>
@@ -190,7 +199,7 @@ export default function ConfigEstiloScreen() {
         <Text style={styles.help}>
           Describe el estilo visual del local (paleta de colores, tipografía, ambiente, materiales,
           referencias, tono…). Puedes adjuntar hasta 3 imágenes de referencia y una{' '}
-          <Text style={{ fontWeight: '700' }}>URL web</Text> del establecimiento para contextualizar prompts.
+          <Text style={{ fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight }}>URL web</Text> del establecimiento para contextualizar prompts.
           Si tienes marketing.proponer, solo verás los locales que tienes asignados (los gestores ven todos).
         </Text>
 
@@ -216,7 +225,7 @@ export default function ConfigEstiloScreen() {
           <>
             {loading ? (
               <View style={styles.loadingBox}>
-                <ActivityIndicator size="small" color="#0ea5e9" />
+                <ActivityIndicator size="small" color={colors.accent} />
               </View>
             ) : (
               <>
@@ -234,7 +243,7 @@ export default function ConfigEstiloScreen() {
                     value={webUrl}
                     onChangeText={(t) => setWebUrl(t.slice(0, MAX_WEB_URL_CHARS))}
                     placeholder="https://ejemplo.com"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                     autoCapitalize="none"
                     autoCorrect={false}
                     keyboardType="url"
@@ -253,7 +262,7 @@ export default function ConfigEstiloScreen() {
                     onChangeText={setBrief}
                     multiline
                     placeholder="Local hostelero acogedor, paleta cálida (mostaza, terracota, beige), iluminación tenue tipo bistró, tipografía serif moderna, ambiente urbano-mediterráneo…"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                     maxLength={MAX_BRIEF + 200}
                   />
                 </View>
@@ -264,7 +273,7 @@ export default function ConfigEstiloScreen() {
 
         {error && (
           <View style={styles.errorBox}>
-            <MaterialIcons name="error-outline" size={18} color="#f87171" />
+            <MaterialIcons name="error-outline" size={18} color={colors.danger} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
@@ -289,7 +298,7 @@ export default function ConfigEstiloScreen() {
               }
               activeOpacity={0.7}
             >
-              {saving ? <ActivityIndicator color="#fff" /> : <MaterialIcons name="save" size={20} color="#fff" />}
+              {saving ? <ActivityIndicator color={colors.surface} /> : <MaterialIcons name="save" size={20} color={colors.surface} />}
               <Text style={styles.primaryBtnText}>{saving ? 'Guardando…' : 'Guardar estilo'}</Text>
             </TouchableOpacity>
           </View>
@@ -300,37 +309,40 @@ export default function ConfigEstiloScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerBtn: { padding: 6 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   form: { padding: 16, gap: 16 },
-  help: { fontSize: 13, color: '#64748b', lineHeight: 19 },
+  help: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, lineHeight: 19 },
   field: { gap: 6 },
   labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  fieldSub: { fontSize: 11, color: '#64748b', lineHeight: 15 },
-  charCount: { fontSize: 11, color: '#64748b' },
-  charCountOver: { color: '#dc2626', fontWeight: '600' },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  fieldSub: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 15 },
+  charCount: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
+  charCountOver: { color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   input: {
-    fontSize: 14,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
     paddingVertical: 10,
     paddingHorizontal: 12,
-    color: '#334155',
-    backgroundColor: '#fff',
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
   textarea: { minHeight: 200, textAlignVertical: 'top' },
   loadingBox: { paddingVertical: 24, alignItems: 'center' },
-  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8 },
-  errorText: { fontSize: 12, color: '#dc2626', flex: 1 },
+  errorBox: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flex: 1 },
   actions: { flexDirection: 'row', gap: 10 },
-  primaryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, backgroundColor: '#0ea5e9', borderRadius: 10 },
-  primaryBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  empty: { paddingVertical: 32, alignItems: 'center', gap: 8 },
-  emptyText: { fontSize: 13, color: '#64748b' },
+  primaryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingVertical: SPACING.md, backgroundColor: colors.accent, borderRadius: radius.md },
+  primaryBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  empty: { paddingVertical: 32, alignItems: 'center', gap: SPACING.sm },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
   disabled: { opacity: 0.6 },
 });
