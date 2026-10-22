@@ -19,6 +19,15 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
 import { apiFetch } from '../../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 
 type ProductoDosis = { producto: string; dosis: string; epi: string };
 type TipoLimpieza = {
@@ -307,7 +316,7 @@ export default function MaestrosLimpiezaScreen() {
       <View style={styles.panelHeader}>
         <View style={styles.panelTitleRow}>
           <View style={styles.panelIconWrap}>
-            <MaterialIcons name="inventory-2" size={18} color="#0ea5e9" />
+            <MaterialIcons name="inventory-2" size={18} color={colors.accent} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.panelTitle}>Tipos</Text>
@@ -315,7 +324,7 @@ export default function MaestrosLimpiezaScreen() {
           </View>
           {puedeEditarTipos ? (
             <TouchableOpacity style={styles.addBtn} onPress={abrirNuevoTipo}>
-              <MaterialIcons name="add" size={18} color="#fff" />
+              <MaterialIcons name="add" size={18} color={colors.surface} />
               <Text style={styles.addBtnText}>Nuevo</Text>
             </TouchableOpacity>
           ) : null}
@@ -325,7 +334,7 @@ export default function MaestrosLimpiezaScreen() {
             <Text style={styles.filtroChipText}>
               Filtrando: {nombreTipo(tipoFiltroId)}
             </Text>
-            <MaterialIcons name="close" size={14} color="#0369a1" />
+            <MaterialIcons name="close" size={14} color={statusColors.info.text} />
           </TouchableOpacity>
         ) : (
           <Text style={styles.hint}>Pulsa un tipo para filtrar objetos del local</Text>
@@ -335,7 +344,7 @@ export default function MaestrosLimpiezaScreen() {
       {errorTipos ? <Text style={styles.errorText}>{errorTipos}</Text> : null}
 
       {loadingTipos ? (
-        <View style={styles.center}><ActivityIndicator size="small" color="#0ea5e9" /></View>
+        <View style={styles.center}><ActivityIndicator size="small" color={colors.accent} /></View>
       ) : (
         <ScrollView style={styles.panelScroll} contentContainerStyle={styles.list}>
           {tipos.length === 0 ? (
@@ -345,7 +354,7 @@ export default function MaestrosLimpiezaScreen() {
             return (
               <View key={t.id_tipo} style={[styles.rowCard, selected && styles.rowCardSelected]}>
                 <TouchableOpacity
-                  style={{ flex: 1, gap: 4 }}
+                  style={{ flex: 1, gap: SPACING.xs }}
                   onPress={() => seleccionarTipo(t.id_tipo)}
                   activeOpacity={0.75}
                 >
@@ -368,10 +377,10 @@ export default function MaestrosLimpiezaScreen() {
                 {puedeEditarTipos ? (
                   <View style={styles.rowActions}>
                     <TouchableOpacity onPress={() => abrirEditarTipo(t)} style={styles.iconBtn} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                      <MaterialIcons name="edit" size={18} color="#0ea5e9" />
+                      <MaterialIcons name="edit" size={18} color={colors.accent} />
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => borrarTipo(t)} style={styles.iconBtn} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                      <MaterialIcons name="delete" size={18} color="#dc2626" />
+                      <MaterialIcons name="delete" size={18} color={colors.danger} />
                     </TouchableOpacity>
                   </View>
                 ) : null}
@@ -388,7 +397,7 @@ export default function MaestrosLimpiezaScreen() {
       <View style={styles.panelHeader}>
         <View style={styles.panelTitleRow}>
           <View style={styles.panelIconWrap}>
-            <MaterialIcons name="kitchen" size={18} color="#0ea5e9" />
+            <MaterialIcons name="kitchen" size={18} color={colors.accent} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.panelTitle}>Objetos del local</Text>
@@ -403,14 +412,14 @@ export default function MaestrosLimpiezaScreen() {
               onPress={abrirNuevoObjeto}
               disabled={!localId || tiposActivos.length === 0}
             >
-              <MaterialIcons name="add" size={18} color="#fff" />
+              <MaterialIcons name="add" size={18} color={colors.surface} />
               <Text style={styles.addBtnText}>Nuevo</Text>
             </TouchableOpacity>
           ) : null}
         </View>
 
         {loadingLocales ? (
-          <ActivityIndicator size="small" color="#0ea5e9" />
+          <ActivityIndicator size="small" color={colors.accent} />
         ) : (
           <SelectorDesplegable
             style={{ marginTop: 4 }}
@@ -431,7 +440,7 @@ export default function MaestrosLimpiezaScreen() {
       ) : null}
 
       {loadingObjetos ? (
-        <View style={styles.center}><ActivityIndicator size="small" color="#0ea5e9" /></View>
+        <View style={styles.center}><ActivityIndicator size="small" color={colors.accent} /></View>
       ) : (
         <ScrollView style={styles.panelScroll} contentContainerStyle={styles.list}>
           {objetosFiltrados.length === 0 ? (
@@ -442,7 +451,7 @@ export default function MaestrosLimpiezaScreen() {
             </Text>
           ) : objetosFiltrados.map((o) => (
             <View key={o.id_objeto} style={styles.rowCard}>
-              <View style={{ flex: 1, gap: 4 }}>
+              <View style={{ flex: 1, gap: SPACING.xs }}>
                 <View style={styles.rowTop}>
                   <Text style={styles.rowTitle}>{o.nombre}</Text>
                   <View style={[styles.badge, o.activo === false ? styles.badgeOff : styles.badgeOn]}>
@@ -460,10 +469,10 @@ export default function MaestrosLimpiezaScreen() {
               {puedeEditarObjetos ? (
                 <View style={styles.rowActions}>
                   <TouchableOpacity onPress={() => abrirEditarObjeto(o)} style={styles.iconBtn} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                    <MaterialIcons name="edit" size={18} color="#0ea5e9" />
+                    <MaterialIcons name="edit" size={18} color={colors.accent} />
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => borrarObjeto(o)} style={styles.iconBtn} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                    <MaterialIcons name="delete" size={18} color="#dc2626" />
+                    <MaterialIcons name="delete" size={18} color={colors.danger} />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -478,7 +487,7 @@ export default function MaestrosLimpiezaScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Tipos y objetos</Text>
@@ -518,12 +527,12 @@ export default function MaestrosLimpiezaScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editTipoId ? 'Editar tipo' : 'Nuevo tipo'}</Text>
               <TouchableOpacity onPress={() => setModalTipo(false)}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
               <Text style={styles.label}>Nombre *</Text>
-              <TextInput style={styles.input} value={tipoNombre} onChangeText={setTipoNombre} placeholder="Nevera, Congelador…" placeholderTextColor="#94a3b8" />
+              <TextInput style={styles.input} value={tipoNombre} onChangeText={setTipoNombre} placeholder="Nevera, Congelador…" placeholderTextColor={colors.textMuted} />
 
               <Text style={styles.label}>Procedimiento de limpieza</Text>
               <TextInput
@@ -531,22 +540,22 @@ export default function MaestrosLimpiezaScreen() {
                 value={procedimiento}
                 onChangeText={setProcedimiento}
                 placeholder="Pasos comunes de limpieza para este tipo…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 multiline
               />
 
               <View style={styles.prodHeader}>
                 <Text style={styles.label}>Productos y dosis</Text>
                 <TouchableOpacity onPress={() => setProductos((p) => [...p, { producto: '', dosis: '', epi: '' }])}>
-                  <MaterialIcons name="add-circle-outline" size={20} color="#0ea5e9" />
+                  <MaterialIcons name="add-circle-outline" size={20} color={colors.accent} />
                 </TouchableOpacity>
               </View>
               {productos.map((p, i) => (
                 <View key={i} style={styles.prodRow}>
-                  <TextInput style={[styles.input, styles.prodInput]} value={p.producto} onChangeText={(v) => setProductos((arr) => arr.map((x, j) => (j === i ? { ...x, producto: v } : x)))} placeholder="Producto" placeholderTextColor="#94a3b8" />
-                  <TextInput style={[styles.input, styles.prodInput]} value={p.dosis} onChangeText={(v) => setProductos((arr) => arr.map((x, j) => (j === i ? { ...x, dosis: v } : x)))} placeholder="Dosis / EPI" placeholderTextColor="#94a3b8" />
+                  <TextInput style={[styles.input, styles.prodInput]} value={p.producto} onChangeText={(v) => setProductos((arr) => arr.map((x, j) => (j === i ? { ...x, producto: v } : x)))} placeholder="Producto" placeholderTextColor={colors.textMuted} />
+                  <TextInput style={[styles.input, styles.prodInput]} value={p.dosis} onChangeText={(v) => setProductos((arr) => arr.map((x, j) => (j === i ? { ...x, dosis: v } : x)))} placeholder="Dosis / EPI" placeholderTextColor={colors.textMuted} />
                   <TouchableOpacity onPress={() => setProductos((arr) => arr.filter((_, j) => j !== i))} style={styles.iconBtn}>
-                    <MaterialIcons name="close" size={18} color="#dc2626" />
+                    <MaterialIcons name="close" size={18} color={colors.danger} />
                   </TouchableOpacity>
                 </View>
               ))}
@@ -570,7 +579,7 @@ export default function MaestrosLimpiezaScreen() {
               </View>
 
               <TouchableOpacity style={styles.saveBtn} onPress={guardarTipo} disabled={guardandoTipo}>
-                {guardandoTipo ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Guardar</Text>}
+                {guardandoTipo ? <ActivityIndicator size="small" color={colors.surface} /> : <Text style={styles.saveBtnText}>Guardar</Text>}
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -584,7 +593,7 @@ export default function MaestrosLimpiezaScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editObjetoId ? 'Editar objeto' : 'Nuevo objeto'}</Text>
               <TouchableOpacity onPress={() => setModalObjeto(false)}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
@@ -599,10 +608,10 @@ export default function MaestrosLimpiezaScreen() {
               />
 
               <Text style={styles.label}>Nombre *</Text>
-              <TextInput style={styles.input} value={objetoNombre} onChangeText={setObjetoNombre} placeholder="Nevera Cocina 1" placeholderTextColor="#94a3b8" />
+              <TextInput style={styles.input} value={objetoNombre} onChangeText={setObjetoNombre} placeholder="Nevera Cocina 1" placeholderTextColor={colors.textMuted} />
 
               <Text style={styles.label}>Ubicación</Text>
-              <TextInput style={styles.input} value={ubicacion} onChangeText={setUbicacion} placeholder="Cocina, Barra, Almacén…" placeholderTextColor="#94a3b8" />
+              <TextInput style={styles.input} value={ubicacion} onChangeText={setUbicacion} placeholder="Cocina, Barra, Almacén…" placeholderTextColor={colors.textMuted} />
 
               <Text style={styles.label}>Código / etiqueta</Text>
               {editObjetoId ? (
@@ -617,7 +626,7 @@ export default function MaestrosLimpiezaScreen() {
               </View>
 
               <TouchableOpacity style={styles.saveBtn} onPress={guardarObjeto} disabled={guardandoObjeto}>
-                {guardandoObjeto ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Guardar</Text>}
+                {guardandoObjeto ? <ActivityIndicator size="small" color={colors.surface} /> : <Text style={styles.saveBtnText}>Guardar</Text>}
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -627,31 +636,36 @@ export default function MaestrosLimpiezaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: SPACING.md },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
   tabs: {
     flexDirection: 'row',
-    backgroundColor: '#e2e8f0',
-    borderRadius: 10,
+    backgroundColor: colors.border,
+    borderRadius: radius.md,
     padding: 3,
     marginBottom: 10,
     gap: 2,
   },
-  tab: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
-  tabActive: { backgroundColor: '#fff' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-  tabTextActive: { color: '#0ea5e9' },
-  split: { flex: 1, flexDirection: 'row', gap: 12, minHeight: 0 },
+  tab: { flex: 1, paddingVertical: 10, borderRadius: RADIO_MEDIO, alignItems: 'center' },
+  tabActive: { backgroundColor: colors.surface },
+  tabText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  tabTextActive: { color: colors.accent },
+  split: { flex: 1, flexDirection: 'row', gap: SPACING.md, minHeight: 0 },
   panel: {
     flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_TARJETA,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     overflow: 'hidden',
     minWidth: 0,
     minHeight: 0,
@@ -662,80 +676,81 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    gap: 8,
+    borderBottomColor: colors.navActive,
+    gap: SPACING.sm,
   },
   panelTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   panelIconWrap: {
     width: 34,
     height: 34,
-    borderRadius: 10,
-    backgroundColor: '#f0f9ff',
+    borderRadius: radius.md,
+    backgroundColor: colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  panelTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  panelSub: { fontSize: 11, color: '#94a3b8', marginTop: 1 },
-  hint: { fontSize: 11, color: '#94a3b8' },
+  panelTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  panelSub: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 1 },
+  hint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
   filtroChip: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#e0f2fe',
-    paddingVertical: 4,
+    backgroundColor: colors.accentMuted,
+    paddingVertical: SPACING.xs,
     paddingHorizontal: 10,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
-  filtroChipText: { fontSize: 11, fontWeight: '600', color: '#0369a1' },
+  filtroChipText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
   panelScroll: { flex: 1 },
-  list: { padding: 10, gap: 8, paddingBottom: 20 },
+  list: { padding: 10, gap: SPACING.sm, paddingBottom: 20 },
   rowCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: '#f8fafc',
+    gap: SPACING.sm,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 12,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: SPACING.md,
   },
   rowCardSelected: {
     borderColor: '#7dd3fc',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
   },
-  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  rowTitle: { fontSize: 14, fontWeight: '700', color: '#334155', flexShrink: 1 },
-  rowMeta: { fontSize: 12, color: '#64748b' },
-  rowProc: { fontSize: 12, color: '#475569', lineHeight: 16 },
+  rowTop: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexWrap: 'wrap' },
+  rowTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, flexShrink: 1 },
+  rowMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  rowProc: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, lineHeight: 16 },
   rowActions: { flexDirection: 'row', gap: 2, marginTop: 2 },
-  badge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 999 },
-  badgeOn: { backgroundColor: '#dcfce7' },
-  badgeOff: { backgroundColor: '#f1f5f9' },
-  badgeText: { fontSize: 10, fontWeight: '700' },
-  badgeTextOn: { color: '#15803d' },
-  badgeTextOff: { color: '#64748b' },
+  badge: { paddingVertical: 2, paddingHorizontal: SPACING.sm, borderRadius: radius.pill },
+  badgeOn: { backgroundColor: statusColors.success.bg },
+  badgeOff: { backgroundColor: colors.navActive },
+  badgeText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  badgeTextOn: { color: statusColors.success.text },
+  badgeTextOff: { color: colors.textMuted },
   codigo: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#0ea5e9',
+    fontSize: typography.etiqueta.fontSize,
+    fontWeight: typography.boton.fontWeight,
+    color: colors.accent,
     fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
   },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#0ea5e9',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    gap: SPACING.xs,
+    backgroundColor: colors.accent,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
   },
   addBtnDisabled: { opacity: 0.45 },
-  addBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  addBtnText: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
   center: { paddingVertical: 32, alignItems: 'center' },
-  errorText: { fontSize: 12, color: '#dc2626', paddingHorizontal: 14, paddingTop: 8 },
-  vacio: { fontSize: 13, color: '#94a3b8', padding: 8, lineHeight: 19 },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, paddingHorizontal: 14, paddingTop: SPACING.sm },
+  vacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, padding: SPACING.sm, lineHeight: 19 },
   iconBtn: { padding: 6 },
+  // Más oscuro que colors.overlay.
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.45)',
@@ -747,31 +762,30 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 520,
     maxHeight: '85%',
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_TARJETA,
     overflow: 'hidden',
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    padding: SPACING.lg,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155' },
-  modalScroll: { padding: 16 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6, marginTop: 10 },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  modalScroll: { padding: SPACING.lg },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: 6, marginTop: 10 },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    fontSize: 14,
-    color: '#334155',
-    backgroundColor: '#fff',
-    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}),
+    paddingHorizontal: SPACING.md,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
   },
   textArea: { minHeight: 70, textAlignVertical: 'top' },
   prodHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -781,34 +795,34 @@ const styles = StyleSheet.create({
   chip: {
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
   },
-  chipActive: { borderColor: '#7dd3fc', backgroundColor: '#e0f2fe' },
-  chipText: { fontSize: 12, color: '#64748b' },
-  chipTextActive: { color: '#0369a1', fontWeight: '600' },
+  chipActive: { borderColor: '#7dd3fc', backgroundColor: colors.accentMuted },
+  chipText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  chipTextActive: { color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
   saveBtn: {
-    backgroundColor: '#0ea5e9',
-    borderRadius: 10,
-    paddingVertical: 12,
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    paddingVertical: SPACING.md,
     alignItems: 'center',
     marginTop: 20,
     marginBottom: 10,
   },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  saveBtnText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[14] },
   codigoPreview: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#0ea5e9',
+    fontSize: fontSizes[13],
+    fontWeight: typography.boton.fontWeight,
+    color: colors.accent,
     fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
   },
   codigoFijo: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#334155',
+    fontSize: fontSizes[13],
+    fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
     fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
   },
 });
