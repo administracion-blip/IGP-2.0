@@ -11,7 +11,6 @@ import {
   Modal,
   Pressable,
   Platform,
-  useWindowDimensions,
   type ImageStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -27,6 +26,15 @@ import {
   facturaMantenimientoDeParte,
 } from '../../lib/mantenimientoFacturacion';
 import { BREAKPOINTS, MIN_TOUCH } from '../../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import {
   getPrioridadOrden,
   getPrioridadColor,
@@ -244,14 +252,13 @@ function defaultExpandedKey(columns: MantenimientoBoardColumn<Incidencia>[]): st
 
 export default function ProgramadasHoyScreen() {
   const router = useRouter();
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const { width } = useBreakpoint();
+  const { width, height } = useBreakpoint();
   const photoExpandedSize = useMemo(
     () => ({
-      width: Math.min(windowWidth * 0.9, 900),
-      height: Math.min(windowHeight * 0.85, 700),
+      width: Math.min(width * 0.9, 900),
+      height: Math.min(height * 0.85, 700),
     }),
-    [windowWidth, windowHeight],
+    [width, height],
   );
   const { locales } = useMantenimientoLocales();
   const [fechaSeleccionada, setFechaSeleccionada] = useState(getHoyISO);
@@ -277,6 +284,7 @@ export default function ProgramadasHoyScreen() {
   const trabajoEnVueloRef = useRef(false);
 
   const isAccordionMode = width < BREAKPOINTS.tablet;
+  // 1280 px: columnas del tablero; no está en los breakpoints de layout.
   const boardCols = width >= 1280 ? 6 : 4;
 
   const mapLocalIdToNombre = useMemo(() => {
@@ -691,7 +699,7 @@ export default function ProgramadasHoyScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando reparaciones…</Text>
       </View>
     );
@@ -701,7 +709,7 @@ export default function ProgramadasHoyScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerNav}>
           <TouchableOpacity
@@ -709,7 +717,7 @@ export default function ProgramadasHoyScreen() {
             style={styles.headerNavBtn}
             accessibilityLabel="Día anterior"
           >
-            <MaterialIcons name="chevron-left" size={24} color="#334155" />
+            <MaterialIcons name="chevron-left" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
             <Text style={styles.title} numberOfLines={1}>{tituloPantalla}</Text>
@@ -728,7 +736,7 @@ export default function ProgramadasHoyScreen() {
                 hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                 accessibilityLabel="Seleccionar fecha"
               >
-                <MaterialIcons name="calendar-today" size={16} color="#0ea5e9" />
+                <MaterialIcons name="calendar-today" size={16} color={colors.accent} />
                 <Text style={styles.headerDateText}>{labelFechaConDia(fechaSeleccionada)}</Text>
               </TouchableOpacity>
               {Platform.OS === 'web' ? (
@@ -755,14 +763,14 @@ export default function ProgramadasHoyScreen() {
             style={styles.headerNavBtn}
             accessibilityLabel="Día siguiente"
           >
-            <MaterialIcons name="chevron-right" size={24} color="#334155" />
+            <MaterialIcons name="chevron-right" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
       </View>
 
       {errorTrabajo ? (
         <View style={styles.avisoError}>
-          <MaterialIcons name="error-outline" size={16} color="#dc2626" />
+          <MaterialIcons name="error-outline" size={16} color={colors.danger} />
           <Text style={styles.avisoErrorText}>{errorTrabajo}</Text>
           <TouchableOpacity
             onPress={() => {
@@ -773,10 +781,10 @@ export default function ProgramadasHoyScreen() {
             accessibilityLabel="Recargar reparaciones"
           >
             {refreshing ? (
-              <ActivityIndicator size="small" color="#dc2626" />
+              <ActivityIndicator size="small" color={colors.danger} />
             ) : (
               <>
-                <MaterialIcons name="refresh" size={15} color="#dc2626" />
+                <MaterialIcons name="refresh" size={15} color={colors.danger} />
                 <Text style={styles.avisoAccionText}>Recargar</Text>
               </>
             )}
@@ -786,28 +794,28 @@ export default function ProgramadasHoyScreen() {
             style={styles.avisoCerrarBtn}
             accessibilityLabel="Cerrar aviso"
           >
-            <MaterialIcons name="close" size={16} color="#dc2626" />
+            <MaterialIcons name="close" size={16} color={colors.danger} />
           </TouchableOpacity>
         </View>
       ) : null}
 
       {avisoReparto ? (
         <View style={styles.avisoInfo}>
-          <MaterialIcons name="directions-car" size={16} color="#0369a1" />
+          <MaterialIcons name="directions-car" size={16} color={statusColors.info.text} />
           <Text style={styles.avisoInfoText}>{avisoReparto}</Text>
           <TouchableOpacity
             onPress={() => setAvisoReparto(null)}
             style={styles.avisoCerrarBtn}
             accessibilityLabel="Cerrar aviso"
           >
-            <MaterialIcons name="close" size={16} color="#0369a1" />
+            <MaterialIcons name="close" size={16} color={statusColors.info.text} />
           </TouchableOpacity>
         </View>
       ) : null}
 
       {avisoTrabajo ? (
         <View style={styles.avisoCrono}>
-          <MaterialIcons name="timer" size={16} color="#b45309" />
+          <MaterialIcons name="timer" size={16} color={statusColors.warning.text} />
           <Text style={styles.avisoCronoText}>{avisoTrabajo.texto}</Text>
           {avisoTrabajo.fecha ? (
             <TouchableOpacity
@@ -815,7 +823,7 @@ export default function ProgramadasHoyScreen() {
               style={styles.avisoAccionBtn}
               accessibilityLabel={`Ir al ${labelFechaLarga(avisoTrabajo.fecha)}`}
             >
-              <MaterialIcons name="event" size={15} color="#b45309" />
+              <MaterialIcons name="event" size={15} color={statusColors.warning.text} />
               <Text style={styles.avisoCronoAccionText}>
                 Ir al {avisoTrabajo.fecha.slice(8, 10)}/{avisoTrabajo.fecha.slice(5, 7)}
               </Text>
@@ -826,7 +834,7 @@ export default function ProgramadasHoyScreen() {
 
       {error ? (
         <View style={styles.errorWrap}>
-          <MaterialIcons name="error-outline" size={32} color="#dc2626" />
+          <MaterialIcons name="error-outline" size={32} color={colors.danger} />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={refetch}>
             <Text style={styles.retryBtnText}>Reintentar</Text>
@@ -836,11 +844,11 @@ export default function ProgramadasHoyScreen() {
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0ea5e9']} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accent]} />}
         >
           {columnas.length === 0 ? (
             <View style={styles.empty}>
-              <MaterialIcons name="today" size={48} color="#94a3b8" />
+              <MaterialIcons name="today" size={48} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>
                 {esHoy(fechaSeleccionada)
                   ? 'No hay reparaciones programadas para hoy'
@@ -926,7 +934,7 @@ export default function ProgramadasHoyScreen() {
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity style={styles.photoCloseBtn} onPress={() => setExpandedPhotoUri(null)}>
-              <MaterialIcons name="close" size={28} color="#fff" />
+              <MaterialIcons name="close" size={28} color={colors.surface} />
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -952,7 +960,7 @@ export default function ProgramadasHoyScreen() {
                 onChange={handleDatePickerChange}
               />
               <TouchableOpacity style={styles.datePickerOk} onPress={() => setShowDatePicker(false)}>
-                <MaterialIcons name="check" size={24} color="#0ea5e9" />
+                <MaterialIcons name="check" size={24} color={colors.accent} />
               </TouchableOpacity>
             </Pressable>
           </Pressable>
@@ -966,16 +974,19 @@ export default function ProgramadasHoyScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  loadingText: { fontSize: 14, color: '#64748b' },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  backBtn: { padding: 4, marginRight: 4 },
-  headerNav: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
-  headerNavBtn: { padding: 4 },
+  container: { flex: 1, backgroundColor: colors.surface },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SPACING.md },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted },
+  header: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
+  backBtn: { padding: SPACING.xs, marginRight: SPACING.xs },
+  headerNav: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, minWidth: 0 },
+  headerNavBtn: { padding: SPACING.xs },
   headerTitleWrap: { flex: 1, alignItems: 'center', minWidth: 0, gap: 2 },
-  title: { fontSize: 16, fontWeight: '700', color: '#334155', textAlign: 'center' },
+  title: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, textAlign: 'center' },
   headerDateRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -983,19 +994,20 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 2,
   },
-  hoyLink: { fontSize: 11, fontWeight: '600', color: '#0ea5e9' },
+  hoyLink: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
   calBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 2,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
   },
   headerDateText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#475569',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
   },
+  // Negro al 40 %. colors.overlay es pizarra al 35 %.
   datePickerOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
@@ -1003,71 +1015,71 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   datePickerSheet: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: SPACING.lg,
   },
   datePickerOk: {
     alignSelf: 'center',
-    marginTop: 8,
-    padding: 8,
+    marginTop: SPACING.sm,
+    padding: SPACING.sm,
   },
   avisoError: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 12,
-    marginTop: 8,
-    paddingVertical: 8,
+    gap: SPACING.sm,
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
+    paddingVertical: SPACING.sm,
     paddingLeft: 10,
-    paddingRight: 4,
-    backgroundColor: '#fef2f2',
+    paddingRight: SPACING.xs,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  avisoErrorText: { flex: 1, minWidth: 0, fontSize: 12, color: '#dc2626' },
+  avisoErrorText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
   avisoCrono: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 12,
-    marginTop: 8,
-    paddingVertical: 4,
+    gap: SPACING.sm,
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
+    paddingVertical: SPACING.xs,
     paddingLeft: 10,
-    paddingRight: 4,
-    backgroundColor: '#fffbeb',
+    paddingRight: SPACING.xs,
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fde68a',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  avisoCronoText: { flex: 1, minWidth: 0, fontSize: 12, color: '#b45309' },
+  avisoCronoText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.warning.text },
   avisoInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 12,
-    marginTop: 8,
-    paddingVertical: 4,
+    gap: SPACING.sm,
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
+    paddingVertical: SPACING.xs,
     paddingLeft: 10,
-    paddingRight: 4,
-    backgroundColor: '#f0f9ff',
+    paddingRight: SPACING.xs,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  avisoInfoText: { flex: 1, minWidth: 0, fontSize: 12, color: '#0369a1' },
-  avisoCronoAccionText: { fontSize: 12, fontWeight: '700', color: '#b45309' },
+  avisoInfoText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.info.text },
+  avisoCronoAccionText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.warning.text },
   avisoAccionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     minHeight: MIN_TOUCH,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     flexShrink: 0,
   },
-  avisoAccionText: { fontSize: 12, fontWeight: '700', color: '#dc2626' },
+  avisoAccionText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.danger },
   avisoCerrarBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
@@ -1075,15 +1087,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
   },
-  errorWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 12 },
-  errorText: { fontSize: 14, color: '#dc2626', textAlign: 'center' },
-  retryBtn: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#f1f5f9', borderRadius: 10 },
-  retryBtnText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
+  errorWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: SPACING.xl, gap: SPACING.md },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.danger, textAlign: 'center' },
+  retryBtn: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: colors.navActive, borderRadius: radius.md },
+  retryBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
   scroll: { flex: 1 },
-  scrollContent: { padding: 12, paddingBottom: 24 },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 48, gap: 12 },
-  emptyTitle: { fontSize: 16, fontWeight: '600', color: '#64748b' },
-  emptySub: { fontSize: 13, color: '#94a3b8', textAlign: 'center', maxWidth: 280 },
+  scrollContent: { padding: SPACING.md, paddingBottom: SPACING.xl },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 48, gap: SPACING.md },
+  emptyTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  emptySub: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center', maxWidth: 280 },
+  // Más oscuro que colors.overlay (visor de foto).
   photoOverlay: { flex: 1, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
   photoOverlayWeb: Platform.OS === 'web' ? { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 } : {},
   photoExpandedWrap: {
@@ -1099,5 +1112,6 @@ const styles = StyleSheet.create({
   },
   photoExpandedTouch: { justifyContent: 'center', alignItems: 'center' },
   photoExpanded: { maxWidth: '100%', maxHeight: '100%' },
-  photoCloseBtn: { position: 'absolute', top: 16, right: 16, padding: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 24 },
+  // 24 px, por encima de radius.xl (16). Velado más oscuro que colors.overlay.
+  photoCloseBtn: { position: 'absolute', top: 16, right: 16, padding: SPACING.sm, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 24 },
 });
