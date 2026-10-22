@@ -6,6 +6,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
 import { useHubNavGrid } from '../../hooks/useHubNavGrid';
 import { hubAccentById } from '../../lib/hubNavAccent';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 type Acceso = {
   id: string;
@@ -53,7 +61,7 @@ export default function RrppHubScreen() {
           style={styles.backBtn}
           accessibilityLabel="Volver a Recursos Humanos"
         >
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>RRPP</Text>
@@ -66,7 +74,7 @@ export default function RrppHubScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
         {accesos.length === 0 ? (
           <View style={styles.emptyBox}>
-            <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+            <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
             <Text style={styles.emptyText}>No tienes permisos para acceder a RRPP.</Text>
           </View>
         ) : (
@@ -94,31 +102,34 @@ export default function RrppHubScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: colors.surface },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.lg, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 14, color: '#64748b', lineHeight: 20, marginTop: 2 },
-  scrollContent: { paddingBottom: 24 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, lineHeight: 20, marginTop: 2 },
+  scrollContent: { paddingBottom: SPACING.xl },
   emptyBox: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
     gap: 10,
-    backgroundColor: '#f8fafc',
-    borderRadius: 12,
+    backgroundColor: colors.bg,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
 });
