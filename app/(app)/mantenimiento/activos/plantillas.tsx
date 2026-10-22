@@ -18,7 +18,16 @@ import { TablaBasica } from '../../../components/TablaBasica';
 import { useConfirmar } from '../../../hooks/useConfirmar';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../../constants/layout';
-import { colors, inputCursorProps, statusColors } from '../../../constants/theme';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  inputCursorProps,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 import { apiFetch, errorMessage } from '../../../utils/api';
 import { EditorPlantilla, VistaHtmlPlantilla } from '../../../components/activos/EditorPlantilla';
 import { CUERPO_PLANTILLA_DEFAULT, renderCuerpoPlantilla, sanitizarHtmlPlantilla } from '../../../lib/activosPlantilla';
@@ -296,17 +305,21 @@ export default function ActivosPlantillasScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: '#f8fafc' },
-  vacio: { padding: 16, color: colors.textMuted },
+  wrap: { flex: 1, backgroundColor: colors.bg },
+  vacio: { padding: SPACING.lg, color: colors.textMuted },
+  // Más oscuro que colors.overlay.
   overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)', justifyContent: 'center' },
-  center: { flex: 1, justifyContent: 'center', padding: 16 },
+  center: { flex: 1, justifyContent: 'center', padding: SPACING.lg },
   card: {
     width: '100%',
     maxWidth: 720,
     maxHeight: '92%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
     alignSelf: 'center',
     overflow: 'hidden',
   },
@@ -320,58 +333,58 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: colors.textPrimary },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   close: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
   body: { paddingHorizontal: 20, paddingVertical: 14 },
-  label: { fontSize: 11, fontWeight: '600', color: colors.textSecondary, marginBottom: 4, marginTop: 10 },
-  hint: { fontSize: 12, color: colors.textMuted, marginBottom: 6 },
+  label: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textSecondary, marginBottom: SPACING.xs, marginTop: 10 },
+  hint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginBottom: 6 },
   input: {
-    fontSize: 14,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     minHeight: MIN_TOUCH,
     borderWidth: 1,
     borderColor: colors.borderStrong,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     backgroundColor: colors.bgSubtle,
     color: colors.textPrimary,
   },
   cuerpo: { minHeight: 180, textAlignVertical: 'top', paddingTop: 10 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: SPACING.xs },
   chip: {
     minHeight: 36,
     paddingHorizontal: 10,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.borderStrong,
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
   chipOn: { backgroundColor: colors.accentMuted, borderColor: colors.accent },
-  chipTxt: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
-  chipTxtOn: { color: colors.accentPressed, fontWeight: '700' },
+  chipTxt: { fontSize: fontSizes[13], color: colors.textSecondary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  chipTxtOn: { color: colors.accentPressed, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   preview: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: '#fff',
-    marginBottom: 8,
+    borderRadius: RADIO_MEDIO,
+    padding: SPACING.md,
+    backgroundColor: colors.surface,
+    marginBottom: SPACING.sm,
   },
-  previewTxt: { fontSize: 13, color: colors.textPrimary, lineHeight: 20 },
-  err: { color: statusColors.danger.text, fontSize: 12, paddingHorizontal: 20, paddingBottom: 6 },
+  previewTxt: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, lineHeight: 20 },
+  err: { color: statusColors.danger.text, fontFamily: fontFamily.regular, fontSize: fontSizes[12], paddingHorizontal: 20, paddingBottom: 6 },
   footer: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 8,
+    gap: SPACING.sm,
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  btn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgSubtle },
+  btn: { paddingVertical: SPACING.sm, paddingHorizontal: SPACING.lg, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgSubtle },
   btnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 20 },
-  btnTxt: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
+  btnTxt: { fontSize: fontSizes[13], color: colors.textSecondary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   btnPri: { backgroundColor: colors.accent, borderColor: colors.accent },
-  btnPriTxt: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  btnPriTxt: { fontSize: fontSizes[13], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 });
