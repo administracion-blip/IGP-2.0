@@ -20,6 +20,15 @@ import { TablaBasica } from '../components/TablaBasica';
 import { SelectorDesplegable, type OpcionDesplegable } from '../components/SelectorDesplegable';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 import { apiFetch, errorMessage } from '../utils/api';
 import type { Departamento } from '../types/tasks';
 
@@ -333,7 +342,7 @@ export default function DepartamentosScreen() {
 
       {!puedeEditar ? (
         <View style={styles.avisoSoloLectura}>
-          <MaterialIcons name="lock-outline" size={16} color="#64748b" />
+          <MaterialIcons name="lock-outline" size={16} color={colors.textMuted} />
           <Text style={styles.avisoSoloLecturaTexto}>
             Solo lectura: necesitas el permiso de edición de departamentos para crear, editar o dar de baja.
           </Text>
@@ -355,7 +364,7 @@ export default function DepartamentosScreen() {
                     {editandoId != null ? 'Editar departamento' : 'Nuevo departamento'}
                   </Text>
                   <TouchableOpacity onPress={cerrarModal} style={styles.modalClose} disabled={guardando}>
-                    <MaterialIcons name="close" size={22} color="#64748b" />
+                    <MaterialIcons name="close" size={22} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
 
@@ -367,7 +376,7 @@ export default function DepartamentosScreen() {
                       value={form.nombre}
                       onChangeText={(t) => setForm((p) => ({ ...p, nombre: t }))}
                       placeholder="Ej.: Marketing, Contabilidad…"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                       editable={!guardando}
                       autoCapitalize="words"
                     />
@@ -390,7 +399,7 @@ export default function DepartamentosScreen() {
                     />
                     {usuariosNoDisponibles ? (
                       <View style={styles.formAviso}>
-                        <MaterialIcons name="info-outline" size={14} color="#d97706" />
+                        <MaterialIcons name="info-outline" size={14} color={colors.warning} />
                         <Text style={styles.formAvisoTexto}>
                           No se puede elegir responsable sin el permiso de usuarios. Se conserva el responsable
                           que ya tuviera este departamento.
@@ -406,7 +415,7 @@ export default function DepartamentosScreen() {
                       value={form.orden}
                       onChangeText={(t) => setForm((p) => ({ ...p, orden: t }))}
                       placeholder="Ej.: 10"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                       editable={!guardando}
                       keyboardType="number-pad"
                     />
@@ -423,8 +432,8 @@ export default function DepartamentosScreen() {
                           value={form.activo}
                           onValueChange={(v) => setForm((p) => ({ ...p, activo: v }))}
                           disabled={guardando}
-                          trackColor={{ false: '#e2e8f0', true: '#0ea5e9' }}
-                          thumbColor="#fff"
+                          trackColor={{ false: colors.border, true: colors.accent }}
+                          thumbColor={colors.surface}
                         />
                       </View>
                       <Text style={styles.formHelp}>
@@ -451,7 +460,7 @@ export default function DepartamentosScreen() {
                     disabled={guardando}
                   >
                     {guardando ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={colors.surface} />
                     ) : (
                       <Text style={styles.modalBtnTextPrimario}>{editandoId != null ? 'Guardar' : 'Crear'}</Text>
                     )}
@@ -467,7 +476,7 @@ export default function DepartamentosScreen() {
       <Modal visible={bajaVisible} transparent animationType="fade" onRequestClose={cancelarBaja}>
         <Pressable style={styles.modalOverlay} onPress={cancelarBaja}>
           <Pressable style={styles.confirmCard} onPress={(e) => e.stopPropagation()}>
-            <MaterialIcons name="warning" size={36} color="#d97706" style={styles.confirmIcono} />
+            <MaterialIcons name="warning" size={36} color={colors.warning} style={styles.confirmIcono} />
             <Text style={styles.confirmTitle}>Dar de baja el departamento</Text>
             <Text style={styles.confirmText}>
               <Text style={styles.confirmNombre}>{departamentoBaja?.nombre}</Text> dejará de aparecer en los
@@ -488,7 +497,7 @@ export default function DepartamentosScreen() {
                 disabled={guardando}
               >
                 {guardando ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
                   <Text style={styles.modalBtnTextPeligro}>Dar de baja</Text>
                 )}
@@ -501,33 +510,37 @@ export default function DepartamentosScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: colors.bg },
 
-  filaInactiva: { backgroundColor: '#f8fafc', opacity: 0.7 },
+  filaInactiva: { backgroundColor: colors.bg, opacity: 0.7 },
 
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, alignSelf: 'flex-start' },
-  badgeText: { fontSize: 10, fontWeight: '600' },
-  badgeActivo: { backgroundColor: '#dcfce7' },
-  badgeInactivo: { backgroundColor: '#e2e8f0' },
-  badgeTextActivo: { color: '#16a34a' },
-  badgeTextInactivo: { color: '#64748b' },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.sm, alignSelf: 'flex-start' },
+  badgeText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  badgeActivo: { backgroundColor: statusColors.success.bg },
+  badgeInactivo: { backgroundColor: colors.border },
+  badgeTextActivo: { color: colors.success },
+  badgeTextInactivo: { color: colors.textMuted },
 
   avisoSoloLectura: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginHorizontal: 10,
     marginBottom: 10,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  avisoSoloLecturaTexto: { flex: 1, fontSize: 12, color: '#64748b', lineHeight: 17 },
+  avisoSoloLecturaTexto: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, lineHeight: 17 },
 
+  /** Más oscuro que colors.overlay. */
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -539,8 +552,8 @@ const styles = StyleSheet.create({
   modalCardWrapAncho: { maxWidth: '100%' },
   modalCard: {
     width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
@@ -553,74 +566,74 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: SPACING.lg,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
-  modalClose: { padding: 4 },
-  modalBody: { paddingHorizontal: 20, paddingVertical: 16, maxHeight: 420 },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  modalClose: { padding: SPACING.xs },
+  modalBody: { paddingHorizontal: 20, paddingVertical: SPACING.lg, maxHeight: 420 },
 
   formGroup: { marginBottom: 14 },
   formGroupRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  formLabel: { fontSize: 11, fontWeight: '500', color: '#475569', marginBottom: 4 },
+  formLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
   formInput: {
-    fontSize: 13,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
-    color: '#334155',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
+    color: colors.textPrimary,
   },
-  formHelp: { fontSize: 11, color: '#94a3b8', marginTop: 4, lineHeight: 16 },
+  formHelp: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: SPACING.xs, lineHeight: 16 },
   formAviso: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 },
-  formAvisoTexto: { flex: 1, fontSize: 11, color: '#d97706', lineHeight: 16 },
+  formAvisoTexto: { flex: 1, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.warning, lineHeight: 16 },
 
-  modalError: { fontSize: 12, color: '#ef4444', paddingHorizontal: 20, paddingBottom: 4 },
+  modalError: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, paddingHorizontal: 20, paddingBottom: SPACING.xs },
   modalFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 8,
+    gap: SPACING.sm,
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: colors.border,
   },
   modalBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 20 },
-  modalBtnText: { fontSize: 13, fontWeight: '500', color: '#64748b' },
-  modalBtnPrimario: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  modalBtnTextPrimario: { fontSize: 13, fontWeight: '600', color: '#fff' },
-  modalBtnPeligro: { backgroundColor: '#d97706', borderColor: '#d97706' },
-  modalBtnTextPeligro: { fontSize: 13, fontWeight: '600', color: '#fff' },
+  modalBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textMuted },
+  modalBtnPrimario: { backgroundColor: colors.accent, borderColor: colors.accent },
+  modalBtnTextPrimario: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  modalBtnPeligro: { backgroundColor: colors.warning, borderColor: colors.warning },
+  modalBtnTextPeligro: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
 
   confirmCard: {
     width: '90%',
     maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 24,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: SPACING.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
     shadowRadius: 24,
     elevation: 12,
-    gap: 12,
+    gap: SPACING.md,
   },
   confirmIcono: { alignSelf: 'center' },
-  confirmTitle: { fontSize: 16, fontWeight: '700', color: '#334155', textAlign: 'center' },
-  confirmText: { fontSize: 13, color: '#475569', textAlign: 'center', lineHeight: 20 },
-  confirmNombre: { fontWeight: '700', color: '#334155' },
-  confirmBotones: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 4 },
+  confirmTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, textAlign: 'center' },
+  confirmText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, textAlign: 'center', lineHeight: 20 },
+  confirmNombre: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  confirmBotones: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: SPACING.xs },
 });
