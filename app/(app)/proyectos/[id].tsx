@@ -66,6 +66,7 @@ import {
   tasksTabularNums,
   tasksTipo,
 } from '../../constants/tasksUiTokens';
+import { colors, fontFamily, statusColors, typography } from '../../constants/theme';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatFecha } from '../../utils/formatFecha';
 import {
@@ -420,7 +421,7 @@ export default function FichaProyectoScreen() {
   if (acceso.permisosCargando) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={tasksColor.acento} />
         <Text style={styles.centroTexto}>Cargando permisos…</Text>
       </View>
     );
@@ -429,7 +430,7 @@ export default function FichaProyectoScreen() {
   if (!puedeVer) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="lock-outline" size={30} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={30} color={tasksColor.textoTerciario} />
         <Text style={styles.centroTexto}>No tienes permiso para ver los proyectos.</Text>
       </View>
     );
@@ -438,12 +439,12 @@ export default function FichaProyectoScreen() {
   if (noDisponible) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="search-off" size={36} color="#94a3b8" />
+        <MaterialIcons name="search-off" size={36} color={tasksColor.textoTerciario} />
         <Text style={styles.centroTexto}>
           Este proyecto no existe o ya no está disponible.
         </Text>
         <TouchableOpacity style={styles.volverBtn} onPress={() => router.push('/proyectos/listado' as never)}>
-          <MaterialIcons name="arrow-back" size={18} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={18} color={tasksColor.acento} />
           <Text style={styles.volverTexto}>Volver al listado</Text>
         </TouchableOpacity>
       </View>
@@ -453,7 +454,7 @@ export default function FichaProyectoScreen() {
   if (cargando && !proyecto) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={tasksColor.acento} />
         <Text style={styles.centroTexto}>Cargando el proyecto…</Text>
       </View>
     );
@@ -462,10 +463,10 @@ export default function FichaProyectoScreen() {
   if (!proyecto) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="error-outline" size={36} color="#f87171" />
+        <MaterialIcons name="error-outline" size={36} color={colors.danger} />
         <Text style={styles.centroError}>{error ?? 'No se pudo cargar el proyecto'}</Text>
         <TouchableOpacity style={styles.volverBtn} onPress={() => void cargarFicha()}>
-          <MaterialIcons name="refresh" size={18} color="#0ea5e9" />
+          <MaterialIcons name="refresh" size={18} color={tasksColor.acento} />
           <Text style={styles.volverTexto}>Reintentar</Text>
         </TouchableOpacity>
       </View>
@@ -555,7 +556,7 @@ export default function FichaProyectoScreen() {
                     disabled={guardandoMiembro}
                     accessibilityLabel={`Retirar a ${nombreUsuario(miembro.usuario_id, miembro.usuario_nombre)}`}
                   >
-                    <MaterialIcons name="person-remove" size={16} color="#d97706" />
+                    <MaterialIcons name="person-remove" size={16} color={tasksColor.aviso} />
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -580,7 +581,7 @@ export default function FichaProyectoScreen() {
                 />
                 {usuarios.noDisponibles ? (
                   <View style={form.aviso}>
-                    <MaterialIcons name="info-outline" size={14} color="#d97706" />
+                    <MaterialIcons name="info-outline" size={14} color={tasksColor.aviso} />
                     <Text style={form.avisoTexto}>
                       No se pueden añadir miembros sin el permiso de usuarios.
                     </Text>
@@ -610,7 +611,7 @@ export default function FichaProyectoScreen() {
                   disabled={guardandoMiembro}
                 >
                   {guardandoMiembro ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
+                    <ActivityIndicator size="small" color={tasksColor.textoInverso} />
                   ) : (
                     <Text style={styles.primarioTexto}>Guardar miembro</Text>
                   )}
@@ -645,7 +646,7 @@ export default function FichaProyectoScreen() {
           <View style={styles.lista}>
             {vinculos.map((vinculo) => (
               <View key={`${vinculo.tipo}-${vinculo.id}`} style={styles.filaLista}>
-                <MaterialIcons name="link" size={16} color="#94a3b8" />
+                <MaterialIcons name="link" size={16} color={tasksColor.textoTerciario} />
                 <View style={styles.filaTexto}>
                   <Text style={styles.filaTitulo}>{vinculo.etiqueta?.trim() || 'Sin etiqueta'}</Text>
                   <Text style={styles.filaSub}>{ETIQUETA_TIPO_VINCULO[vinculo.tipo] ?? vinculo.tipo}</Text>
@@ -657,7 +658,7 @@ export default function FichaProyectoScreen() {
                     disabled={guardandoVinculo}
                     accessibilityLabel="Retirar el vínculo"
                   >
-                    <MaterialIcons name="link-off" size={16} color="#d97706" />
+                    <MaterialIcons name="link-off" size={16} color={tasksColor.aviso} />
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -681,7 +682,7 @@ export default function FichaProyectoScreen() {
                   value={idVinculo}
                   onChangeText={setIdVinculo}
                   placeholder="Identificador de la entidad en su módulo"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={tasksColor.textoTerciario}
                   editable={!guardandoVinculo}
                 />
                 <Text style={form.label}>Etiqueta *</Text>
@@ -690,7 +691,7 @@ export default function FichaProyectoScreen() {
                   value={etiquetaVinculo}
                   onChangeText={setEtiquetaVinculo}
                   placeholder="Nombre con el que se verá aquí"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={tasksColor.textoTerciario}
                   editable={!guardandoVinculo}
                 />
                 <Text style={form.help}>
@@ -702,7 +703,7 @@ export default function FichaProyectoScreen() {
                   disabled={guardandoVinculo}
                 >
                   {guardandoVinculo ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
+                    <ActivityIndicator size="small" color={tasksColor.textoInverso} />
                   ) : (
                     <Text style={styles.primarioTexto}>Guardar vínculo</Text>
                   )}
@@ -743,7 +744,7 @@ export default function FichaProyectoScreen() {
                 <MaterialIcons
                   name={verCerradas ? 'visibility-off' : 'visibility'}
                   size={15}
-                  color="#0ea5e9"
+                  color={tasksColor.acento}
                 />
                 <Text style={styles.toggleCerradasTexto}>
                   {verCerradas
@@ -779,10 +780,10 @@ export default function FichaProyectoScreen() {
                 disabled={cargandoMasTareas}
               >
                 {cargandoMasTareas ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" />
+                  <ActivityIndicator size="small" color={tasksColor.acento} />
                 ) : (
                   <>
-                    <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
+                    <MaterialIcons name="expand-more" size={16} color={tasksColor.acento} />
                     <Text style={styles.masTexto}>Cargar más tareas</Text>
                   </>
                 )}
@@ -819,13 +820,13 @@ export default function FichaProyectoScreen() {
             <View style={styles.lista}>
               {avisoCalendario ? (
                 <View style={styles.avisoCalendario}>
-                  <MaterialIcons name="event-busy" size={15} color="#b45309" />
+                  <MaterialIcons name="event-busy" size={15} color={statusColors.warning.text} />
                   <Text style={styles.avisoCalendarioTexto}>{avisoCalendario}</Text>
                   <TouchableOpacity
                     onPress={() => setAvisoCalendario(null)}
                     accessibilityLabel="Cerrar aviso de calendario"
                   >
-                    <MaterialIcons name="close" size={16} color="#b45309" />
+                    <MaterialIcons name="close" size={16} color={statusColors.warning.text} />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -838,7 +839,7 @@ export default function FichaProyectoScreen() {
                   }
                   accessibilityLabel={`Abrir reunión ${reunion.titulo}`}
                 >
-                  <MaterialIcons name="event" size={16} color="#94a3b8" />
+                  <MaterialIcons name="event" size={16} color={tasksColor.textoTerciario} />
                   <View style={styles.filaTexto}>
                     <Text style={styles.filaTitulo} numberOfLines={1}>
                       {reunion.titulo?.trim() || 'Sin título'}
@@ -852,13 +853,13 @@ export default function FichaProyectoScreen() {
             </View>
           ) : avisoCalendario ? (
             <View style={styles.avisoCalendario}>
-              <MaterialIcons name="event-busy" size={15} color="#b45309" />
+              <MaterialIcons name="event-busy" size={15} color={statusColors.warning.text} />
               <Text style={styles.avisoCalendarioTexto}>{avisoCalendario}</Text>
               <TouchableOpacity
                 onPress={() => setAvisoCalendario(null)}
                 accessibilityLabel="Cerrar aviso de calendario"
               >
-                <MaterialIcons name="close" size={16} color="#b45309" />
+                <MaterialIcons name="close" size={16} color={statusColors.warning.text} />
               </TouchableOpacity>
             </View>
           ) : null}
@@ -1027,10 +1028,10 @@ const styles = StyleSheet.create({
     padding: tasksSpace[5],
     backgroundColor: tasksColor.fondoApp,
   },
-  centroTexto: { ...tasksTipo.cuerpo, textAlign: 'center' },
-  centroError: { ...tasksTipo.cuerpo, color: tasksColor.peligro, textAlign: 'center' },
+  centroTexto: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, textAlign: 'center' },
+  centroError: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.peligro, textAlign: 'center' },
   volverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH },
-  volverTexto: { ...tasksTipo.dato, color: tasksColor.textoEnlace },
+  volverTexto: { ...tasksTipo.dato, fontFamily: fontFamily.medium, color: tasksColor.textoEnlace },
 
   cabeceraMeta: { gap: tasksSpace[2] },
   cabeceraBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
@@ -1044,7 +1045,7 @@ const styles = StyleSheet.create({
     borderRadius: tasksRadius.control,
   },
   editarBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  editarTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontWeight: '600' },
+  editarTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   avisoSoloLectura: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1056,9 +1057,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tasksColor.bordeSutil,
   },
-  avisoSoloLecturaTexto: { flex: 1, ...tasksTipo.micro, color: tasksColor.textoSecundario },
-  notaCancelar: { ...tasksTipo.micro },
-  errorGeneral: { ...tasksTipo.etiqueta, color: tasksColor.peligro },
+  avisoSoloLecturaTexto: { flex: 1, ...tasksTipo.micro, fontFamily: fontFamily.medium, color: tasksColor.textoSecundario },
+  notaCancelar: { ...tasksTipo.micro, fontFamily: fontFamily.medium },
+  errorGeneral: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.peligro },
 
   cuerpo: { flexDirection: 'row', gap: tasksSpace[3], alignItems: 'flex-start' },
   cuerpoApilado: { flexDirection: 'column' },
@@ -1066,12 +1067,12 @@ const styles = StyleSheet.create({
 
   datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: tasksSpace[3] },
   dato: { minWidth: 130, gap: 2 },
-  datoEtiqueta: { ...tasksTipo.etiqueta },
-  datoValor: { ...tasksTipo.dato },
+  datoEtiqueta: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium },
+  datoValor: { ...tasksTipo.dato, fontFamily: fontFamily.medium },
   datoTabular: { ...tasksTabularNums },
-  descripcion: { ...tasksTipo.cuerpo },
-  sinDescripcion: { ...tasksTipo.micro },
-  notaSeccion: { ...tasksTipo.micro },
+  descripcion: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular },
+  sinDescripcion: { ...tasksTipo.micro, fontFamily: fontFamily.medium },
+  notaSeccion: { ...tasksTipo.micro, fontFamily: fontFamily.medium },
 
   lista: { gap: tasksSpace[2] },
   filaLista: {
@@ -1083,9 +1084,10 @@ const styles = StyleSheet.create({
     borderBottomColor: tasksColor.bordeSutil,
   },
   filaTexto: { flex: 1, minWidth: 0 },
-  filaTitulo: { ...tasksTipo.dato },
-  filaSub: { ...tasksTipo.micro, marginTop: 1 },
+  filaTitulo: { ...tasksTipo.dato, fontFamily: fontFamily.medium },
+  filaSub: { ...tasksTipo.micro, fontFamily: fontFamily.medium, marginTop: 1 },
   filaReunionTactil: { minHeight: MIN_TOUCH },
+  /** Borde ámbar; no es colors.border. */
   avisoCalendario: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1097,7 +1099,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#fde68a',
   },
-  avisoCalendarioTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#92400e' },
+  /** Ámbar oscuro; no es colors.warning. */
+  avisoCalendarioTexto: { flex: 1, ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: '#92400e' },
   iconoBtn: {
     padding: 6,
     borderRadius: tasksRadius.control,
@@ -1125,8 +1128,8 @@ const styles = StyleSheet.create({
     borderRadius: tasksRadius.control,
   },
   primarioBtnTactil: { minHeight: MIN_TOUCH },
-  primarioTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontWeight: '600' },
-  errorSeccion: { ...tasksTipo.etiqueta, color: tasksColor.peligro },
+  primarioTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  errorSeccion: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.peligro },
 
   toggleCerradas: {
     flexDirection: 'row',
@@ -1136,7 +1139,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   toggleCerradasTactil: { minHeight: MIN_TOUCH },
-  toggleCerradasTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
+  toggleCerradasTexto: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.textoEnlace },
 
   masBtn: {
     flexDirection: 'row',
@@ -1150,5 +1153,5 @@ const styles = StyleSheet.create({
     backgroundColor: tasksColor.superficieHundida,
   },
   masBtnTactil: { minHeight: MIN_TOUCH },
-  masTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
+  masTexto: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.textoEnlace },
 });
