@@ -16,6 +16,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useProductosCache } from '../../contexts/ProductosCache';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+} from '../../constants/theme';
 import { apiFetch } from '../../utils/api';
 import { valorEnLocal } from '../../utils/valorEnLocal';
 import { InputFecha } from '../../components/InputFecha';
@@ -35,7 +43,7 @@ type IconName = ComponentProps<typeof MaterialIcons>['name'];
 function SeccionTitulo({ icono, titulo }: { icono: IconName; titulo: string }) {
   return (
     <View style={styles.secTitleRow}>
-      <MaterialIcons name={icono} size={18} color="#0ea5e9" />
+      <MaterialIcons name={icono} size={18} color={colors.accent} />
       <Text style={styles.secTitle}>{titulo}</Text>
     </View>
   );
@@ -344,7 +352,7 @@ export default function ActivacionNuevaScreen() {
   if (!puedeGestionar) {
     return (
       <View style={styles.centerBox}>
-        <MaterialIcons name="lock-outline" size={36} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={36} color={colors.textMuted} />
         <Text style={styles.emptyText}>No tienes permiso para gestionar activaciones.</Text>
       </View>
     );
@@ -357,7 +365,7 @@ export default function ActivacionNuevaScreen() {
         onPress={() => guardar('borrador')}
         disabled={saving}
       >
-        <MaterialIcons name="save" size={16} color="#334155" />
+        <MaterialIcons name="save" size={16} color={colors.textPrimary} />
         <Text style={styles.btnSecundarioText}>Guardar borrador</Text>
       </TouchableOpacity>
       <TouchableOpacity
@@ -366,9 +374,9 @@ export default function ActivacionNuevaScreen() {
         disabled={saving}
       >
         {saving ? (
-          <ActivityIndicator size="small" color="#fff" />
+          <ActivityIndicator size="small" color={colors.surface} />
         ) : (
-          <MaterialIcons name="check-circle" size={16} color="#fff" />
+          <MaterialIcons name="check-circle" size={16} color={colors.surface} />
         )}
         <Text style={styles.btnPrimarioText}>
           {estadoActual === 'activa' ? 'Guardar' : 'Activar'}
@@ -381,14 +389,14 @@ export default function ActivacionNuevaScreen() {
     <View style={styles.container}>
       {loading ? (
         <View style={styles.centerBox}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
       ) : (
         <>
           <View style={[styles.headerBar, shouldStackPanels && styles.headerBarStack]}>
             <View style={styles.headerLeft}>
               <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Volver">
-                <MaterialIcons name="arrow-back" size={22} color="#334155" />
+                <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
               <Text style={styles.title} numberOfLines={1}>
                 {editId ? 'Editar activación' : 'Nueva activación'}
@@ -399,7 +407,7 @@ export default function ActivacionNuevaScreen() {
 
           {error ? (
             <View style={styles.errorBannerTop}>
-              <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+              <MaterialIcons name="error-outline" size={16} color={statusColors.danger.text} />
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
@@ -431,7 +439,7 @@ export default function ActivacionNuevaScreen() {
                   value={marca}
                   onChangeText={setMarca}
                   placeholder="Larios"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                 />
                 <Text style={styles.label}>Producto(s) *</Text>
                 <SelectorDesplegableMulti
@@ -458,7 +466,7 @@ export default function ActivacionNuevaScreen() {
                             onPress={() => setProductoIds((prev) => prev.filter((x) => x !== id))}
                             hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                           >
-                            <MaterialIcons name="close" size={14} color="#64748b" />
+                            <MaterialIcons name="close" size={14} color={colors.textMuted} />
                           </TouchableOpacity>
                         </View>
                       );
@@ -471,7 +479,7 @@ export default function ActivacionNuevaScreen() {
                   value={tipoActivacion}
                   onChangeText={setTipoActivacion}
                   placeholder="Ruleta, Degustación, Showcooking…"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
 
@@ -496,7 +504,7 @@ export default function ActivacionNuevaScreen() {
                       onChangeText={setDuracionHoras}
                       keyboardType="decimal-pad"
                       placeholder="2"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                     />
                   </View>
                   <View style={[styles.col, shouldStackPanels && styles.colStackFull]}>
@@ -506,7 +514,7 @@ export default function ActivacionNuevaScreen() {
                       value={ocasion}
                       onChangeText={setOcasion}
                       placeholder="Tardeo largo / 1ª copa"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                     />
                   </View>
                 </View>
@@ -516,7 +524,7 @@ export default function ActivacionNuevaScreen() {
                   value={targetDescripcion}
                   onChangeText={setTargetDescripcion}
                   placeholder="+35 años"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
             </View>
@@ -546,7 +554,7 @@ export default function ActivacionNuevaScreen() {
                     value={promotorNombre}
                     onChangeText={setPromotorNombre}
                     placeholder="Persona de contacto de la marca"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
                 <View style={[styles.col, shouldStackPanels && styles.colStackFull]}>
@@ -557,7 +565,7 @@ export default function ActivacionNuevaScreen() {
                     onChangeText={setPromotorTelefono}
                     keyboardType="phone-pad"
                     placeholder="+34 612 345 678"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
               </View>
@@ -572,7 +580,7 @@ export default function ActivacionNuevaScreen() {
                 onChangeText={setMecanica}
                 multiline
                 placeholder="Descripción de cómo funciona la activación…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
               />
             </View>
 
@@ -586,7 +594,7 @@ export default function ActivacionNuevaScreen() {
                   value={equipoDescripcion}
                   onChangeText={setEquipoDescripcion}
                   placeholder="Azafato + Azafato + Coordinador"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                 />
                 <Text style={styles.label}>Materiales</Text>
                 <View style={styles.materialesWrap}>
@@ -597,7 +605,7 @@ export default function ActivacionNuevaScreen() {
                         onPress={() => setMateriales((prev) => prev.filter((_, i) => i !== idx))}
                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
-                        <MaterialIcons name="close" size={14} color="#64748b" />
+                        <MaterialIcons name="close" size={14} color={colors.textMuted} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -608,14 +616,14 @@ export default function ActivacionNuevaScreen() {
                     value={nuevoMaterial}
                     onChangeText={setNuevoMaterial}
                     placeholder="Ruleta x2, Totebags…"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                     onSubmitEditing={agregarMaterial}
                   />
                   <TouchableOpacity
                     style={[styles.addMaterialBtn, shouldStackPanels && styles.btnFull]}
                     onPress={agregarMaterial}
                   >
-                    <MaterialIcons name="add" size={18} color="#fff" />
+                    <MaterialIcons name="add" size={18} color={colors.surface} />
                     <Text style={styles.addMaterialBtnText}>Añadir material</Text>
                   </TouchableOpacity>
                 </View>
@@ -629,7 +637,7 @@ export default function ActivacionNuevaScreen() {
                   onChangeText={setPagoObservaciones}
                   multiline
                   placeholder="El PDV debe guardar todos los tickets para liquidación…"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                 />
 
                 <View style={styles.docsBlock}>
@@ -640,7 +648,7 @@ export default function ActivacionNuevaScreen() {
                     <>
                       {adjuntos.map((adj) => (
                         <View key={adj.id} style={styles.adjRow}>
-                          <MaterialIcons name="attach-file" size={18} color="#0ea5e9" />
+                          <MaterialIcons name="attach-file" size={18} color={colors.accent} />
                           <TouchableOpacity
                             style={{ flex: 1 }}
                             onPress={() => adj.url && Linking.openURL(adj.url).catch(() => {})}
@@ -651,7 +659,7 @@ export default function ActivacionNuevaScreen() {
                             onPress={() => eliminarAdjunto(adj.id)}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           >
-                            <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                            <MaterialIcons name="delete-outline" size={18} color={colors.danger} />
                           </TouchableOpacity>
                         </View>
                       ))}
@@ -661,9 +669,9 @@ export default function ActivacionNuevaScreen() {
                         disabled={subiendoAdjunto}
                       >
                         {subiendoAdjunto ? (
-                          <ActivityIndicator size="small" color="#fff" />
+                          <ActivityIndicator size="small" color={colors.surface} />
                         ) : (
-                          <MaterialIcons name="cloud-upload" size={18} color="#fff" />
+                          <MaterialIcons name="cloud-upload" size={18} color={colors.surface} />
                         )}
                         <Text style={styles.addMaterialBtnText}>
                           {Platform.OS === 'web' ? 'Subir archivo o imagen' : 'Subida disponible en web'}
@@ -687,10 +695,15 @@ export default function ActivacionNuevaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
   },
   headerBar: {
     flexDirection: 'row',
@@ -700,8 +713,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xl,
     paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
     zIndex: 40,
     elevation: 2,
   },
@@ -720,14 +733,14 @@ const styles = StyleSheet.create({
   backBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flexShrink: 1 },
   scroll: {
     flex: 1,
     position: 'relative',
@@ -754,10 +767,10 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
     padding: SPACING.lg,
     overflow: 'visible',
     position: 'relative',
@@ -778,31 +791,31 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   secTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
+    fontSize: fontSizes[16],
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textStrong,
   },
-  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
-  label: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 },
+  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
   input: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
-    fontSize: 14,
-    color: '#0f172a',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textStrong,
     marginBottom: 10,
     width: '100%',
   },
   codigoReadonly: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    borderColor: colors.borderStrong,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     marginBottom: 10,
     width: '100%',
@@ -810,78 +823,78 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   codigoReadonlyText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#0f172a',
+    fontSize: fontSizes[13],
+    fontWeight: typography.boton.fontWeight,
+    color: colors.textStrong,
     fontFamily: Platform.OS === 'web' ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined,
   },
   codigoReadonlyHint: {
-    fontWeight: '400',
-    color: '#94a3b8',
-    fontFamily: undefined,
+    fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
+    fontFamily: fontFamily.regular,
   },
   textArea: { minHeight: 96, textAlignVertical: 'top' },
-  cifAux: { fontSize: 12, color: '#64748b', marginTop: 4, marginBottom: 10 },
+  cifAux: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: SPACING.xs, marginBottom: 10 },
   row2: { flexDirection: 'row', gap: SPACING.md, alignItems: 'flex-start' },
   rowStack: { flexDirection: 'column' },
   col: { flex: 1, minWidth: 0 },
   colStackFull: { width: '100%' },
-  productosChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, marginBottom: 4 },
-  adjHint: { fontSize: 12, color: '#64748b', fontStyle: 'italic', marginBottom: 8 },
+  productosChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: SPACING.sm, marginBottom: SPACING.xs },
+  adjHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic', marginBottom: SPACING.sm },
   adjRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  adjNombre: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
-  materialesWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  adjNombre: { fontSize: fontSizes[13], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  materialesWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: SPACING.sm },
   materialChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 14,
+    borderColor: colors.border,
+    borderRadius: RADIO_TARJETA,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  materialText: { fontSize: 12, color: '#334155', maxWidth: 220 },
-  addMaterialRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  materialText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, maxWidth: 220 },
+  addMaterialRow: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center' },
   addMaterialStack: { flexDirection: 'column', alignItems: 'stretch' },
   addMaterialInput: { flex: 1, marginBottom: 0 },
   addMaterialBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    backgroundColor: '#0ea5e9',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    gap: SPACING.xs,
+    backgroundColor: colors.accent,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     minHeight: MIN_TOUCH,
   },
-  addMaterialBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  addMaterialBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
   docsBlock: { marginTop: SPACING.md },
   hintLocales: {
-    fontSize: 12,
-    color: '#64748b',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[12],
+    color: colors.textMuted,
     lineHeight: 18,
   },
   errorBannerTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#fef2f2',
+    gap: SPACING.sm,
+    backgroundColor: statusColors.danger.bg,
     borderBottomWidth: 1,
     borderBottomColor: '#fecaca',
     paddingHorizontal: SPACING.xl,
     paddingVertical: SPACING.md,
   },
-  errorText: { flex: 1, fontSize: 12, color: '#b91c1c' },
+  errorText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.danger.text },
   accionesRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -896,32 +909,32 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     paddingTop: SPACING.md,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: colors.navActive,
   },
   btnFull: { width: '100%', justifyContent: 'center' },
   btnSecundario: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    paddingHorizontal: 16,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: SPACING.lg,
     paddingVertical: 11,
     minHeight: MIN_TOUCH,
   },
-  btnSecundarioText: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  btnSecundarioText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   btnPrimario: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#16a34a',
-    borderRadius: 10,
-    paddingHorizontal: 16,
+    backgroundColor: colors.success,
+    borderRadius: radius.md,
+    paddingHorizontal: SPACING.lg,
     paddingVertical: 11,
     minHeight: MIN_TOUCH,
   },
-  btnPrimarioText: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  btnPrimarioText: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
   btnDisabled: { opacity: 0.6 },
 });
