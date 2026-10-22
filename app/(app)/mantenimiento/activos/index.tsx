@@ -6,7 +6,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { HubNavCard, HubNavGrid } from '../../../components/ui/HubNavCard';
 import { useHubNavGrid } from '../../../hooks/useHubNavGrid';
 import { hubAccentById } from '../../../lib/hubNavAccent';
-import { colors, radius, typography } from '../../../constants/theme';
+import { colors, fontFamily, fontSizes, radius, typography, SPACING } from '../../../constants/theme';
 import { MIN_TOUCH as TOUCH } from '../../../constants/layout';
 
 type Acceso = {
@@ -107,7 +107,7 @@ export default function ActivosHubScreen() {
             accessibilityRole="button"
             accessibilityLabel="Buscar por etiqueta o serie"
           >
-            <MaterialIcons name="search" size={20} color="#fff" />
+            <MaterialIcons name="search" size={20} color={colors.surface} />
             <Text style={styles.scanTitle}>Buscar</Text>
           </TouchableOpacity>
         ) : null}
@@ -138,8 +138,8 @@ export default function ActivosHubScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: colors.surface },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: colors.surface },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.lg, gap: 10 },
   backBtn: {
     width: TOUCH,
     height: TOUCH,
@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  title: { ...typography.titulo, color: '#0f172a' },
+  title: { ...typography.titulo, color: colors.textStrong },
   subtitle: { ...typography.cuerpo, color: colors.textSecondary, marginTop: 2 },
   scanBtn: {
     flexDirection: 'row',
@@ -163,7 +163,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignSelf: 'flex-start',
   },
-  scanTitle: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  scrollContent: { paddingBottom: 24 },
-  vacio: { fontSize: 14, color: colors.textMuted, marginTop: 12 },
+  scanTitle: {
+    color: colors.surface,
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[14],
+    fontWeight: typography.titulo.fontWeight,
+  },
+  scrollContent: { paddingBottom: SPACING.xl },
+  vacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, marginTop: SPACING.md },
 });
