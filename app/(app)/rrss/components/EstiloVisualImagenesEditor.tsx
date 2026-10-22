@@ -11,6 +11,14 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiFetch } from '../../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 import type { ToastType } from '../../../components/Toast';
 
 export const MAX_ESTILO_REF_IMAGENES = 3;
@@ -63,15 +71,15 @@ function EstiloImagenThumb({
   return (
     <View style={thumbStyles.wrap}>
       {loading ? (
-        <ActivityIndicator size="small" color="#0ea5e9" />
+        <ActivityIndicator size="small" color={colors.accent} />
       ) : url ? (
         <Image source={{ uri: url }} style={thumbStyles.img} resizeMode="cover" />
       ) : (
-        <MaterialIcons name="broken-image" size={28} color="#94a3b8" />
+        <MaterialIcons name="broken-image" size={28} color={colors.textMuted} />
       )}
       {puedeQuitar && onRemove ? (
         <TouchableOpacity style={thumbStyles.removeBtn} onPress={onRemove} accessibilityLabel="Quitar imagen">
-          <MaterialIcons name="close" size={16} color="#fff" />
+          <MaterialIcons name="close" size={16} color={colors.surface} />
         </TouchableOpacity>
       ) : null}
     </View>
@@ -150,10 +158,10 @@ export function EstiloVisualImagenesEditor({ keys, onKeysChange, puedeEditar, sh
             activeOpacity={0.7}
           >
             {subiendo ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
               <>
-                <MaterialIcons name="add-photo-alternate" size={28} color="#0ea5e9" />
+                <MaterialIcons name="add-photo-alternate" size={28} color={colors.accent} />
                 <Text style={styles.addSlotText}>Añadir</Text>
               </>
             )}
@@ -168,42 +176,43 @@ const thumbStyles = StyleSheet.create({
   wrap: {
     width: 88,
     height: 88,
-    borderRadius: 10,
+    borderRadius: radius.md,
     overflow: 'hidden',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: colors.navActive,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
   img: { width: '100%', height: '100%' },
+  // Rojo translúcido; no es colors.danger.
   removeBtn: {
     position: 'absolute',
     top: 4,
     right: 4,
     backgroundColor: 'rgba(220, 38, 38, 0.92)',
-    borderRadius: 12,
-    padding: 4,
+    borderRadius: radius.lg,
+    padding: SPACING.xs,
   },
 });
 
 const styles = StyleSheet.create({
   wrap: { gap: 6 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  hint: { fontSize: 11, color: '#64748b', lineHeight: 15 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginTop: 4 },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  hint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 15 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginTop: SPACING.xs },
   addSlot: {
     width: 88,
     height: 88,
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderStyle: 'dashed',
     borderColor: '#7dd3fc',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
   },
   addSlotDisabled: { opacity: 0.6 },
-  addSlotText: { fontSize: 11, fontWeight: '600', color: '#0284c7' },
+  addSlotText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accentPressed },
 });
