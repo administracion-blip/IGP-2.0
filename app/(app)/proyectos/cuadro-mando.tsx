@@ -26,6 +26,7 @@ import {
   tasksTabularNums,
   tasksTipo,
 } from '../../constants/tasksUiTokens';
+import { fontFamily, typography, SPACING } from '../../constants/theme';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
 import { useDepartamentos } from '../../hooks/useDepartamentos';
@@ -442,10 +443,10 @@ function TablaCarga({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: tasksColor.fondoApp },
-  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { ...tasksTipo.cuerpo, textAlign: 'center' },
-  errorTexto: { ...tasksTipo.cuerpo, color: tasksColor.peligro, textAlign: 'center' },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: tasksColor.fondoApp },
+  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  centroTexto: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, textAlign: 'center' },
+  errorTexto: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.peligro, textAlign: 'center' },
   refreshBtn: {
     width: 36,
     height: 36,
@@ -459,7 +460,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, position: 'relative', zIndex: 0 },
   scrollContent: { paddingBottom: 32, gap: 14 },
   reintentarBtn: {
-    marginTop: 8,
+    marginTop: SPACING.sm,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: tasksRadius.control,
@@ -467,22 +468,24 @@ const styles = StyleSheet.create({
     minHeight: MIN_TOUCH,
     justifyContent: 'center',
   },
-  reintentarTexto: { ...tasksTipo.dato, color: tasksColor.acentoTexto, fontWeight: '600' },
+  reintentarTexto: { ...tasksTipo.dato, color: tasksColor.acentoTexto, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  /** Borde rosa; no es colors.border. */
   avisoError: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: SPACING.sm,
     padding: 10,
     borderRadius: tasksRadius.contenedor,
     backgroundColor: tasksColor.peligroSuave,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  avisoErrorTexto: { flex: 1, ...tasksTipo.cuerpo, color: tasksColor.peligro },
+  avisoErrorTexto: { flex: 1, ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.peligro },
+  /** Borde ámbar; no es colors.border. */
   avisoTruncado: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: SPACING.sm,
     padding: 10,
     marginBottom: 10,
     borderRadius: tasksRadius.contenedor,
@@ -490,7 +493,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#fde68a',
   },
-  avisoTruncadoTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#92400e' },
+  /** Ámbar oscuro; no es colors.warning. */
+  avisoTruncadoTexto: { flex: 1, ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: '#92400e' },
   kpiGrid: { flexDirection: 'row', gap: 10 },
   kpiGridLinea: { flexWrap: 'nowrap' },
   kpiGridWrap: { flexWrap: 'wrap' },
@@ -499,14 +503,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tasksColor.bordeSutil,
     backgroundColor: tasksColor.superficie,
-    paddingVertical: 12,
+    paddingVertical: SPACING.md,
     paddingHorizontal: 14,
     minWidth: 120,
     flexGrow: 1,
   },
   kpiCardFlex: { flex: 1, minWidth: 0 },
-  kpiValor: { ...tasksTipo.tituloSeccion, ...tasksTabularNums },
-  kpiLabel: { ...tasksTipo.micro, marginTop: 2 },
+  kpiValor: { ...tasksTipo.tituloSeccion, fontFamily: fontFamily.semibold, ...tasksTabularNums },
+  kpiLabel: { ...tasksTipo.micro, fontFamily: fontFamily.medium, marginTop: 2 },
   tabla: {
     borderWidth: 1,
     borderColor: tasksColor.bordeSutil,
@@ -516,7 +520,7 @@ const styles = StyleSheet.create({
   fila: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingHorizontal: 10,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -526,17 +530,17 @@ const styles = StyleSheet.create({
   filaCabecera: { backgroundColor: tasksColor.superficieHundida },
   filaEnlace: {},
   filaPressed: { backgroundColor: tasksColor.superficieHundida },
-  celda: { ...tasksTipo.dato },
-  celdaCab: { ...tasksTipo.etiqueta, textTransform: 'uppercase' },
+  celda: { ...tasksTipo.dato, fontFamily: fontFamily.medium },
+  celdaCab: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, textTransform: 'uppercase' },
   celdaNombre: { flex: 1.4, minWidth: 0 },
   celdaFlex: { flex: 1, minWidth: 0 },
   celdaMedia: { flex: 1, minWidth: 0 },
   celdaCorta: { width: 88, textAlign: 'right' },
   celdaNum: { width: 72, textAlign: 'right', ...tasksTabularNums },
-  enlace: { color: tasksColor.acentoTexto, fontWeight: '600' },
-  numAlerta: { color: tasksColor.peligro, fontWeight: '700' },
-  numAviso: { color: tasksColor.aviso, fontWeight: '700' },
-  metaCompacta: { ...tasksTipo.micro, fontWeight: '400' },
+  enlace: { color: tasksColor.acentoTexto, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  numAlerta: { color: tasksColor.peligro, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  numAviso: { color: tasksColor.aviso, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  metaCompacta: { ...tasksTipo.micro, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight },
   cargaRow: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
   cargaRowStack: { flexDirection: 'column' },
   cargaCol: { flex: 1, minWidth: 0 },
