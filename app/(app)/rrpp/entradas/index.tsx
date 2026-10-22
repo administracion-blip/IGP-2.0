@@ -19,6 +19,15 @@ import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
 import { useConfirmar } from '../../../hooks/useConfirmar';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 
 type LocalApi = {
   id_Locales?: string | number;
@@ -53,11 +62,11 @@ const SYNC_FILTROS: { id: string; label: string }[] = [
 
 function syncBadgeStyle(status: string): { bg: string; fg: string; label: string } {
   const s = String(status || '').toUpperCase();
-  if (s === 'SYNCED') return { bg: '#dcfce7', fg: '#16a34a', label: 'Sincronizado' };
-  if (s === 'ERROR') return { bg: '#fee2e2', fg: '#dc2626', label: 'Error' };
+  if (s === 'SYNCED') return { bg: statusColors.success.bg, fg: colors.success, label: 'Sincronizado' };
+  if (s === 'ERROR') return { bg: statusColors.danger.bg, fg: colors.danger, label: 'Error' };
   if (s === 'PENDING') return { bg: '#fef9c3', fg: '#ca8a04', label: 'Pendiente' };
-  if (s === 'SYNCING') return { bg: '#e0f2fe', fg: '#0284c7', label: 'Sincronizando' };
-  return { bg: '#f1f5f9', fg: '#64748b', label: s || '—' };
+  if (s === 'SYNCING') return { bg: colors.accentMuted, fg: colors.accentPressed, label: 'Sincronizando' };
+  return { bg: colors.navActive, fg: colors.textMuted, label: s || '—' };
 }
 
 function whatsappLabel(status: string | undefined): string {
@@ -308,7 +317,7 @@ export default function EntradasListadoScreen() {
   if (!puedeVer) {
     return (
       <View style={styles.locked}>
-        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
         <Text style={styles.lockedText}>No tienes permiso para ver entradas.</Text>
         <TouchableOpacity style={styles.backLink} onPress={() => router.push('/rrpp' as never)}>
           <Text style={styles.backLinkText}>Volver a RRPP</Text>
@@ -379,7 +388,7 @@ export default function EntradasListadoScreen() {
               }
               accessibilityLabel="Nueva entrada"
             >
-              <MaterialIcons name="add" size={20} color="#fff" />
+              <MaterialIcons name="add" size={20} color={colors.surface} />
               <Text style={styles.btnNuevaText}>Nueva entrada</Text>
             </TouchableOpacity>
           ) : null
@@ -400,23 +409,26 @@ export default function EntradasListadoScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: colors.surface },
   locked: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    padding: 24,
-    backgroundColor: '#fff',
+    padding: SPACING.xl,
+    backgroundColor: colors.surface,
   },
-  lockedText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
-  backLink: { marginTop: 8, padding: 10 },
-  backLinkText: { color: '#0ea5e9', fontWeight: '600' },
+  lockedText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
+  backLink: { marginTop: SPACING.sm, padding: 10 },
+  backLinkText: { color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   filtrosRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     flexWrap: 'wrap',
     position: 'relative',
     zIndex: 30,
@@ -429,48 +441,48 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: colors.accent,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
   },
-  btnNuevaText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  btnNuevaText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[13] },
   badge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 3,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
-  badgeText: { fontSize: 11, fontWeight: '700' },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   accionesRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   accionBtn: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
   },
-  accionBtnWarn: { backgroundColor: '#fef3c7', borderColor: '#fcd34d' },
-  accionBtnWa: { backgroundColor: '#dcfce7', borderColor: '#86efac' },
-  accionBtnDanger: { backgroundColor: '#fee2e2', borderColor: '#fca5a5' },
-  anuladaHint: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
-  codigoAnulado: { color: '#94a3b8', textDecorationLine: 'line-through', fontSize: 13 },
+  accionBtnWarn: { backgroundColor: statusColors.warning.bg, borderColor: '#fcd34d' },
+  accionBtnWa: { backgroundColor: statusColors.success.bg, borderColor: '#86efac' },
+  accionBtnDanger: { backgroundColor: statusColors.danger.bg, borderColor: '#fca5a5' },
+  anuladaHint: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  codigoAnulado: { color: colors.textMuted, textDecorationLine: 'line-through', fontFamily: fontFamily.regular, fontSize: fontSizes[13] },
   rowAnulada: { opacity: 0.65 },
   accionErrorBar: {
     position: 'absolute',
-    bottom: 12,
-    left: 12,
-    right: 12,
-    backgroundColor: '#fee2e2',
-    borderRadius: 8,
+    bottom: SPACING.md,
+    left: SPACING.md,
+    right: SPACING.md,
+    backgroundColor: statusColors.danger.bg,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#fecaca',
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
   },
-  accionErrorText: { flex: 1, color: '#991b1b', fontSize: 13 },
+  accionErrorText: { flex: 1, color: '#991b1b', fontFamily: fontFamily.regular, fontSize: fontSizes[13] },
 });
