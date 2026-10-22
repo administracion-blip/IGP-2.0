@@ -27,6 +27,7 @@ import {
   tasksTabularNums,
   tasksTipo,
 } from '../../constants/tasksUiTokens';
+import { fontFamily, typography, SPACING } from '../../constants/theme';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
 import { useNombresUsuarios } from '../../hooks/useNombresUsuarios';
@@ -560,32 +561,32 @@ function BotonCargarMas({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: tasksColor.fondoApp },
-  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { ...tasksTipo.cuerpo, textAlign: 'center' },
-  centroError: { ...tasksTipo.cuerpo, color: tasksColor.peligro, textAlign: 'center' },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: tasksColor.fondoApp },
+  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  centroTexto: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, textAlign: 'center' },
+  centroError: { ...tasksTipo.cuerpo, fontFamily: fontFamily.regular, color: tasksColor.peligro, textAlign: 'center' },
   reintentar: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH },
-  reintentarTexto: { ...tasksTipo.dato, color: tasksColor.acento, fontWeight: '600' },
+  reintentarTexto: { ...tasksTipo.dato, color: tasksColor.acento, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 
-  headerAcciones: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
+  headerAcciones: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexShrink: 0 },
   headerAccionesWrap: { flexWrap: 'wrap', justifyContent: 'flex-end' },
   nuevaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     backgroundColor: tasksColor.acento,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderRadius: tasksRadius.control,
   },
   nuevaBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  nuevaTexto: { ...tasksTipo.dato, fontWeight: '700', color: tasksColor.textoInverso },
+  nuevaTexto: { ...tasksTipo.dato, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: tasksColor.textoInverso },
 
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 12,
+    marginBottom: SPACING.md,
   },
   toolbarWrap: { flexWrap: 'wrap' },
   kpis: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -610,13 +611,13 @@ const styles = StyleSheet.create({
   },
   rangoTexto: {
     ...tasksTipo.dato,
-    fontWeight: '700',
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
     minWidth: 120,
     textAlign: 'center',
   },
   hoyBtn: {
     minHeight: MIN_TOUCH,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderRadius: tasksRadius.control,
     backgroundColor: tasksColor.acentoSuave,
     borderWidth: 1,
@@ -624,36 +625,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hoyTexto: { ...tasksTipo.dato, fontWeight: '700', color: tasksColor.acentoTexto },
+  hoyTexto: { ...tasksTipo.dato, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: tasksColor.acentoTexto },
   stat: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
     borderColor: tasksColor.bordeSutil,
     backgroundColor: tasksColor.superficie,
   },
+  /** Borde rosa; no es colors.border. */
   statAlerta: {
     borderColor: '#fecaca',
     backgroundColor: tasksColor.peligroSuave,
   },
   statNumero: {
-    ...tasksTipo.tituloPantalla,
+    ...tasksTipo.tituloPantalla, fontFamily: fontFamily.semibold,
     ...tasksTabularNums,
   },
   statNumeroAlerta: { color: tasksColor.peligro },
-  statEtiqueta: { ...tasksTipo.etiqueta },
-  statEtiquetaAlerta: { color: tasksColor.peligro, fontWeight: '600' },
+  statEtiqueta: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium },
+  statEtiquetaAlerta: { color: tasksColor.peligro, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 
+  /** Borde rosa; no es colors.border. */
   avisoAccion: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     marginBottom: 10,
     borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
@@ -661,7 +664,7 @@ const styles = StyleSheet.create({
     backgroundColor: tasksColor.peligroSuave,
     minHeight: MIN_TOUCH,
   },
-  avisoAccionTexto: { flex: 1, ...tasksTipo.etiqueta, color: tasksColor.peligro },
+  avisoAccionTexto: { flex: 1, ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.peligro },
 
   viewModeWrap: {
     flexDirection: 'row',
@@ -675,39 +678,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     backgroundColor: tasksColor.superficie,
   },
   viewModeBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
   viewModeBtnActive: { backgroundColor: tasksColor.acentoSuave },
-  viewModeTexto: { ...tasksTipo.dato, color: tasksColor.textoTerciario },
-  viewModeTextoActivo: { color: tasksColor.acento, fontWeight: '700' },
+  viewModeTexto: { ...tasksTipo.dato, fontFamily: fontFamily.medium, color: tasksColor.textoTerciario },
+  viewModeTextoActivo: { color: tasksColor.acento, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   calendarioWrap: { flex: 1, minHeight: 0, gap: 10 },
-  avisoCalendario: { ...tasksTipo.etiqueta, color: tasksColor.aviso, textAlign: 'center' },
+  avisoCalendario: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.aviso, textAlign: 'center' },
 
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 24, gap: 16 },
-  skeletonWrap: { flex: 1, paddingTop: 4 },
-  grupo: { gap: 8 },
+  scrollContent: { paddingBottom: SPACING.xl, gap: SPACING.lg },
+  skeletonWrap: { flex: 1, paddingTop: SPACING.xs },
+  grupo: { gap: SPACING.sm },
   grupoHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   grupoTitulo: {
     ...tasksTipo.etiqueta,
-    fontWeight: '700',
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   grupoContador: {
     ...tasksTipo.micro,
-    fontWeight: '700',
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
     ...tasksTabularNums,
     paddingHorizontal: 7,
     paddingVertical: 1,
     borderRadius: tasksRadius.pildora,
     overflow: 'hidden',
   },
-  grupoLista: { gap: 8 },
+  grupoLista: { gap: SPACING.sm },
 
   masBtn: {
     flexDirection: 'row',
@@ -721,6 +724,6 @@ const styles = StyleSheet.create({
     backgroundColor: tasksColor.superficie,
   },
   masBtnTactil: { minHeight: MIN_TOUCH },
-  masTexto: { ...tasksTipo.dato, fontWeight: '600', color: tasksColor.acento },
-  errorPie: { ...tasksTipo.etiqueta, color: tasksColor.peligro, textAlign: 'center' },
+  masTexto: { ...tasksTipo.dato, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: tasksColor.acento },
+  errorPie: { ...tasksTipo.etiqueta, fontFamily: fontFamily.medium, color: tasksColor.peligro, textAlign: 'center' },
 });
