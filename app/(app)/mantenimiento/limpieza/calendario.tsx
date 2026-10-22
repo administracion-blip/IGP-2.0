@@ -18,6 +18,15 @@ import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
 import { LimpiezaAgenda, type RegistroAgenda } from '../../../components/limpieza/LimpiezaAgenda';
 import { apiFetch } from '../../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 
 type Vista = 'agenda' | 'mes' | 'semana' | 'dia';
 type Registro = {
@@ -41,9 +50,9 @@ const DIAS_SEMANA = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 const ESTADO_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  pendiente: { bg: '#fef3c7', color: '#b45309', label: 'Pendiente' },
-  hecha: { bg: '#dcfce7', color: '#15803d', label: 'Hecha' },
-  retrasada: { bg: '#fee2e2', color: '#b91c1c', label: 'Retrasada' },
+  pendiente: { bg: statusColors.warning.bg, color: statusColors.warning.text, label: 'Pendiente' },
+  hecha: { bg: statusColors.success.bg, color: statusColors.success.text, label: 'Hecha' },
+  retrasada: { bg: statusColors.danger.bg, color: statusColors.danger.text, label: 'Retrasada' },
   reprogramada: { bg: '#e0e7ff', color: '#4338ca', label: 'Reprogramada' },
 };
 const ESTADOS_FILTRO: { id: string; label: string }[] = [
@@ -268,13 +277,13 @@ export default function CalendarioLimpiezaScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Calendario de limpiezas</Text>
       </View>
 
       {loadingLocales ? (
-        <View style={styles.center}><ActivityIndicator size="small" color="#0ea5e9" /></View>
+        <View style={styles.center}><ActivityIndicator size="small" color={colors.accent} /></View>
       ) : (
         <>
           <View style={[styles.filtros, isPhone && styles.filtrosStacked]}>
@@ -321,20 +330,20 @@ export default function CalendarioLimpiezaScreen() {
 
           <View style={styles.navRow}>
             <TouchableOpacity onPress={() => navegar(-1)} style={styles.navBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <MaterialIcons name="chevron-left" size={24} color="#334155" />
+              <MaterialIcons name="chevron-left" size={24} color={colors.textPrimary} />
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setAncla(new Date())}>
               <Text style={styles.navTitle}>{tituloRango}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => navegar(1)} style={styles.navBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <MaterialIcons name="chevron-right" size={24} color="#334155" />
+              <MaterialIcons name="chevron-right" size={24} color={colors.textPrimary} />
             </TouchableOpacity>
           </View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           {loading ? (
-            <View style={styles.center}><ActivityIndicator size="large" color="#0ea5e9" /></View>
+            <View style={styles.center}><ActivityIndicator size="large" color={colors.accent} /></View>
           ) : (
             <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
               {vista === 'mes' ? (
@@ -359,7 +368,7 @@ export default function CalendarioLimpiezaScreen() {
                           {total > 0 ? (
                             <View style={styles.mesCellBadges}>
                               {pend > 0 ? <View style={[styles.dot, { backgroundColor: '#f59e0b' }]} /> : null}
-                              {hechas > 0 ? <View style={[styles.dot, { backgroundColor: '#16a34a' }]} /> : null}
+                              {hechas > 0 ? <View style={[styles.dot, { backgroundColor: colors.success }]} /> : null}
                               <Text style={styles.mesCellCount}>{total}</Text>
                             </View>
                           ) : null}
@@ -379,7 +388,7 @@ export default function CalendarioLimpiezaScreen() {
                           <Text style={styles.semanaColHeadText}>{DIAS_SEMANA[(fromIso(iso).getDay() + 6) % 7]} {Number(iso.slice(8, 10))}</Text>
                           {puedeAgregar && localId !== TODOS ? (
                             <TouchableOpacity onPress={() => abrirAgregar(iso)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                              <MaterialIcons name="add" size={16} color="#0ea5e9" />
+                              <MaterialIcons name="add" size={16} color={colors.accent} />
                             </TouchableOpacity>
                           ) : null}
                         </TouchableOpacity>
@@ -399,7 +408,7 @@ export default function CalendarioLimpiezaScreen() {
                 <View style={styles.diaWrap}>
                   {puedeAgregar && localId !== TODOS ? (
                     <TouchableOpacity style={styles.addDiaBtn} onPress={() => abrirAgregar(toIso(ancla))}>
-                      <MaterialIcons name="add" size={18} color="#fff" />
+                      <MaterialIcons name="add" size={18} color={colors.surface} />
                       <Text style={styles.addDiaBtnText}>Añadir limpieza este día</Text>
                     </TouchableOpacity>
                   ) : null}
@@ -420,7 +429,7 @@ export default function CalendarioLimpiezaScreen() {
                         </View>
                         {puedeBorrar ? (
                           <TouchableOpacity onPress={() => borrarRegistro(r)} disabled={accion} style={styles.iconBtn}>
-                            <MaterialIcons name="delete-outline" size={20} color="#dc2626" />
+                            <MaterialIcons name="delete-outline" size={20} color={colors.danger} />
                           </TouchableOpacity>
                         ) : null}
                       </View>
@@ -442,13 +451,13 @@ export default function CalendarioLimpiezaScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{diaModal ? fechaCorta(diaModal) : ''}</Text>
               <TouchableOpacity onPress={() => setDiaModal(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <MaterialIcons name="close" size={24} color="#64748b" />
+                <MaterialIcons name="close" size={24} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll}>
               {puedeAgregar && localId !== TODOS && diaModal ? (
                 <TouchableOpacity style={styles.addDiaBtn} onPress={() => { const iso = diaModal; setDiaModal(null); abrirAgregar(iso); }}>
-                  <MaterialIcons name="add" size={18} color="#fff" />
+                  <MaterialIcons name="add" size={18} color={colors.surface} />
                   <Text style={styles.addDiaBtnText}>Añadir limpieza este día</Text>
                 </TouchableOpacity>
               ) : null}
@@ -469,7 +478,7 @@ export default function CalendarioLimpiezaScreen() {
                     </View>
                     {puedeBorrar ? (
                       <TouchableOpacity onPress={() => borrarRegistro(r)} disabled={accion} style={styles.iconBtn}>
-                        <MaterialIcons name="delete-outline" size={20} color="#dc2626" />
+                        <MaterialIcons name="delete-outline" size={20} color={colors.danger} />
                       </TouchableOpacity>
                     ) : null}
                   </View>
@@ -487,7 +496,7 @@ export default function CalendarioLimpiezaScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Añadir limpieza · {addFecha ? fechaCorta(addFecha) : ''}</Text>
               <TouchableOpacity onPress={() => setAddModal(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <MaterialIcons name="close" size={24} color="#64748b" />
+                <MaterialIcons name="close" size={24} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={styles.modalScroll}>
@@ -510,7 +519,7 @@ export default function CalendarioLimpiezaScreen() {
                 onPress={crearRegistro}
                 disabled={!addObjetoId || accion}
               >
-                {accion ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Crear limpieza</Text>}
+                {accion ? <ActivityIndicator size="small" color={colors.surface} /> : <Text style={styles.saveBtnText}>Crear limpieza</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -522,65 +531,69 @@ export default function CalendarioLimpiezaScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  backBtn: { padding: 4 },
-  title: { flex: 1, fontSize: 18, fontWeight: '700', color: '#334155' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: SPACING.md },
+  backBtn: { padding: SPACING.xs },
+  title: { flex: 1, fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   center: { paddingVertical: 40, alignItems: 'center' },
-  errorText: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
-  filtros: { flexDirection: 'row', gap: 8, marginBottom: 10, alignItems: 'center' },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, marginBottom: SPACING.sm },
+  filtros: { flexDirection: 'row', gap: SPACING.sm, marginBottom: 10, alignItems: 'center' },
   filtrosStacked: { flexDirection: 'column', alignItems: 'stretch' },
-  vistaToggle: { flexDirection: 'row', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden' },
-  vistaBtn: { paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#f8fafc' },
-  vistaBtnActive: { backgroundColor: '#e0f2fe' },
-  vistaBtnText: { fontSize: 13, color: '#64748b', fontWeight: '600' },
-  vistaBtnTextActive: { color: '#0369a1' },
+  vistaToggle: { flexDirection: 'row', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' },
+  vistaBtn: { paddingVertical: SPACING.sm, paddingHorizontal: 14, backgroundColor: colors.bg },
+  vistaBtnActive: { backgroundColor: colors.accentMuted },
+  vistaBtnText: { fontSize: fontSizes[13], color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  vistaBtnTextActive: { color: statusColors.info.text },
   estadoChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
-  chip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-  chipActive: { borderColor: '#7dd3fc', backgroundColor: '#e0f2fe' },
-  chipText: { fontSize: 12, color: '#64748b' },
-  chipTextActive: { color: '#0369a1', fontWeight: '600' },
+  chip: { paddingVertical: 6, paddingHorizontal: SPACING.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg },
+  chipActive: { borderColor: '#7dd3fc', backgroundColor: colors.accentMuted },
+  chipText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  chipTextActive: { color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   navRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  navBtn: { padding: 4 },
-  navTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
+  navBtn: { padding: SPACING.xs },
+  navTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   weekHeader: { flexDirection: 'row' },
-  weekHeaderText: { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '700', color: '#94a3b8', paddingVertical: 4 },
+  weekHeaderText: { flex: 1, textAlign: 'center', fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, paddingVertical: SPACING.xs },
   mesGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  mesCell: { width: `${100 / 7}%`, aspectRatio: 1, borderWidth: 0.5, borderColor: '#e2e8f0', padding: 4, backgroundColor: '#fff' },
-  mesCellOut: { backgroundColor: '#f8fafc' },
+  mesCell: { width: `${100 / 7}%`, aspectRatio: 1, borderWidth: 0.5, borderColor: colors.border, padding: SPACING.xs, backgroundColor: colors.surface },
+  mesCellOut: { backgroundColor: colors.bg },
   mesCellHoy: { backgroundColor: '#eff6ff', borderColor: '#93c5fd' },
-  mesCellDay: { fontSize: 12, fontWeight: '600', color: '#334155' },
-  mesCellDayOut: { color: '#cbd5e1' },
-  mesCellBadges: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4, flexWrap: 'wrap' },
+  mesCellDay: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, fontVariant: ['tabular-nums'] },
+  mesCellDayOut: { color: colors.borderStrong },
+  mesCellBadges: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: SPACING.xs, flexWrap: 'wrap' },
+  // Círculo 7×7; radius.sm es 6.
   dot: { width: 7, height: 7, borderRadius: 4 },
-  mesCellCount: { fontSize: 10, color: '#64748b', fontWeight: '700' },
-  semanaWrap: { gap: 8 },
-  semanaCol: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 8, backgroundColor: '#fff' },
+  mesCellCount: { fontSize: fontSizes.badge, color: colors.textMuted, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontVariant: ['tabular-nums'] },
+  semanaWrap: { gap: SPACING.sm },
+  semanaCol: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: SPACING.sm, backgroundColor: colors.surface },
   semanaColHoy: { borderColor: '#93c5fd', backgroundColor: '#eff6ff' },
   semanaColHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
-  semanaColHeadText: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  semanaVacio: { fontSize: 12, color: '#cbd5e1' },
-  semanaItem: { borderLeftWidth: 3, paddingLeft: 8, paddingVertical: 4, marginBottom: 4, backgroundColor: '#f8fafc', borderRadius: 4 },
-  semanaItemText: { fontSize: 12, color: '#475569' },
-  diaWrap: { gap: 8 },
-  diaItem: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 12 },
-  diaItemTitle: { fontSize: 14, fontWeight: '600', color: '#334155' },
-  diaItemMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  badge: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  iconBtn: { padding: 4 },
-  vacio: { fontSize: 13, color: '#94a3b8', paddingVertical: 12, textAlign: 'center' },
-  addDiaBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#0ea5e9', borderRadius: 10, paddingVertical: 10, marginBottom: 10 },
-  addDiaBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  semanaColHeadText: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  semanaVacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.borderStrong },
+  // 4 px; radius.sm es 6.
+  semanaItem: { borderLeftWidth: 3, paddingLeft: SPACING.sm, paddingVertical: SPACING.xs, marginBottom: SPACING.xs, backgroundColor: colors.bg, borderRadius: 4 },
+  semanaItemText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  diaWrap: { gap: SPACING.sm },
+  diaItem: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: SPACING.md },
+  diaItemTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  diaItemMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
+  badge: { paddingVertical: SPACING.xs, paddingHorizontal: 10, borderRadius: radius.pill },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  iconBtn: { padding: SPACING.xs },
+  vacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, paddingVertical: SPACING.md, textAlign: 'center' },
+  addDiaBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, marginBottom: 10 },
+  addDiaBtnText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[13] },
+  // Más oscuro que colors.overlay.
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
   overlayCentered: { justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalCard: { backgroundColor: '#fff', borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '85%', overflow: 'hidden' },
-  modalCardCentered: { width: '100%', maxWidth: 520, borderRadius: 16 },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155', flex: 1 },
-  modalScroll: { padding: 16 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6, marginTop: 4 },
-  ayuda: { fontSize: 11, color: '#94a3b8', marginTop: 8 },
-  saveBtn: { backgroundColor: '#0ea5e9', borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 20 },
-  saveBtnDisabled: { backgroundColor: '#94a3b8' },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  // 18 px: entre radius.xl (16) y el siguiente salto.
+  modalCard: { backgroundColor: colors.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '85%', overflow: 'hidden' },
+  modalCardCentered: { width: '100%', maxWidth: 520, borderRadius: radius.xl },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, flex: 1 },
+  modalScroll: { padding: SPACING.lg },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: 6, marginTop: SPACING.xs },
+  ayuda: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: SPACING.sm },
+  saveBtn: { backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: SPACING.md, alignItems: 'center', marginTop: 20 },
+  saveBtnDisabled: { backgroundColor: colors.textMuted },
+  saveBtnText: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontSize: fontSizes[14] },
 });
