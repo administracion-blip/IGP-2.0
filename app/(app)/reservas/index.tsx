@@ -7,6 +7,13 @@ import { EstrellaFavorito } from '../../components/EstrellaFavorito';
 import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
 import { useHubNavGrid } from '../../hooks/useHubNavGrid';
 import { hubAccentById } from '../../lib/hubNavAccent';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 type Tarjeta = {
   id: string;
@@ -53,7 +60,7 @@ export default function ReservasIndexScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push('/' as never)} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Reservas</Text>
@@ -64,7 +71,7 @@ export default function ReservasIndexScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
         {visibles.length === 0 ? (
           <View style={styles.emptyBox}>
-            <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+            <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
             <Text style={styles.emptyText}>No tienes permisos para acceder a este módulo.</Text>
           </View>
         ) : (
@@ -97,22 +104,40 @@ export default function ReservasIndexScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: colors.surface },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.lg, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 14, color: '#64748b', marginTop: 2 },
-  scrollContent: { paddingBottom: 24 },
-  emptyBox: { alignItems: 'center', gap: 8, paddingVertical: 40 },
-  emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[20],
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.textStrong,
+  },
+  subtitle: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[14],
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  scrollContent: { paddingBottom: SPACING.xl },
+  emptyBox: { alignItems: 'center', gap: SPACING.sm, paddingVertical: 40 },
+  emptyText: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
 });
