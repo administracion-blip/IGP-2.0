@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -18,6 +17,16 @@ import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { InputFecha } from '../../components/InputFecha';
 import { estiloCampoFechaCompacto } from '../../components/RangoFechas';
 import { apiFetch } from '../../utils/api';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 const AUTH_KEY = 'erp_user';
 
@@ -108,7 +117,7 @@ function generarFechas(
 export default function RecurrentesScreen() {
   const router = useRouter();
   const { locales, loading: loadingLocales, error: localesError } = useMantenimientoLocales();
-  const { width } = useWindowDimensions();
+  const { width } = useBreakpoint();
 
   const [userId, setUserId] = useState('');
   const [localIdsSeleccionados, setLocalIdsSeleccionados] = useState<string[]>([]);
@@ -200,6 +209,7 @@ export default function RecurrentesScreen() {
       .finally(() => setEnviando(false));
   };
 
+  // 540 px: ancho máximo de la ficha.
   const cardWidth = Math.min(width - 32, 540);
 
   return (
@@ -210,7 +220,7 @@ export default function RecurrentesScreen() {
     >
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Reparaciones recurrentes</Text>
       </View>
@@ -218,19 +228,19 @@ export default function RecurrentesScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {loadingLocales ? (
           <View style={[styles.formCard, styles.loadingWrap, { maxWidth: cardWidth }]}>
-            <ActivityIndicator size="small" color="#0ea5e9" />
+            <ActivityIndicator size="small" color={colors.accent} />
             <Text style={styles.loadingText}>Cargando locales…</Text>
           </View>
         ) : localesError ? (
           <View style={[styles.formCard, styles.loadingWrap, { maxWidth: cardWidth }]}>
-            <MaterialIcons name="error-outline" size={20} color="#f87171" />
-            <Text style={[styles.loadingText, { color: '#f87171' }]}>{localesError}</Text>
+            <MaterialIcons name="error-outline" size={20} color={colors.danger} />
+            <Text style={[styles.loadingText, { color: colors.danger }]}>{localesError}</Text>
           </View>
         ) : (
           <View style={[styles.formCard, { maxWidth: cardWidth }]}>
             {resultado ? (
               <View style={styles.successWrap}>
-                <MaterialIcons name="check-circle" size={22} color="#16a34a" />
+                <MaterialIcons name="check-circle" size={22} color={colors.success} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.successText}>
                     {resultado.creados} de {resultado.total} registros creados correctamente
@@ -276,7 +286,7 @@ export default function RecurrentesScreen() {
                         })
                         .join(', ')}
                 </Text>
-                <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
+                <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color={colors.textMuted} />
               </TouchableOpacity>
               {localDropdownOpen && (
                 <View style={styles.dropdownList}>
@@ -297,7 +307,7 @@ export default function RecurrentesScreen() {
                           <MaterialIcons
                             name={localIdsSeleccionados.length === locales.length ? 'check-box' : 'check-box-outline-blank'}
                             size={18}
-                            color="#0ea5e9"
+                            color={colors.accent}
                           />
                           <Text style={styles.dropdownOptionTextAll}>Seleccionar todos</Text>
                         </TouchableOpacity>
@@ -315,7 +325,7 @@ export default function RecurrentesScreen() {
                               <MaterialIcons
                                 name={selected ? 'check-box' : 'check-box-outline-blank'}
                                 size={18}
-                                color={selected ? '#0ea5e9' : '#94a3b8'}
+                                color={selected ? colors.accent : colors.textMuted}
                               />
                               <Text style={[styles.dropdownOptionText, selected && styles.dropdownOptionTextSelected]} numberOfLines={1}>
                                 {nombre || id || '—'}
@@ -338,7 +348,7 @@ export default function RecurrentesScreen() {
                 value={titulo}
                 onChangeText={setTitulo}
                 placeholder="Ej: Limpieza de aires acondicionados"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
               />
             </View>
 
@@ -350,7 +360,7 @@ export default function RecurrentesScreen() {
                 value={descripcion}
                 onChangeText={setDescripcion}
                 placeholder="Detalles adicionales…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 multiline
                 numberOfLines={3}
               />
@@ -390,7 +400,7 @@ export default function RecurrentesScreen() {
 
             {/* Programación */}
             <View style={styles.sectionHeader}>
-              <MaterialIcons name="event-repeat" size={18} color="#0ea5e9" />
+              <MaterialIcons name="event-repeat" size={18} color={colors.accent} />
               <Text style={styles.sectionTitle}>Programación</Text>
             </View>
 
@@ -455,7 +465,7 @@ export default function RecurrentesScreen() {
             {/* Preview */}
             <View style={styles.previewCard}>
               <View style={styles.previewHeader}>
-                <MaterialIcons name="preview" size={18} color="#475569" />
+                <MaterialIcons name="preview" size={18} color={colors.textPrimary} />
                 <Text style={styles.previewTitle}>Vista previa</Text>
               </View>
               <View style={styles.previewStats}>
@@ -470,7 +480,7 @@ export default function RecurrentesScreen() {
                 </View>
                 <Text style={styles.previewStatX}>=</Text>
                 <View style={styles.previewStat}>
-                  <Text style={[styles.previewStatNum, totalRegistros > 500 && { color: '#dc2626' }]}>{totalRegistros}</Text>
+                  <Text style={[styles.previewStatNum, totalRegistros > 500 && { color: colors.danger }]}>{totalRegistros}</Text>
                   <Text style={styles.previewStatLabel}>registro{totalRegistros !== 1 ? 's' : ''}</Text>
                 </View>
               </View>
@@ -487,7 +497,7 @@ export default function RecurrentesScreen() {
 
             {error ? (
               <View style={styles.errorWrap}>
-                <MaterialIcons name="error-outline" size={18} color="#f87171" />
+                <MaterialIcons name="error-outline" size={18} color={colors.danger} />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
@@ -498,7 +508,7 @@ export default function RecurrentesScreen() {
                 onPress={() => router.replace('/mantenimiento/incidencias')}
                 disabled={enviando}
               >
-                <MaterialIcons name="cancel" size={20} color="#fff" />
+                <MaterialIcons name="cancel" size={20} color={colors.surface} />
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -507,10 +517,10 @@ export default function RecurrentesScreen() {
                 disabled={enviando || totalRegistros === 0}
               >
                 {enviando ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
                   <>
-                    <MaterialIcons name="playlist-add-check" size={20} color="#fff" />
+                    <MaterialIcons name="playlist-add-check" size={20} color={colors.surface} />
                     <Text style={styles.submitBtnText}>Crear {totalRegistros} registro{totalRegistros !== 1 ? 's' : ''}</Text>
                   </>
                 )}
@@ -523,22 +533,25 @@ export default function RecurrentesScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  wrapper: { flex: 1, backgroundColor: '#ffffff' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 16, gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  wrapper: { flex: 1, backgroundColor: colors.surface },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, paddingHorizontal: SPACING.lg, gap: SPACING.sm },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 24, alignItems: 'center' },
-  loadingWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 16 },
-  loadingText: { fontSize: 12, color: '#64748b' },
+  scrollContent: { padding: SPACING.lg, paddingBottom: SPACING.xl, alignItems: 'center' },
+  loadingWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: SPACING.lg },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
   formCard: {
     width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -548,156 +561,157 @@ const styles = StyleSheet.create({
   successWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
     paddingHorizontal: 14,
-    backgroundColor: '#dcfce7',
-    borderRadius: 8,
-    marginBottom: 12,
+    backgroundColor: statusColors.success.bg,
+    borderRadius: RADIO_MEDIO,
+    marginBottom: SPACING.md,
   },
-  successText: { fontSize: 14, fontWeight: '600', color: '#16a34a' },
-  successSubtext: { fontSize: 11, color: '#475569', marginTop: 4 },
+  successText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.success },
+  successSubtext: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary, marginTop: SPACING.xs },
   successCloseBtn: {
     paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: '#16a34a',
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: colors.success,
+    borderRadius: RADIO_MEDIO,
   },
-  successCloseBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
-  field: { marginBottom: 16 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 },
-  labelHint: { fontWeight: '400', color: '#94a3b8' },
-  twoColRow: { flexDirection: 'row', gap: 12 },
+  successCloseBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  field: { marginBottom: SPACING.lg },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: 6 },
+  labelHint: { fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted },
+  twoColRow: { flexDirection: 'row', gap: SPACING.md },
   dropdownTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: SPACING.md,
     paddingHorizontal: 14,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
-  dropdownTriggerText: { fontSize: 12, color: '#334155', flex: 1 },
-  dropdownPlaceholder: { color: '#94a3b8' },
+  dropdownTriggerText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, flex: 1 },
+  dropdownPlaceholder: { color: colors.textMuted },
   dropdownList: {
     marginTop: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     maxHeight: 240,
   },
   dropdownScroll: { maxHeight: 240 },
   dropdownOptionAll: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#f0f9ff',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.accentMuted,
   },
-  dropdownOptionTextAll: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
+  dropdownOptionTextAll: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   dropdownOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  dropdownOptionText: { fontSize: 12, color: '#334155', flex: 1 },
-  dropdownOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
-  emptyHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', padding: 14 },
-  selectWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  dropdownOptionSelected: { backgroundColor: colors.accentMuted },
+  dropdownOptionText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, flex: 1 },
+  dropdownOptionTextSelected: { color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  emptyHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic', padding: 14 },
+  selectWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   optionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#f8fafc',
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
-  optionBtnSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  optionText: { fontSize: 12, color: '#475569' },
-  optionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
+  optionBtnSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  optionText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  optionTextSelected: { color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    fontSize: 14,
-    color: '#334155',
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.md,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
   },
   textArea: { minHeight: 60, textAlignVertical: 'top' },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 12,
-    marginTop: 4,
-    paddingBottom: 8,
+    marginBottom: SPACING.md,
+    marginTop: SPACING.xs,
+    paddingBottom: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#334155' },
+  sectionTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   diasRow: { flexDirection: 'row', gap: 6 },
+  // Círculo 42×42; el radio es la mitad del lado.
   diaBtn: {
     width: 42,
     height: 42,
     borderRadius: 21,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
   },
-  diaBtnSelected: { borderColor: '#0ea5e9', backgroundColor: '#0ea5e9' },
-  diaText: { fontSize: 11, fontWeight: '600', color: '#475569' },
-  diaTextSelected: { color: '#fff' },
+  diaBtnSelected: { borderColor: colors.accent, backgroundColor: colors.accent },
+  diaText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  diaTextSelected: { color: colors.surface },
   previewCard: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     padding: 14,
-    marginBottom: 16,
+    marginBottom: SPACING.lg,
   },
   previewHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-  previewTitle: { fontSize: 13, fontWeight: '600', color: '#475569' },
-  previewStats: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 10 },
+  previewTitle: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  previewStats: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.md, marginBottom: 10 },
   previewStat: { alignItems: 'center' },
-  previewStatNum: { fontSize: 24, fontWeight: '700', color: '#0ea5e9' },
-  previewStatLabel: { fontSize: 10, color: '#64748b', marginTop: 2 },
-  previewStatX: { fontSize: 18, fontWeight: '300', color: '#94a3b8' },
-  previewDates: { borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 10 },
-  previewDatesTitle: { fontSize: 11, fontWeight: '600', color: '#475569', marginBottom: 4 },
-  previewDatesList: { fontSize: 11, color: '#64748b', lineHeight: 18 },
-  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8 },
-  errorText: { fontSize: 12, color: '#f87171' },
-  buttonsRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  previewStatNum: { fontSize: fontSizes[24], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent, fontVariant: ['tabular-nums'] },
+  previewStatLabel: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, marginTop: 2 },
+  previewStatX: { fontSize: fontSizes[18], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted },
+  previewDates: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 },
+  previewDatesTitle: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
+  previewDatesList: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 18 },
+  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SPACING.md, padding: 10, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
+  buttonsRow: { flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.sm },
   submitBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 10,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
+    borderRadius: radius.md,
   },
-  cancelBtn: { flex: 1, backgroundColor: '#dc2626' },
-  cancelBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  submitBtnPrimary: { flex: 3, backgroundColor: '#0ea5e9' },
+  cancelBtn: { flex: 1, backgroundColor: colors.danger },
+  cancelBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  submitBtnPrimary: { flex: 3, backgroundColor: colors.accent },
   submitBtnDisabled: { opacity: 0.7 },
-  submitBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  submitBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
 });
