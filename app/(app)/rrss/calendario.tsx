@@ -11,6 +11,15 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiFetch } from '../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useMarketingLocales, valorEnLocal } from './LocalesContext';
 import { formatId6 } from './lib/formatId6';
 import { esIsoFechaValida, finMesActualIso, inicioMesActualIso, isoToDmy } from './lib/fechasUi';
@@ -39,15 +48,15 @@ const ESTADO_LABELS: Record<string, string> = {
 function badgeStyles(estado: string): { backgroundColor: string; color: string } {
   switch (estado) {
     case 'pendiente':
-      return { backgroundColor: '#fef3c7', color: '#b45309' };
+      return { backgroundColor: statusColors.warning.bg, color: statusColors.warning.text };
     case 'aprobada':
       return { backgroundColor: '#d1fae5', color: '#047857' };
     case 'rechazada':
-      return { backgroundColor: '#fee2e2', color: '#b91c1c' };
+      return { backgroundColor: statusColors.danger.bg, color: statusColors.danger.text };
     case 'publicada':
       return { backgroundColor: '#dbeafe', color: '#1e40af' };
     default:
-      return { backgroundColor: '#f1f5f9', color: '#475569' };
+      return { backgroundColor: colors.navActive, color: colors.textPrimary };
   }
 }
 
@@ -132,7 +141,7 @@ export default function CalendarioScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.accent} />
         </TouchableOpacity>
         <Text style={styles.title}>Calendario</Text>
       </View>
@@ -187,7 +196,7 @@ export default function CalendarioScreen() {
 
       {error && (
         <View style={styles.errorBox}>
-          <MaterialIcons name="error-outline" size={18} color="#f87171" />
+          <MaterialIcons name="error-outline" size={18} color={colors.danger} />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={refetch}>
             <Text style={styles.retryBtnText}>Reintentar</Text>
@@ -198,15 +207,15 @@ export default function CalendarioScreen() {
       <ScrollView
         style={styles.list}
         contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} colors={['#0ea5e9']} tintColor="#0ea5e9" />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} colors={[colors.accent]} tintColor={colors.accent} />}
       >
         {loading && propuestas.length === 0 ? (
           <View style={styles.center}>
-            <ActivityIndicator size="large" color="#0ea5e9" />
+            <ActivityIndicator size="large" color={colors.accent} />
           </View>
         ) : agrupadas.length === 0 ? (
           <View style={styles.empty}>
-            <MaterialIcons name="event-busy" size={32} color="#94a3b8" />
+            <MaterialIcons name="event-busy" size={32} color={colors.textMuted} />
             <Text style={styles.emptyText}>No hay propuestas en este rango.</Text>
           </View>
         ) : (
@@ -235,11 +244,11 @@ export default function CalendarioScreen() {
                     <Text style={styles.cardDesc} numberOfLines={2}>{p.descripcion}</Text>
                     <View style={styles.cardFooter}>
                       <View style={styles.cardMeta}>
-                        <MaterialIcons name="store" size={13} color="#64748b" />
+                        <MaterialIcons name="store" size={13} color={colors.textMuted} />
                         <Text style={styles.cardMetaText} numberOfLines={1}>{localNombre}</Text>
                       </View>
                       <View style={styles.cardMeta}>
-                        <MaterialIcons name="share" size={13} color="#64748b" />
+                        <MaterialIcons name="share" size={13} color={colors.textMuted} />
                         <Text style={styles.cardMetaText}>{(p.redes ?? []).join(', ') || '—'}</Text>
                       </View>
                     </View>
@@ -254,50 +263,53 @@ export default function CalendarioScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerBtn: { padding: 6 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  filtersWrap: { padding: 12, gap: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  filtersWrap: { padding: SPACING.md, gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   row: { flexDirection: 'row', gap: 10 },
   field: { flex: 1, gap: 6 },
-  label: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  label: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   dateInput: {
-    fontSize: 13,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
     paddingVertical: 8,
     paddingHorizontal: 10,
-    color: '#334155',
-    backgroundColor: '#fff',
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6 },
-  chipSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  chipText: { fontSize: 11, color: '#475569' },
-  chipTextSelected: { color: '#0ea5e9', fontWeight: '600' },
-  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, margin: 12, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8 },
-  errorText: { fontSize: 12, color: '#dc2626', flex: 1 },
-  retryBtn: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#fff', borderRadius: 6 },
-  retryBtnText: { fontSize: 12, color: '#dc2626', fontWeight: '600' },
+  chip: { paddingVertical: 6, paddingHorizontal: 10, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm },
+  chipSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  chipText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
+  chipTextSelected: { color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  errorBox: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, margin: SPACING.md, padding: 10, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flex: 1 },
+  retryBtn: { paddingVertical: 6, paddingHorizontal: SPACING.md, backgroundColor: colors.surface, borderRadius: radius.sm },
+  retryBtnText: { fontSize: fontSizes[12], color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   list: { flex: 1 },
-  listContent: { padding: 12, gap: 16, paddingBottom: 24 },
+  listContent: { padding: SPACING.md, gap: 16, paddingBottom: 24 },
   center: { paddingVertical: 32, alignItems: 'center' },
-  empty: { paddingVertical: 32, alignItems: 'center', gap: 8 },
-  emptyText: { fontSize: 13, color: '#64748b' },
-  dayBlock: { gap: 8 },
-  dayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  dayTitle: { fontSize: 14, fontWeight: '700', color: '#334155' },
-  dayCount: { fontSize: 12, color: '#64748b' },
-  card: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', padding: 12, gap: 6 },
+  empty: { paddingVertical: 32, alignItems: 'center', gap: SPACING.sm },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
+  dayBlock: { gap: SPACING.sm },
+  dayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border },
+  dayTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  dayCount: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  card: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: SPACING.md, gap: 6 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardTipo: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  badge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 10 },
-  badgeText: { fontSize: 10, fontWeight: '600', textTransform: 'capitalize' },
-  cardDesc: { fontSize: 12, color: '#475569' },
+  cardTipo: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  badge: { paddingVertical: 2, paddingHorizontal: SPACING.sm, borderRadius: radius.md },
+  badgeText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, textTransform: 'capitalize' },
+  cardDesc: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 },
   cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  cardMetaText: { fontSize: 11, color: '#64748b' },
+  cardMetaText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
 });
