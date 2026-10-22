@@ -28,6 +28,15 @@ import { apiFetch, errorMessage } from '../../utils/api';
 import { formatMoneda } from '../../utils/facturacion';
 import { formatFecha } from '../../utils/formatFecha';
 import { MIN_TOUCH } from '../../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { ExcluidosFacturacionCard } from '../../components/facturacion/ExcluidosFacturacionCard';
 import {
   agruparPorMotivo,
@@ -331,7 +340,7 @@ export default function FacturacionMantenimientoScreen() {
   if (!puedeFacturar) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="lock-outline" size={32} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={32} color={colors.textMuted} />
         <Text style={styles.sinPermisoText}>No tienes permiso para facturar mantenimiento.</Text>
       </View>
     );
@@ -342,7 +351,7 @@ export default function FacturacionMantenimientoScreen() {
       {locales.map((local, iLocal) => (
         <View key={`${local.local_id ?? iLocal}`} style={styles.localBlock}>
           <View style={styles.localHeader}>
-            <MaterialIcons name="store" size={14} color="#0369a1" />
+            <MaterialIcons name="store" size={14} color={statusColors.info.text} />
             <Text style={styles.localNombre} numberOfLines={1}>
               {String(local.local_nombre ?? local.local_id ?? 'Sin local')}
             </Text>
@@ -378,7 +387,7 @@ export default function FacturacionMantenimientoScreen() {
           style={styles.backBtn}
           accessibilityLabel="Volver"
         >
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerTextBlock}>
           <Text style={styles.title}>Facturación de mantenimiento</Text>
@@ -394,9 +403,9 @@ export default function FacturacionMantenimientoScreen() {
           accessibilityLabel="Actualizar previsualización"
         >
           {cargandoPrevisualizacion ? (
-            <ActivityIndicator size="small" color="#0ea5e9" />
+            <ActivityIndicator size="small" color={colors.accent} />
           ) : (
-            <MaterialIcons name="refresh" size={22} color="#0ea5e9" />
+            <MaterialIcons name="refresh" size={22} color={colors.accent} />
           )}
         </TouchableOpacity>
       </View>
@@ -409,7 +418,7 @@ export default function FacturacionMantenimientoScreen() {
             disabled={generando}
             accessibilityLabel="Mes anterior"
           >
-            <MaterialIcons name="chevron-left" size={22} color="#334155" />
+            <MaterialIcons name="chevron-left" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.periodoLabelWrap}>
             <Text style={styles.periodoLabel} numberOfLines={1}>
@@ -439,7 +448,7 @@ export default function FacturacionMantenimientoScreen() {
             <MaterialIcons
               name="chevron-right"
               size={22}
-              color={periodo >= periodoMaximo ? '#cbd5e1' : '#334155'}
+              color={periodo >= periodoMaximo ? colors.borderStrong : colors.textPrimary}
             />
           </TouchableOpacity>
         </View>
@@ -455,9 +464,9 @@ export default function FacturacionMantenimientoScreen() {
           activeOpacity={0.8}
         >
           {generando ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <ActivityIndicator size="small" color={colors.surface} />
           ) : (
-            <MaterialIcons name="receipt-long" size={18} color="#fff" />
+            <MaterialIcons name="receipt-long" size={18} color={colors.surface} />
           )}
           <Text style={styles.generarBtnText}>
             {generando ? 'Generando…' : 'Generar facturas'}
@@ -481,14 +490,14 @@ export default function FacturacionMantenimientoScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {errorGenerar ? (
           <View style={styles.errorBox}>
-            <MaterialIcons name="error-outline" size={18} color="#dc2626" />
+            <MaterialIcons name="error-outline" size={18} color={colors.danger} />
             <Text style={styles.errorBoxText}>{errorGenerar}</Text>
             <TouchableOpacity
               onPress={() => setErrorGenerar(null)}
               style={styles.errorCerrarBtn}
               accessibilityLabel="Cerrar aviso"
             >
-              <MaterialIcons name="close" size={16} color="#dc2626" />
+              <MaterialIcons name="close" size={16} color={colors.danger} />
             </TouchableOpacity>
           </View>
         ) : null}
@@ -504,7 +513,7 @@ export default function FacturacionMantenimientoScreen() {
               <MaterialIcons
                 name={num(resultado.total_facturas) === 0 ? 'info-outline' : 'task-alt'}
                 size={20}
-                color={num(resultado.total_facturas) === 0 ? '#475569' : '#047857'}
+                color={num(resultado.total_facturas) === 0 ? colors.textPrimary : '#047857'}
               />
               <Text
                 style={[
@@ -554,7 +563,7 @@ export default function FacturacionMantenimientoScreen() {
                   onPress={() => abrirFactura(factura.id_factura)}
                   activeOpacity={0.8}
                 >
-                  <MaterialIcons name="open-in-new" size={15} color="#0369a1" />
+                  <MaterialIcons name="open-in-new" size={15} color={statusColors.info.text} />
                   <Text style={styles.abrirFacturaText}>Abrir factura</Text>
                 </TouchableOpacity>
               </View>
@@ -606,7 +615,7 @@ export default function FacturacionMantenimientoScreen() {
               onPress={() => setResultado(null)}
               activeOpacity={0.8}
             >
-              <MaterialIcons name="visibility" size={16} color="#0369a1" />
+              <MaterialIcons name="visibility" size={16} color={statusColors.info.text} />
               <Text style={styles.resultadoCerrarText}>Volver a la previsualización</Text>
             </TouchableOpacity>
           </View>
@@ -614,7 +623,7 @@ export default function FacturacionMantenimientoScreen() {
 
         {errorPrevisualizacion ? (
           <View style={styles.errorPanel}>
-            <MaterialIcons name="error-outline" size={28} color="#dc2626" />
+            <MaterialIcons name="error-outline" size={28} color={colors.danger} />
             <Text style={styles.errorPanelText}>{errorPrevisualizacion}</Text>
             <TouchableOpacity
               style={styles.retryBtn}
@@ -625,12 +634,12 @@ export default function FacturacionMantenimientoScreen() {
           </View>
         ) : cargandoPrevisualizacion && previsualizacion === null ? (
           <View style={styles.loadingPanel}>
-            <ActivityIndicator size="large" color="#0ea5e9" />
+            <ActivityIndicator size="large" color={colors.accent} />
             <Text style={styles.loadingText}>Calculando lo que se facturaría…</Text>
           </View>
         ) : sinNadaQueFacturar ? (
           <View style={styles.vacioPanel}>
-            <MaterialIcons name="inbox" size={40} color="#94a3b8" />
+            <MaterialIcons name="inbox" size={40} color={colors.textMuted} />
             <Text style={styles.vacioTitulo}>
               {`No hay reparaciones pendientes de facturar en ${labelPeriodo(periodo)}`}
             </Text>
@@ -688,7 +697,7 @@ export default function FacturacionMantenimientoScreen() {
                     <MaterialIcons
                       name={plegada ? 'expand-more' : 'expand-less'}
                       size={20}
-                      color="#64748b"
+                      color={colors.textMuted}
                     />
                     <View style={styles.sociedadIdentidad}>
                       <Text style={styles.sociedadNombre} numberOfLines={2}>
@@ -714,7 +723,7 @@ export default function FacturacionMantenimientoScreen() {
 
                   {soc.aviso ? (
                     <View style={styles.avisoBox}>
-                      <MaterialIcons name="info-outline" size={15} color="#b45309" />
+                      <MaterialIcons name="info-outline" size={15} color={statusColors.warning.text} />
                       <Text style={styles.avisoBoxText}>{soc.aviso}</Text>
                     </View>
                   ) : null}
@@ -740,43 +749,46 @@ export default function FacturacionMantenimientoScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 12, backgroundColor: '#ffffff', minHeight: 0 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  sinPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
-  headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 10 },
+  container: { flex: 1, padding: SPACING.md, backgroundColor: colors.surface, minHeight: 0 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
+  sinPermisoText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm, marginBottom: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
   headerTextBlock: { flex: 1, minWidth: 0 },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 13, color: '#64748b', lineHeight: 18, marginTop: 2 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, lineHeight: 18, marginTop: 2 },
   refreshBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 8,
+    gap: SPACING.md,
+    marginBottom: SPACING.sm,
   },
   toolbarStacked: { flexDirection: 'column', alignItems: 'stretch' },
   periodoNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
+    paddingHorizontal: SPACING.xs,
+    paddingVertical: SPACING.xs,
   },
   periodoNavBtn: {
     width: MIN_TOUCH,
@@ -786,205 +798,207 @@ const styles = StyleSheet.create({
   },
   periodoNavBtnDisabled: { opacity: 0.6 },
   periodoLabelWrap: { minWidth: 150, alignItems: 'center', gap: 1 },
-  periodoLabel: { fontSize: 15, fontWeight: '700', color: '#334155', textTransform: 'capitalize' },
-  periodoHint: { fontSize: 10, color: '#94a3b8', fontWeight: '600' },
-  periodoLink: { fontSize: 10, color: '#0ea5e9', fontWeight: '700' },
+  periodoLabel: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, textTransform: 'capitalize' },
+  periodoHint: { fontSize: fontSizes.badge, color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  periodoLink: { fontSize: fontSizes.badge, color: colors.accent, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   generarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     minHeight: MIN_TOUCH,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    backgroundColor: '#0ea5e9',
+    paddingHorizontal: SPACING.lg,
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
   },
-  generarBtnDisabled: { backgroundColor: '#94a3b8' },
-  generarBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  generarBtnDisabled: { backgroundColor: colors.textMuted },
+  generarBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
   automaticoChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginBottom: 10,
     paddingVertical: 5,
-    paddingHorizontal: 8,
-    backgroundColor: '#f8fafc',
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
+  // Círculo 8×8; radius.sm es 6.
   automaticoDot: { width: 8, height: 8, borderRadius: 4 },
-  dotOn: { backgroundColor: '#16a34a' },
-  dotOff: { backgroundColor: '#94a3b8' },
-  automaticoText: { flex: 1, minWidth: 0, fontSize: 11, color: '#64748b', lineHeight: 15 },
+  dotOn: { backgroundColor: colors.success },
+  dotOff: { backgroundColor: colors.textMuted },
+  automaticoText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 15 },
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 24, gap: 10 },
+  scrollContent: { paddingBottom: SPACING.xl, gap: 10 },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    backgroundColor: '#fef2f2',
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  errorBoxText: { flex: 1, minWidth: 0, fontSize: 12, color: '#dc2626', lineHeight: 17 },
+  errorBoxText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, lineHeight: 17 },
   errorCerrarBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   errorPanel: { alignItems: 'center', gap: 10, paddingVertical: 32 },
-  errorPanelText: { fontSize: 14, color: '#dc2626', textAlign: 'center' },
+  errorPanelText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.danger, textAlign: 'center' },
   retryBtn: {
     paddingVertical: 10,
     paddingHorizontal: 20,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 10,
+    backgroundColor: colors.navActive,
+    borderRadius: radius.md,
   },
-  retryBtnText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
+  retryBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
   loadingPanel: { alignItems: 'center', gap: 10, paddingVertical: 40 },
-  loadingText: { fontSize: 13, color: '#64748b' },
-  vacioPanel: { alignItems: 'center', gap: 8, paddingVertical: 40, paddingHorizontal: 16 },
-  vacioTitulo: { fontSize: 15, fontWeight: '600', color: '#475569', textAlign: 'center' },
-  vacioSub: { fontSize: 13, color: '#94a3b8', textAlign: 'center', maxWidth: 420, lineHeight: 18 },
-  resumenRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
+  vacioPanel: { alignItems: 'center', gap: SPACING.sm, paddingVertical: 40, paddingHorizontal: SPACING.lg },
+  vacioTitulo: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, textAlign: 'center' },
+  vacioSub: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center', maxWidth: 420, lineHeight: 18 },
+  resumenRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   resumenChip: {
     minWidth: 110,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
     gap: 2,
   },
-  resumenChipTotal: { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' },
+  resumenChipTotal: { backgroundColor: colors.accentMuted, borderColor: '#bae6fd' },
   resumenChipLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#94a3b8',
+    fontSize: fontSizes.badge,
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
-  resumenChipValor: { fontSize: 17, fontWeight: '800', color: '#334155' },
-  resumenChipValorTotal: { color: '#0369a1' },
-  resumenNota: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+  // 17 px: entre fontSizes[16] y fontSizes[18].
+  resumenChipValor: { fontSize: 17, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, fontVariant: ['tabular-nums'] },
+  resumenChipValorTotal: { color: statusColors.info.text },
+  resumenNota: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 16 },
   sociedadCard: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
     padding: 10,
-    gap: 8,
+    gap: SPACING.sm,
   },
-  sociedadHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sociedadHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   sociedadIdentidad: { flex: 1, minWidth: 0, gap: 2 },
-  sociedadNombre: { fontSize: 14, fontWeight: '700', color: '#334155' },
-  sociedadMeta: { fontSize: 11, color: '#94a3b8' },
+  sociedadNombre: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  sociedadMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
   sociedadImportes: { alignItems: 'flex-end', gap: 2, flexShrink: 0 },
-  sociedadTotal: { fontSize: 16, fontWeight: '800', color: '#0f766e' },
-  sociedadDesglose: { fontSize: 10, color: '#94a3b8' },
+  sociedadTotal: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#0f766e', fontVariant: ['tabular-nums'] },
+  sociedadDesglose: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted },
   avisoBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
     paddingVertical: 6,
-    paddingHorizontal: 8,
-    backgroundColor: '#fffbeb',
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fde68a',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  avisoBoxText: { flex: 1, minWidth: 0, fontSize: 11, color: '#92400e', lineHeight: 15 },
-  descuadreText: { fontSize: 10, color: '#b45309', lineHeight: 14 },
-  localesBlock: { gap: 8 },
+  avisoBoxText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#92400e', lineHeight: 15 },
+  descuadreText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: statusColors.warning.text, lineHeight: 14 },
+  localesBlock: { gap: SPACING.sm },
   localBlock: {
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: colors.navActive,
     paddingTop: 6,
     gap: 3,
   },
   localHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  localNombre: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: '700', color: '#0369a1' },
-  localTotal: { fontSize: 12, fontWeight: '700', color: '#475569' },
-  parteRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 20 },
-  parteFecha: { width: 78, fontSize: 11, color: '#94a3b8', flexShrink: 0 },
-  parteTitulo: { flex: 1, minWidth: 0, fontSize: 11, color: '#475569' },
-  parteTotal: { fontSize: 11, fontWeight: '600', color: '#475569', flexShrink: 0 },
+  localNombre: { flex: 1, minWidth: 0, fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text },
+  localTotal: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, fontVariant: ['tabular-nums'] },
+  parteRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingLeft: 20 },
+  parteFecha: { width: 78, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, flexShrink: 0, fontVariant: ['tabular-nums'] },
+  parteTitulo: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
+  parteTotal: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, flexShrink: 0, fontVariant: ['tabular-nums'] },
   resultadoCard: {
     borderWidth: 1,
     borderColor: '#a7f3d0',
-    borderRadius: 12,
+    borderRadius: radius.lg,
     backgroundColor: '#f0fdf4',
-    padding: 12,
-    gap: 8,
+    padding: SPACING.md,
+    gap: SPACING.sm,
   },
-  resultadoCardNeutro: { borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-  resultadoTextoNeutro: { color: '#475569' },
-  resultadoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  resultadoTitulo: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '700', color: '#065f46' },
-  resultadoSub: { fontSize: 11, color: '#047857', lineHeight: 16 },
+  resultadoCardNeutro: { borderColor: colors.border, backgroundColor: colors.bg },
+  resultadoTextoNeutro: { color: colors.textPrimary },
+  resultadoHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  resultadoTitulo: { flex: 1, minWidth: 0, fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#065f46' },
+  resultadoSub: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#047857', lineHeight: 16 },
   facturaCreadaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     flexWrap: 'wrap',
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: '#d1fae5',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
   facturaCreadaBody: { flex: 1, minWidth: 160, gap: 2 },
-  facturaCreadaNombre: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  facturaCreadaMeta: { fontSize: 10, color: '#94a3b8' },
-  facturaCreadaAviso: { fontSize: 10, color: '#b45309', lineHeight: 14 },
-  facturaCreadaTotal: { fontSize: 14, fontWeight: '800', color: '#0f766e', flexShrink: 0 },
+  facturaCreadaNombre: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  facturaCreadaMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted },
+  facturaCreadaAviso: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: statusColors.warning.text, lineHeight: 14 },
+  facturaCreadaTotal: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#0f766e', flexShrink: 0, fontVariant: ['tabular-nums'] },
   abrirFacturaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     minHeight: MIN_TOUCH,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
     flexShrink: 0,
   },
-  abrirFacturaText: { fontSize: 11, fontWeight: '700', color: '#0369a1' },
+  abrirFacturaText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text },
   resultadoBloqueError: {
     gap: 3,
-    padding: 8,
-    borderRadius: 8,
+    padding: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#fecaca',
-    backgroundColor: '#fef2f2',
+    backgroundColor: statusColors.danger.bg,
   },
   resultadoBloqueAviso: {
     gap: 3,
-    padding: 8,
-    borderRadius: 8,
+    padding: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#fde68a',
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
   },
-  resultadoBloqueTitulo: { fontSize: 12, fontWeight: '700', color: '#92400e' },
-  resultadoBloqueTexto: { fontSize: 11, color: '#78350f', lineHeight: 16 },
-  resultadoBloqueNota: { fontSize: 10, color: '#a16207', lineHeight: 14 },
+  resultadoBloqueTitulo: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#92400e' },
+  resultadoBloqueTexto: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: '#78350f', lineHeight: 16 },
+  resultadoBloqueNota: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: '#a16207', lineHeight: 14 },
   resultadoCerrarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     minHeight: MIN_TOUCH,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
     alignSelf: 'flex-start',
   },
-  resultadoCerrarText: { fontSize: 12, fontWeight: '700', color: '#0369a1' },
+  resultadoCerrarText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text },
 });
