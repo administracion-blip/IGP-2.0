@@ -13,6 +13,15 @@ import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useLocalToast } from '../../components/Toast';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
@@ -50,11 +59,11 @@ const CHIP_ESTILO_PASTEL: Record<
   { bg: string; border: string; text: string; bgSel: string; borderSel: string }
 > = {
   '': {
-    bg: '#f1f5f9',
-    border: '#cbd5e1',
-    text: '#475569',
-    bgSel: '#e2e8f0',
-    borderSel: '#64748b',
+    bg: colors.navActive,
+    border: colors.borderStrong,
+    text: colors.textPrimary,
+    bgSel: colors.border,
+    borderSel: colors.textMuted,
   },
   pendiente: {
     bg: '#fefce8',
@@ -105,15 +114,15 @@ function contarPropuestasPorEstado(lista: Propuesta[]) {
 function badgeStyles(estado: string): { backgroundColor: string; color: string } {
   switch (estado) {
     case 'pendiente':
-      return { backgroundColor: '#fef3c7', color: '#b45309' };
+      return { backgroundColor: statusColors.warning.bg, color: statusColors.warning.text };
     case 'aprobada':
       return { backgroundColor: '#d1fae5', color: '#047857' };
     case 'rechazada':
-      return { backgroundColor: '#fee2e2', color: '#b91c1c' };
+      return { backgroundColor: statusColors.danger.bg, color: statusColors.danger.text };
     case 'publicada':
       return { backgroundColor: '#dbeafe', color: '#1e40af' };
     default:
-      return { backgroundColor: '#f1f5f9', color: '#475569' };
+      return { backgroundColor: colors.navActive, color: colors.textPrimary };
   }
 }
 
@@ -272,7 +281,7 @@ export default function RrssIndexScreen() {
       <View style={styles.container}>
         <Text style={styles.title}>Marketing</Text>
         <View style={styles.emptyWrap}>
-          <MaterialIcons name="info-outline" size={32} color="#94a3b8" />
+          <MaterialIcons name="info-outline" size={32} color={colors.textMuted} />
           <Text style={styles.emptyText}>
             No tienes locales asignados. Contacta con el administrador.
           </Text>
@@ -295,15 +304,15 @@ export default function RrssIndexScreen() {
         {esGestor && (
           <>
             <TouchableOpacity style={styles.secBtnCompact} onPress={() => router.push('/rrss/calendario')} activeOpacity={0.7}>
-              <MaterialIcons name="calendar-month" size={18} color="#0284c7" />
+              <MaterialIcons name="calendar-month" size={18} color={colors.accentPressed} />
               <Text style={styles.secBtnCompactText}>Calendario</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.secBtnCompact} onPress={() => router.push('/rrss/carteles-musico')} activeOpacity={0.7}>
-              <MaterialIcons name="library-music" size={18} color="#0284c7" />
+              <MaterialIcons name="library-music" size={18} color={colors.accentPressed} />
               <Text style={styles.secBtnCompactText}>Carteles músico</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.secBtnCompact} onPress={() => router.push('/rrss/config-estilo')} activeOpacity={0.7}>
-              <MaterialIcons name="palette" size={18} color="#0284c7" />
+              <MaterialIcons name="palette" size={18} color={colors.accentPressed} />
               <Text style={styles.secBtnCompactText}>Estilo visual</Text>
             </TouchableOpacity>
           </>
@@ -313,7 +322,7 @@ export default function RrssIndexScreen() {
           onPress={() => router.push('/rrss/nueva-propuesta')}
           activeOpacity={0.7}
         >
-          <MaterialIcons name="add-circle-outline" size={18} color="#fff" />
+          <MaterialIcons name="add-circle-outline" size={18} color={colors.surface} />
           <Text style={styles.primaryBtnCompactText}>Nueva propuesta</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -323,9 +332,9 @@ export default function RrssIndexScreen() {
           accessibilityLabel="Actualizar"
         >
           {loading ? (
-            <ActivityIndicator size="small" color="#0ea5e9" />
+            <ActivityIndicator size="small" color={colors.accent} />
           ) : (
-            <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+            <MaterialIcons name="refresh" size={20} color={colors.accent} />
           )}
         </TouchableOpacity>
       </View>
@@ -427,14 +436,14 @@ export default function RrssIndexScreen() {
         />
       ) : esGestor ? (
         <View style={styles.identidadPlaceholder}>
-          <MaterialIcons name="storefront" size={18} color="#94a3b8" />
+          <MaterialIcons name="storefront" size={18} color={colors.textMuted} />
           <Text style={styles.identidadPlaceholderText}>Selecciona un local para ver y editar su identidad visual.</Text>
         </View>
       ) : null}
 
       {error && (
         <View style={styles.errorWrap}>
-          <MaterialIcons name="error-outline" size={18} color="#f87171" />
+          <MaterialIcons name="error-outline" size={18} color={colors.danger} />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={refetch}>
             <Text style={styles.retryBtnText}>Reintentar</Text>
@@ -445,16 +454,16 @@ export default function RrssIndexScreen() {
       <ScrollView
         style={styles.list}
         contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} colors={['#0ea5e9']} tintColor="#0ea5e9" />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} colors={[colors.accent]} tintColor={colors.accent} />}
       >
         {loading && propuestas.length === 0 ? (
           <View style={styles.center}>
-            <ActivityIndicator size="large" color="#0ea5e9" />
+            <ActivityIndicator size="large" color={colors.accent} />
             <Text style={styles.loadingText}>Cargando propuestas…</Text>
           </View>
         ) : propuestas.length === 0 ? (
           <View style={styles.emptyWrap}>
-            <MaterialIcons name="inbox" size={32} color="#94a3b8" />
+            <MaterialIcons name="inbox" size={32} color={colors.textMuted} />
             <Text style={styles.emptyText}>No hay propuestas con esos filtros.</Text>
           </View>
         ) : (
@@ -479,15 +488,15 @@ export default function RrssIndexScreen() {
                 </Text>
                 <View style={styles.cardFooter}>
                   <View style={styles.cardMeta}>
-                    <MaterialIcons name="event" size={14} color="#64748b" />
+                    <MaterialIcons name="event" size={14} color={colors.textMuted} />
                     <Text style={styles.cardMetaText}>{isoToDmy(p.fecha_sugerida) || '—'}</Text>
                   </View>
                   <View style={styles.cardMeta}>
-                    <MaterialIcons name="store" size={14} color="#64748b" />
+                    <MaterialIcons name="store" size={14} color={colors.textMuted} />
                     <Text style={styles.cardMetaText} numberOfLines={1}>{localNombre}</Text>
                   </View>
                   <View style={styles.cardMeta}>
-                    <MaterialIcons name="share" size={14} color="#64748b" />
+                    <MaterialIcons name="share" size={14} color={colors.textMuted} />
                     <Text style={styles.cardMetaText}>{(p.redes ?? []).join(', ') || '—'}</Text>
                   </View>
                 </View>
@@ -501,58 +510,61 @@ export default function RrssIndexScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   identidadPlaceholder: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 12,
-    backgroundColor: '#f8fafc',
-    borderRadius: 10,
+    gap: SPACING.sm,
+    padding: SPACING.md,
+    backgroundColor: colors.bg,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    marginBottom: 12,
+    borderColor: colors.border,
+    marginBottom: SPACING.md,
   },
-  identidadPlaceholderText: { flex: 1, fontSize: 12, color: '#64748b' },
+  identidadPlaceholderText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
   container: { flex: 1, padding: 10 },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#64748b', lineHeight: 20, marginBottom: 10 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, lineHeight: 20, marginBottom: 10 },
   lineActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginBottom: 10,
   },
   secBtnCompact: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
-  secBtnCompactText: { fontSize: 12, fontWeight: '600', color: '#0284c7' },
+  secBtnCompactText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accentPressed },
   primaryBtnCompact: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#0ea5e9',
-    borderRadius: 8,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: colors.accent,
+    borderRadius: RADIO_MEDIO,
   },
-  primaryBtnCompactText: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  primaryBtnCompactText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
   iconBtnCompact: {
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
     minWidth: 40,
@@ -566,52 +578,52 @@ const styles = StyleSheet.create({
   },
   localCol: { flex: 1, minWidth: 200, flexGrow: 2 },
   dateCol: { width: 140, minWidth: 130, flexShrink: 0 },
-  lineEstado: { marginBottom: 12, gap: 6 },
-  estadoHeading: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  chipRowPastel: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  lineEstado: { marginBottom: SPACING.md, gap: 6 },
+  estadoHeading: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  chipRowPastel: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   estadoChipPastel: {
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: 1,
   },
-  estadoChipTextPastel: { fontSize: 12, fontWeight: '500' },
-  estadoChipTextPastelSel: { fontWeight: '700' },
-  filterLabel: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 },
+  estadoChipTextPastel: { fontSize: fontSizes[12], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  estadoChipTextPastelSel: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  filterLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: 6 },
   dateInputCompact: {
-    fontSize: 13,
-    paddingVertical: 8,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    color: '#334155',
-    backgroundColor: '#fff',
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
-  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8, marginBottom: 12 },
-  errorText: { fontSize: 12, color: '#f87171', flex: 1 },
-  retryBtn: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#fff', borderRadius: 6 },
-  retryBtnText: { fontSize: 12, color: '#dc2626', fontWeight: '600' },
+  errorWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO, marginBottom: SPACING.md },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flex: 1 },
+  retryBtn: { paddingVertical: 6, paddingHorizontal: SPACING.md, backgroundColor: colors.surface, borderRadius: radius.sm },
+  retryBtnText: { fontSize: fontSizes[12], color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   list: { flex: 1 },
   listContent: { paddingBottom: 20, gap: 10 },
-  center: { paddingVertical: 24, alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  emptyWrap: { paddingVertical: 32, alignItems: 'center', gap: 8 },
-  emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center', paddingHorizontal: 24 },
+  center: { paddingVertical: SPACING.xl, alignItems: 'center', gap: 10 },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  emptyWrap: { paddingVertical: 32, alignItems: 'center', gap: SPACING.sm },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center', paddingHorizontal: SPACING.xl },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     padding: 14,
-    gap: 8,
+    gap: SPACING.sm,
   },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  cardTipo: { fontSize: 14, fontWeight: '700', color: '#334155' },
-  badge: { paddingVertical: 3, paddingHorizontal: 10, borderRadius: 12 },
-  badgeText: { fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },
-  cardDesc: { fontSize: 13, color: '#475569', lineHeight: 18 },
-  cardFooter: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 },
-  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  cardMetaText: { fontSize: 11, color: '#64748b' },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm },
+  cardTipo: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  badge: { paddingVertical: 3, paddingHorizontal: 10, borderRadius: radius.lg },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, textTransform: 'capitalize' },
+  cardDesc: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, lineHeight: 18 },
+  cardFooter: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.md, marginTop: SPACING.xs },
+  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  cardMetaText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
 });
