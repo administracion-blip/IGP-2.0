@@ -23,7 +23,7 @@ import { useConfirmar } from '../../../hooks/useConfirmar';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { ICONS, ICON_SIZE } from '../../../constants/icons';
 import { MIN_TOUCH, SPACING, catalogoCardColumns } from '../../../constants/layout';
-import { colors, inputCursorProps, radius, statusColors, typography } from '../../../constants/theme';
+import { colors, fontFamily, fontSizes, inputCursorProps, radius, statusColors, typography } from '../../../constants/theme';
 import { apiFetch, errorMessage } from '../../../utils/api';
 import * as ImagePicker from 'expo-image-picker';
 import { FORMATOS_ETIQUETA, SCHEMA_TALLA, labelFormatoEtiqueta, modeloPideTalla, ordenarStockTallas } from '../../../lib/activos';
@@ -416,7 +416,7 @@ export default function ActivosCatalogoScreen() {
                   onPress={() => void abrirCrear()}
                   accessibilityLabel="Nuevo modelo"
                 >
-                  <MaterialIcons name={ICONS.add} size={ICON_SIZE} color="#fff" />
+                  <MaterialIcons name={ICONS.add} size={ICON_SIZE} color={colors.surface} />
                   <Text style={styles.toolbarBtnPriTxt}>Nuevo modelo</Text>
                 </TouchableOpacity>
               ) : null}
@@ -505,7 +505,7 @@ export default function ActivosCatalogoScreen() {
                                   }
                                   accessibilityLabel={`Dar de alta ${m.marca} ${m.nombre}`}
                                 >
-                                  <MaterialIcons name="add-box" size={16} color="#fff" />
+                                  <MaterialIcons name="add-box" size={16} color={colors.surface} />
                                   <Text style={styles.cardBtnPriTxt}>Alta</Text>
                                 </TouchableOpacity>
                               ) : null}
@@ -683,7 +683,7 @@ export default function ActivosCatalogoScreen() {
                       </View>
                     )}
                     {(!editModId || puedeEditar) ? (
-                    <View style={{ flex: 1, gap: 8 }}>
+                    <View style={{ flex: 1, gap: SPACING.sm }}>
                       <TouchableOpacity style={styles.fotoBtn} onPress={() => void elegirFotoModelo()}>
                         <Text style={styles.fotoBtnTxt}>Elegir foto</Text>
                       </TouchableOpacity>
@@ -734,7 +734,7 @@ export default function ActivosCatalogoScreen() {
                   disabled={guardando || subiendoFoto}
                 >
                   {guardando || subiendoFoto ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={colors.surface} />
                   ) : (
                     <Text style={styles.btnPriTxt}>Guardar</Text>
                   )}
@@ -811,10 +811,13 @@ function Campo({
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: '#f8fafc' },
-  catalogo: { flex: 1, paddingHorizontal: 16, paddingTop: 12 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
+  wrap: { flex: 1, backgroundColor: colors.bg },
+  catalogo: { flex: 1, paddingHorizontal: SPACING.lg, paddingTop: SPACING.md },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: SPACING.sm },
   backBtn: {
     width: 36,
     height: 36,
@@ -826,26 +829,26 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   backBtnTactil: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH },
-  title: { ...typography.titulo, fontSize: 20, fontWeight: '600' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  title: { ...typography.titulo, fontSize: fontSizes[20], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginBottom: SPACING.md },
   toolbarStack: { flexDirection: 'column', alignItems: 'stretch' },
   searchBox: {
     flex: 1,
     minHeight: MIN_TOUCH,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-  searchInput: { flex: 1, fontSize: 14, color: colors.textPrimary, paddingVertical: 0 },
-  toolbarActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, paddingVertical: 0 },
+  toolbarActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   toolbarBtn: {
     minHeight: MIN_TOUCH,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
@@ -855,17 +858,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   toolbarBtnPri: { backgroundColor: colors.accent, borderColor: colors.accent },
-  toolbarBtnTxt: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  toolbarBtnPriTxt: { fontSize: 13, fontWeight: '600', color: '#fff' },
-  centerMsg: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
+  toolbarBtnTxt: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textSecondary },
+  toolbarBtnPriTxt: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  centerMsg: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACING.md, padding: SPACING.xl },
   gridScroll: { paddingBottom: 32 },
   seccion: { marginBottom: SPACING.lg },
-  seccionTitulo: { ...typography.subtitulo, fontSize: 14, marginBottom: SPACING.sm, paddingHorizontal: 4 },
+  seccionTitulo: { ...typography.subtitulo, fontSize: fontSizes[14], marginBottom: SPACING.sm, paddingHorizontal: SPACING.xs },
   grid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 },
-  cardWrap: { padding: 4 },
+  cardWrap: { padding: SPACING.xs },
   modeloCard: {
     backgroundColor: colors.surface,
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
@@ -873,19 +876,19 @@ const styles = StyleSheet.create({
   modeloCardBtn: { width: '100%' },
   modeloFoto: { width: '100%', aspectRatio: 1, backgroundColor: colors.bgSubtle },
   modeloFotoVacia: { alignItems: 'center', justifyContent: 'center' },
-  modeloBody: { paddingHorizontal: 8, paddingTop: 6, paddingBottom: 4, gap: 1 },
-  modeloMarca: { fontSize: 11, color: colors.textSecondary, fontWeight: '500' },
-  modeloNombre: { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
-  modeloStock: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+  modeloBody: { paddingHorizontal: 8, paddingTop: 6, paddingBottom: SPACING.xs, gap: 1 },
+  modeloMarca: { fontSize: typography.etiqueta.fontSize, color: colors.textSecondary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  modeloNombre: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  modeloStock: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, marginTop: 2 },
   modeloStockOk: { color: colors.success },
   modeloStockCero: { color: colors.textMuted },
   tallasTabla: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 4,
+    marginTop: SPACING.xs,
     borderWidth: 1,
     borderColor: colors.borderStrong,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     overflow: 'hidden',
   },
   tallasCelda: {
@@ -897,27 +900,29 @@ const styles = StyleSheet.create({
   tallasThBox: {
     alignItems: 'center',
     paddingVertical: 3,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
     backgroundColor: colors.bg,
   },
   tallasTdBox: {
     alignItems: 'center',
     paddingVertical: 3,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
     backgroundColor: colors.surface,
   },
-  tallasTh: { fontSize: 11, fontWeight: '700', color: '#111' },
-  tallasTd: { fontSize: 12, fontWeight: '600', color: '#e11d48' },
+  // Negro de cabecera; no es colors.textStrong.
+  tallasTh: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#111' },
+  // Rosa de stock; no es colors.danger.
+  tallasTd: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#e11d48', fontVariant: ['tabular-nums'] },
   cardAcciones: {
     flexDirection: 'row',
     paddingHorizontal: 6,
     paddingBottom: 6,
-    gap: 4,
+    gap: SPACING.xs,
   },
   cardBtn: {
     flex: 1,
     minHeight: 32,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
     borderRadius: radius.sm,
     flexDirection: 'row',
     alignItems: 'center',
@@ -927,9 +932,10 @@ const styles = StyleSheet.create({
   },
   cardBtnTactil: { minHeight: MIN_TOUCH },
   cardBtnPri: { backgroundColor: colors.accent, borderColor: colors.accent },
-  cardBtnPriTxt: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  cardBtnPriTxt: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
   cardBtnSec: { backgroundColor: colors.accentMuted, borderColor: colors.accentMuted },
-  cardBtnSecTxt: { fontSize: 11, fontWeight: '700', color: colors.accentPressed },
+  cardBtnSecTxt: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accentPressed },
+  // Círculo de 28 px. Blanco al 90 %; no es colors.surface.
   cardBorrar: {
     position: 'absolute',
     top: 4,
@@ -948,66 +954,67 @@ const styles = StyleSheet.create({
     height: MIN_TOUCH,
     borderRadius: MIN_TOUCH / 2,
   },
-  vacio: { padding: 16, color: colors.textMuted },
+  vacio: { padding: SPACING.lg, color: colors.textMuted },
+  // Más oscuro que colors.overlay.
   overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)', justifyContent: 'center' },
   center: { flex: 1, justifyContent: 'center', padding: 20 },
-  card: { width: '100%', maxWidth: 440, backgroundColor: '#fff', borderRadius: 16, alignSelf: 'center', overflow: 'hidden' },
+  card: { width: '100%', maxWidth: 440, backgroundColor: colors.surface, borderRadius: radius.xl, alignSelf: 'center', overflow: 'hidden' },
   cardAncho: { maxWidth: '100%' },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: SPACING.lg,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: colors.textPrimary },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   close: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
-  body: { paddingHorizontal: 20, paddingVertical: 16, maxHeight: 420 },
+  body: { paddingHorizontal: 20, paddingVertical: SPACING.lg, maxHeight: 420 },
   campo: { marginBottom: 14 },
-  label: { fontSize: 11, fontWeight: '500', color: colors.textSecondary, marginBottom: 4 },
+  label: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textSecondary, marginBottom: 4 },
   input: {
-    fontSize: 13,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[13],
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     backgroundColor: colors.bgSubtle,
     color: colors.textPrimary,
   },
   inputOff: { opacity: 0.6 },
-  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 8 },
-  switchLabel: { flex: 1, fontSize: 13, color: colors.textPrimary },
-  err: { color: statusColors.danger.text, fontSize: 12, paddingHorizontal: 20, paddingBottom: 6 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.md, marginTop: SPACING.sm },
+  switchLabel: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
+  err: { color: statusColors.danger.text, fontFamily: fontFamily.regular, fontSize: fontSizes[12], paddingHorizontal: 20, paddingBottom: 6 },
   footer: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 8,
+    gap: SPACING.sm,
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  btn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgSubtle },
+  btn: { paddingVertical: SPACING.sm, paddingHorizontal: SPACING.lg, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgSubtle },
   btnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 20 },
-  btnTxt: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
+  btnTxt: { fontSize: fontSizes[13], color: colors.textSecondary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   btnPri: { backgroundColor: colors.accent, borderColor: colors.accent },
-  btnPriTxt: { fontSize: 13, color: '#fff', fontWeight: '600' },
-  fotoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  fotoPrev: { width: 72, height: 72, borderRadius: 8, backgroundColor: colors.border },
+  btnPriTxt: { fontSize: fontSizes[13], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  fotoRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  fotoPrev: { width: 72, height: 72, borderRadius: RADIO_MEDIO, backgroundColor: colors.border },
   fotoVacia: { alignItems: 'center', justifyContent: 'center' },
   fotoBtn: {
     minHeight: MIN_TOUCH,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.bgSubtle,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fotoBtnTxt: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
-  fotoHint: { fontSize: 12, color: colors.textMuted, marginTop: 6 },
+  fotoBtnTxt: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  fotoHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 6 },
 });
