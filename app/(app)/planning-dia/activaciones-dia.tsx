@@ -23,6 +23,15 @@ import {
   ESTADO_SESION_META,
   sesionCruzaMedianoche,
 } from '../../types/activaciones';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 type LocalItem = { id_Locales?: string; nombre?: string; Nombre?: string };
 
@@ -133,14 +142,14 @@ export default function ActivacionesDiaScreen() {
     <View style={styles.container}>
       {!puedeVer ? (
         <View style={styles.emptyBox}>
-          <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+          <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
           <Text style={styles.emptyText}>No tienes permiso para ver las activaciones del día.</Text>
         </View>
       ) : (
         <>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Activaciones del día</Text>
@@ -148,9 +157,9 @@ export default function ActivacionesDiaScreen() {
         </View>
         <TouchableOpacity onPress={cargar} style={styles.backBtn} disabled={loading}>
           {loading ? (
-            <ActivityIndicator size="small" color="#0ea5e9" />
+            <ActivityIndicator size="small" color={colors.accent} />
           ) : (
-            <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+            <MaterialIcons name="refresh" size={20} color={colors.accent} />
           )}
         </TouchableOpacity>
       </View>
@@ -172,7 +181,7 @@ export default function ActivacionesDiaScreen() {
 
       {error ? (
         <View style={styles.errorBanner}>
-          <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+          <MaterialIcons name="error-outline" size={16} color={statusColors.danger.text} />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity onPress={cargar}>
             <Text style={styles.retry}>Reintentar</Text>
@@ -182,24 +191,24 @@ export default function ActivacionesDiaScreen() {
 
       {localesPermitidos.length === 0 ? (
         <View style={styles.centerBox}>
-          <MaterialIcons name="storefront" size={48} color="#cbd5e1" />
+          <MaterialIcons name="storefront" size={48} color={colors.borderStrong} />
           <Text style={styles.emptyText}>No tienes locales asignados para consultar activaciones.</Text>
         </View>
       ) : loading && sesiones.length === 0 ? (
         <View style={styles.centerBox}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
       ) : sesiones.length === 0 ? (
         <View style={styles.centerBox}>
-          <MaterialIcons name="celebration" size={48} color="#cbd5e1" />
+          <MaterialIcons name="celebration" size={48} color={colors.borderStrong} />
           <Text style={styles.emptyText}>No hay activaciones programadas para hoy.</Text>
         </View>
       ) : (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: SPACING.xl }}>
           {agrupado.map((grupo) => (
             <View key={grupo.idKey} style={styles.bloqueLocal}>
               <View style={styles.localHeader}>
-                <MaterialIcons name="storefront" size={18} color="#0ea5e9" />
+                <MaterialIcons name="storefront" size={18} color={colors.accent} />
                 <Text style={styles.localNombre} numberOfLines={1}>
                   {grupo.nombreLocal.toUpperCase()}
                 </Text>
@@ -217,7 +226,7 @@ export default function ActivacionesDiaScreen() {
                   >
                     <View style={styles.cardHeader}>
                       <View style={styles.horaBox}>
-                        <MaterialIcons name="schedule" size={16} color="#0369a1" />
+                        <MaterialIcons name="schedule" size={16} color={statusColors.info.text} />
                         <Text style={styles.horaText}>
                           {s.hora_inicio} – {s.hora_fin}
                         </Text>
@@ -240,7 +249,7 @@ export default function ActivacionesDiaScreen() {
 
                     <View style={styles.verFichaRow}>
                       <Text style={styles.verFichaText}>Ver ficha</Text>
-                      <MaterialIcons name="chevron-right" size={18} color="#0ea5e9" />
+                      <MaterialIcons name="chevron-right" size={18} color={colors.accent} />
                     </View>
                   </Pressable>
                 );
@@ -262,41 +271,43 @@ export default function ActivacionesDiaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, marginTop: 2 },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#fef2f2',
+    gap: SPACING.sm,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
     marginBottom: 10,
   },
-  errorText: { flex: 1, fontSize: 12, color: '#b91c1c' },
-  retry: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
-  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  emptyText: { fontSize: 13, color: '#94a3b8', textAlign: 'center' },
+  errorText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.danger.text },
+  retry: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent },
+  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: SPACING.xl },
   bloqueLocal: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     padding: 10,
     marginBottom: 10,
   },
@@ -304,30 +315,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
     paddingBottom: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  localNombre: { fontSize: 13, fontWeight: '800', color: '#0369a1', flex: 1 },
+  localNombre: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, flex: 1 },
   localCountBadge: {
-    backgroundColor: '#e0f2fe',
-    borderRadius: 10,
-    paddingHorizontal: 8,
+    backgroundColor: colors.accentMuted,
+    borderRadius: radius.md,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 2,
     minWidth: 22,
     alignItems: 'center',
   },
-  localCountText: { fontSize: 11, fontWeight: '800', color: '#0369a1' },
+  localCountText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, fontVariant: ['tabular-nums'] },
   card: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
   },
-  cardPressed: { backgroundColor: '#f8fafc', borderColor: '#bae6fd' },
+  cardPressed: { backgroundColor: colors.bg, borderColor: '#bae6fd' },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -336,13 +347,13 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   horaBox: { flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
-  horaText: { fontSize: 16, fontWeight: '800', color: '#0369a1' },
-  horaMadrugada: { fontSize: 11, color: '#b45309', fontStyle: 'italic' },
-  badge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
-  cardTipo: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  cardDuracion: { fontSize: 12, fontWeight: '600', color: '#0369a1', marginTop: 4 },
+  horaText: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, fontVariant: ['tabular-nums'] },
+  horaMadrugada: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: statusColors.warning.text, fontStyle: 'italic' },
+  badge: { borderRadius: radius.md, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  cardTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  cardTipo: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
+  cardDuracion: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text, marginTop: SPACING.xs },
   verFichaRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -350,7 +361,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     gap: 2,
   },
-  verFichaText: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
-  emptyBox: { alignItems: 'center', gap: 8, paddingVertical: 40 },
-  emptyText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
+  verFichaText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent },
+  emptyBox: { alignItems: 'center', gap: SPACING.sm, paddingVertical: 40 },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
 });
