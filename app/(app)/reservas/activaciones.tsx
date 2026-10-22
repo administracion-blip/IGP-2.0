@@ -56,6 +56,24 @@ import {
 
 } from '../../types/activaciones';
 
+import {
+
+  colors,
+
+  fontFamily,
+
+  fontSizes,
+
+  radius,
+
+  statusColors,
+
+  typography,
+
+  SPACING,
+
+} from '../../constants/theme';
+
 
 
 type FiltroEstado = EstadoActivacion | 'todas';
@@ -325,7 +343,7 @@ export default function ActivacionesListaScreen() {
 
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
 
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
 
         </TouchableOpacity>
 
@@ -341,11 +359,11 @@ export default function ActivacionesListaScreen() {
 
           {loading || loadingCal ? (
 
-            <ActivityIndicator size="small" color="#0ea5e9" />
+            <ActivityIndicator size="small" color={colors.accent} />
 
           ) : (
 
-            <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+            <MaterialIcons name="refresh" size={20} color={colors.accent} />
 
           )}
 
@@ -365,7 +383,7 @@ export default function ActivacionesListaScreen() {
 
         >
 
-          <MaterialIcons name="calendar-view-week" size={16} color={vista === 'calendario' ? '#0369a1' : '#64748b'} />
+          <MaterialIcons name="calendar-view-week" size={16} color={vista === 'calendario' ? statusColors.info.text : colors.textMuted} />
 
           <Text style={[styles.vistaBtnText, vista === 'calendario' && styles.vistaBtnTextActivo]}>Semana</Text>
 
@@ -379,7 +397,7 @@ export default function ActivacionesListaScreen() {
 
         >
 
-          <MaterialIcons name="list" size={16} color={vista === 'lista' ? '#0369a1' : '#64748b'} />
+          <MaterialIcons name="list" size={16} color={vista === 'lista' ? statusColors.info.text : colors.textMuted} />
 
           <Text style={[styles.vistaBtnText, vista === 'lista' && styles.vistaBtnTextActivo]}>Lista</Text>
 
@@ -429,7 +447,7 @@ export default function ActivacionesListaScreen() {
 
             <View style={styles.errorBanner}>
 
-              <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+              <MaterialIcons name="error-outline" size={16} color={statusColors.danger.text} />
 
               <Text style={styles.errorText}>{error}</Text>
 
@@ -443,7 +461,7 @@ export default function ActivacionesListaScreen() {
 
             <View style={styles.centerBox}>
 
-              <ActivityIndicator size="large" color="#0ea5e9" />
+              <ActivityIndicator size="large" color={colors.accent} />
 
             </View>
 
@@ -451,7 +469,7 @@ export default function ActivacionesListaScreen() {
 
             <View style={styles.centerBox}>
 
-              <MaterialIcons name="celebration" size={48} color="#cbd5e1" />
+              <MaterialIcons name="celebration" size={48} color={colors.borderStrong} />
 
               <Text style={styles.emptyText}>No hay activaciones con este filtro.</Text>
 
@@ -497,7 +515,7 @@ export default function ActivacionesListaScreen() {
 
                       <View style={styles.pendientes}>
 
-                        <MaterialIcons name="pending-actions" size={14} color="#0369a1" />
+                        <MaterialIcons name="pending-actions" size={14} color={statusColors.info.text} />
 
                         <Text style={styles.pendientesText}>{a.sesiones_programadas}</Text>
 
@@ -511,7 +529,7 @@ export default function ActivacionesListaScreen() {
 
                     </View>
 
-                    <MaterialIcons name="chevron-right" size={20} color="#94a3b8" />
+                    <MaterialIcons name="chevron-right" size={20} color={colors.textMuted} />
 
                   </TouchableOpacity>
 
@@ -533,7 +551,7 @@ export default function ActivacionesListaScreen() {
 
             <TouchableOpacity style={styles.calNavBtn} onPress={irSemanaAnterior}>
 
-              <MaterialIcons name="chevron-left" size={22} color="#334155" />
+              <MaterialIcons name="chevron-left" size={22} color={colors.textPrimary} />
 
             </TouchableOpacity>
 
@@ -547,7 +565,7 @@ export default function ActivacionesListaScreen() {
 
             <TouchableOpacity style={styles.calNavBtn} onPress={irSemanaSiguiente}>
 
-              <MaterialIcons name="chevron-right" size={22} color="#334155" />
+              <MaterialIcons name="chevron-right" size={22} color={colors.textPrimary} />
 
             </TouchableOpacity>
 
@@ -557,7 +575,7 @@ export default function ActivacionesListaScreen() {
 
           <View style={styles.sigSemanaBanner}>
 
-            <MaterialIcons name="event" size={16} color="#0369a1" />
+            <MaterialIcons name="event" size={16} color={statusColors.info.text} />
 
             <Text style={styles.sigSemanaText}>
 
@@ -571,7 +589,7 @@ export default function ActivacionesListaScreen() {
 
           {loadingCal ? (
 
-            <ActivityIndicator size="large" color="#0ea5e9" style={{ marginTop: 24 }} />
+            <ActivityIndicator size="large" color={colors.accent} style={{ marginTop: SPACING.xl }} />
 
           ) : (
 
@@ -675,7 +693,7 @@ export default function ActivacionesListaScreen() {
 
         >
 
-          <MaterialIcons name="add" size={28} color="#fff" />
+          <MaterialIcons name="add" size={28} color={colors.surface} />
 
         </TouchableOpacity>
 
@@ -689,11 +707,15 @@ export default function ActivacionesListaScreen() {
 
 
 
+/** Entre radius.sm (6) y radius.md (10). */
+
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
 
   container: { flex: 1, padding: 10 },
 
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: 10 },
 
   backBtn: {
 
@@ -701,9 +723,9 @@ const styles = StyleSheet.create({
 
     height: 36,
 
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
 
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
 
     alignItems: 'center',
 
@@ -711,15 +733,15 @@ const styles = StyleSheet.create({
 
     borderWidth: 1,
 
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
 
   },
 
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
 
-  subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, marginTop: 2 },
 
-  vistaRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  vistaRow: { flexDirection: 'row', gap: SPACING.sm, marginBottom: 10 },
 
   vistaBtn: {
 
@@ -733,47 +755,47 @@ const styles = StyleSheet.create({
 
     gap: 6,
 
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
 
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
 
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
 
     borderWidth: 1,
 
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
 
   },
 
-  vistaBtnActivo: { backgroundColor: '#e0f2fe', borderColor: '#7dd3fc' },
+  vistaBtnActivo: { backgroundColor: colors.accentMuted, borderColor: '#7dd3fc' },
 
-  vistaBtnText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  vistaBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
 
-  vistaBtnTextActivo: { color: '#0369a1' },
+  vistaBtnTextActivo: { color: statusColors.info.text },
 
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
 
   chip: {
 
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
 
     paddingVertical: 6,
 
-    borderRadius: 16,
+    borderRadius: radius.xl,
 
-    backgroundColor: '#f1f5f9',
+    backgroundColor: colors.navActive,
 
     borderWidth: 1,
 
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
 
   },
 
-  chipActivo: { backgroundColor: '#e0f2fe', borderColor: '#7dd3fc' },
+  chipActivo: { backgroundColor: colors.accentMuted, borderColor: '#7dd3fc' },
 
-  chipText: { fontSize: 12, color: '#475569', fontWeight: '500' },
+  chipText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
 
-  chipTextActivo: { color: '#0369a1', fontWeight: '700' },
+  chipTextActivo: { color: statusColors.info.text, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   errorBanner: {
 
@@ -781,15 +803,15 @@ const styles = StyleSheet.create({
 
     alignItems: 'center',
 
-    gap: 8,
+    gap: SPACING.sm,
 
-    backgroundColor: '#fef2f2',
+    backgroundColor: statusColors.danger.bg,
 
     borderWidth: 1,
 
     borderColor: '#fecaca',
 
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
 
     padding: 10,
 
@@ -797,11 +819,11 @@ const styles = StyleSheet.create({
 
   },
 
-  errorText: { flex: 1, fontSize: 12, color: '#b91c1c' },
+  errorText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.danger.text },
 
   centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 200 },
 
-  emptyText: { fontSize: 13, color: '#94a3b8', textAlign: 'center' },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
 
   card: {
 
@@ -811,25 +833,25 @@ const styles = StyleSheet.create({
 
     gap: 10,
 
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
 
     borderWidth: 1,
 
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
 
-    borderRadius: 10,
+    borderRadius: radius.md,
 
-    padding: 12,
+    padding: SPACING.md,
 
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
 
   },
 
-  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  cardTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
 
-  cardCodigo: { fontSize: 11, color: '#94a3b8', marginTop: 1 },
+  cardCodigo: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 1 },
 
-  cardMeta: { fontSize: 12, color: '#64748b', marginTop: 3 },
+  cardMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 3 },
 
   pendientes: {
 
@@ -839,9 +861,9 @@ const styles = StyleSheet.create({
 
     gap: 3,
 
-    backgroundColor: '#e0f2fe',
+    backgroundColor: colors.accentMuted,
 
-    borderRadius: 10,
+    borderRadius: radius.md,
 
     paddingHorizontal: 7,
 
@@ -849,11 +871,11 @@ const styles = StyleSheet.create({
 
   },
 
-  pendientesText: { fontSize: 11, fontWeight: '700', color: '#0369a1' },
+  pendientesText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, fontVariant: ['tabular-nums'] },
 
-  badge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 },
+  badge: { borderRadius: radius.md, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs },
 
-  badgeText: { fontSize: 11, fontWeight: '700' },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   calNav: {
 
@@ -861,19 +883,19 @@ const styles = StyleSheet.create({
 
     alignItems: 'center',
 
-    gap: 8,
+    gap: SPACING.sm,
 
     marginBottom: 10,
 
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
 
     borderWidth: 1,
 
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
 
-    borderRadius: 10,
+    borderRadius: radius.md,
 
-    padding: 8,
+    padding: SPACING.sm,
 
   },
 
@@ -883,9 +905,9 @@ const styles = StyleSheet.create({
 
     height: 36,
 
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
 
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
 
     alignItems: 'center',
 
@@ -895,9 +917,9 @@ const styles = StyleSheet.create({
 
   calNavCenter: { flex: 1, alignItems: 'center' },
 
-  calNavTitulo: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  calNavTitulo: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
 
-  calNavSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  calNavSub: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 2 },
 
   sigSemanaBanner: {
 
@@ -905,25 +927,25 @@ const styles = StyleSheet.create({
 
     alignItems: 'center',
 
-    gap: 8,
+    gap: SPACING.sm,
 
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
 
     borderWidth: 1,
 
     borderColor: '#bae6fd',
 
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
 
     padding: 10,
 
-    marginBottom: 12,
+    marginBottom: SPACING.md,
 
   },
 
-  sigSemanaText: { flex: 1, fontSize: 12, color: '#334155' },
+  sigSemanaText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
 
-  sigSemanaNum: { fontWeight: '800', color: '#0369a1' },
+  sigSemanaNum: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, fontVariant: ['tabular-nums'] },
 
   calGrid: { flexDirection: 'row', gap: 6 },
 
@@ -935,13 +957,13 @@ const styles = StyleSheet.create({
 
     minWidth: 0,
 
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
 
     borderWidth: 1,
 
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
 
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
 
     padding: 6,
 
@@ -961,29 +983,29 @@ const styles = StyleSheet.create({
 
     borderBottomWidth: 1,
 
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
 
   },
 
-  calDiaHeadHoy: { backgroundColor: '#fef2f2', borderRadius: 6, marginHorizontal: -4, paddingTop: 4 },
+  calDiaHeadHoy: { backgroundColor: statusColors.danger.bg, borderRadius: radius.sm, marginHorizontal: -4, paddingTop: SPACING.xs },
 
-  calDiaLabel: { fontSize: 10, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  calDiaLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase' },
 
-  calDiaNum: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+  calDiaNum: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, fontVariant: ['tabular-nums'] },
 
-  calDiaLabelHoy: { color: '#dc2626' },
+  calDiaLabelHoy: { color: colors.danger },
 
-  calVacio: { fontSize: 12, color: '#cbd5e1', textAlign: 'center', marginTop: 8 },
+  calVacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.borderStrong, textAlign: 'center', marginTop: SPACING.sm },
 
   calEvento: {
 
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
 
     borderWidth: 1,
 
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
 
-    borderRadius: 6,
+    borderRadius: radius.sm,
 
     padding: 6,
 
@@ -991,17 +1013,21 @@ const styles = StyleSheet.create({
 
   },
 
-  calEventoHora: { fontSize: 10, fontWeight: '700', color: '#0369a1' },
+  calEventoHora: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text, fontVariant: ['tabular-nums'] },
 
-  calEventoMarca: { fontSize: 11, fontWeight: '600', color: '#0f172a', marginTop: 2 },
+  calEventoMarca: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, marginTop: 2 },
 
-  calEventoLocal: { fontSize: 10, color: '#64748b', marginTop: 1 },
+  calEventoLocal: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, marginTop: 1 },
 
-  calEventoDur: { fontSize: 10, fontWeight: '600', color: '#0369a1', marginTop: 2 },
+  calEventoDur: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text, marginTop: 2 },
 
-  calEventoBadge: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2, marginTop: 4 },
+  calEventoBadge: { alignSelf: 'flex-start', borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 2, marginTop: SPACING.xs },
 
-  calEventoBadgeText: { fontSize: 9, fontWeight: '700' },
+  /** 9 px sube a 11 (suelo de etiqueta). */
+
+  calEventoBadgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+
+  /** Círculo 54×54; radius.xl es 16. */
 
   fab: {
 
@@ -1017,7 +1043,7 @@ const styles = StyleSheet.create({
 
     borderRadius: 27,
 
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
 
     alignItems: 'center',
 
