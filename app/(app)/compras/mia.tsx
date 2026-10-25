@@ -122,6 +122,14 @@ const ESTADOS_INFORME: Array<{ id: string; label: string }> = [
   { id: 'aprobado_parcial', label: 'Aprobado parcial' },
 ];
 
+const COLOR_ESTADO: Record<string, string> = {
+  calculado: miaColors.info,
+  revisado: miaColors.accent,
+  aprobando: miaColors.warning,
+  aprobado: miaColors.success,
+  aprobado_parcial: miaColors.warning,
+};
+
 type DraftLinea = {
   productId: string;
   proveedorId: string;
@@ -194,6 +202,19 @@ function formatTs(value: string | number | null | undefined): string {
   const ts = typeof value === 'number' ? value : Date.parse(String(value));
   if (!Number.isFinite(ts)) return String(value);
   return new Date(ts).toLocaleString('es-ES');
+}
+
+function formatTsLista(value: string | null | undefined): string {
+  if (!value) return '—';
+  const ts = Date.parse(value);
+  if (!Number.isFinite(ts)) return value;
+  return new Date(ts).toLocaleString('es-ES', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function toDraft(lineas: MiaLinea[]): DraftLinea[] {
@@ -1244,10 +1265,17 @@ export default function MiaScreen() {
                           <Text style={styles.recienteTitle}>
                             {formatFecha(it.fechaDesde || '')} – {formatFecha(it.fechaHasta || '')}
                             {' · '}
-                            <Text style={styles.estadoChip}>{etiqueta}</Text>
+                            <Text
+                              style={[
+                                styles.estadoChip,
+                                { color: COLOR_ESTADO[it.estado || ''] || miaColors.textSecondary },
+                              ]}
+                            >
+                              {etiqueta}
+                            </Text>
                           </Text>
                           <Text style={styles.recienteSub}>
-                            {creado ? new Date(creado).toLocaleString('es-ES') : '—'}
+                            {formatTsLista(creado)}
                             {it.totales?.costeTotal != null
                               ? ` · ${formatMoneda(it.totales.costeTotal)}`
                               : ''}
@@ -1787,6 +1815,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderTopWidth: 1,
     borderTopColor: miaColors.borderSoft,
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
     gap: 4,
   },
   recienteMain: { flex: 1, paddingVertical: 6 },
@@ -1796,7 +1826,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  recienteActivo: { backgroundColor: miaColors.accentMuted, marginHorizontal: -6, paddingHorizontal: 6, borderRadius: 8 },
+  recienteActivo: {
+    backgroundColor: miaColors.accentMuted,
+    borderLeftColor: miaColors.accent,
+    marginHorizontal: -6,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+  },
   recienteTitle: { fontSize: 13, fontWeight: '600', color: miaColors.text },
   recienteSub: { fontSize: 12, color: miaColors.textSecondary, marginTop: 2 },
   estadoChip: { fontWeight: '700', color: miaColors.info, textTransform: 'capitalize' },
