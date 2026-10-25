@@ -25,6 +25,7 @@ import {
   Platform,
   Modal,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -508,11 +509,11 @@ function BotonMarcarRealizada({
         accessibilityLabel="Marcar como realizada"
       >
         {disabled ? (
-          <ActivityIndicator size="small" color="#ffffff" />
+          <ActivityIndicator size="small" color={tasksUi.calendario.hoy} />
         ) : (
-          <MaterialIcons name="check-circle" size={18} color="#ffffff" />
+          <MaterialIcons name="check-circle" size={18} color={tasksUi.calendario.hoy} />
         )}
-        <Text style={styles.btnRealizadaTexto}>Marcar como realizada</Text>
+        <Text style={styles.btnRealizadaTexto}>Marcar realizada</Text>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -520,18 +521,23 @@ function BotonMarcarRealizada({
 
 function PopoverVistaItem({
   item,
+  ancla,
   onCerrar,
+  onAbrir,
   onMarcarCasilla,
   onMarcarRealizada,
 }: {
   item: ItemAgenda;
+  ancla: { x: number; y: number } | null;
   onCerrar: () => void;
+  onAbrir: () => void;
   /** Marca o desmarca una casilla. Solo si la tarea se puede editar. */
   onMarcarCasilla?: (casillaId: string, hecho: boolean) => Promise<void>;
   /** Cierra la tarea. Solo si se puede editar y aún no está hecha. */
   onMarcarRealizada?: () => Promise<void>;
 }) {
   const { isCompact } = useBreakpoint();
+  const { width: anchoVentana, height: altoVentana } = useWindowDimensions();
   const [casillaEnCurso, setCasillaEnCurso] = useState<string | null>(null);
   const [errorCasillas, setErrorCasillas] = useState<string | null>(null);
   const [marcandoRealizada, setMarcandoRealizada] = useState(false);
@@ -540,6 +546,22 @@ function PopoverVistaItem({
   const etiquetaFecha =
     item.tipo === 'reunion' ? 'Fecha' : item.tipo === 'proyecto' ? 'Fecha' : 'Fecha de vencimiento';
   const casillas = [...(item.checklist ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+  const casillasHechas = casillas.filter((c) => c.hecho).length;
+  const progreso = casillas.length > 0 ? casillasHechas / casillas.length : 0;
+  const colorTipo = item.hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
+  const cristal =
+    Platform.OS === 'web'
+      ? ({ backgroundColor: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(18px)' } as object)
+      : {
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderWidth: 1,
+          borderColor: tasksUi.color.bordeSutil,
+          ...tasksUi.sombraFlotante,
+        };
+  const anclado = !isCompact && ancla != null;
+  const anchoTarjeta = 340;
+  const izquierda = ancla ? Math.max(12, Math.min(ancla.x + 12, anchoVentana - anchoTarjeta - 12)) : 12;
+  const arriba = ancla ? Math.max(12, Math.min(ancla.y + 8, altoVentana - 320)) : 12;
   const puedeMarcar = item.tipo === 'tarea' && item.puedeMover && Boolean(onMarcarCasilla);
   const puedeRealizar =
     item.tipo === 'tarea' &&
@@ -573,22 +595,53 @@ function PopoverVistaItem({
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
-      <Pressable style={styles.popoverOverlay} onPress={onCerrar} accessibilityLabel="Cerrar vista previa">
-        <Pressable style={styles.popoverCard} onPress={() => {}}>
+    <Modal visible transparent animationType={isCompact ? 'slide' : 'fade'} onRequestClose={onCerrar}>
+      <Pressable
+        style={[styles.popoverOverlay, isCompact && styles.popoverOverlayHoja]}
+        onPress={onCerrar}
+        accessibilityLabel="Cerrar vista previa"
+      >
+        <Pressable
+          style={[
+            styles.popoverCard,
+            cristal,
+            isCompact && styles.popoverCardHoja,
+            anclado && [styles.popoverCardAncla, { left: izquierda, top: arriba, width: anchoTarjeta }],
+          ]}
+          onPress={() => {}}
+        >
           <View style={styles.popoverHeader}>
-            <Text style={styles.popoverTitulo} numberOfLines={3}>
-              {item.titulo}
-            </Text>
-            <TouchableOpacity
-              onPress={onCerrar}
-              style={styles.popoverCerrar}
-              accessibilityLabel="Cerrar"
-              hitSlop={8}
-            >
-              <MaterialIcons name="close" size={20} color="#64748b" />
-            </TouchableOpacity>
+            <View style={[styles.popoverCuadrado, { backgroundColor: colorTipo }]} />
+            <Text style={styles.popoverTipo}>{ETIQUETA_TIPO[item.tipo]}</Text>
+            <View style={styles.popoverIconos}>
+              {item.puedeMover ? (
+                <TouchableOpacity
+                  onPress={onAbrir}
+                  style={[styles.popoverIcono, isCompact && styles.popoverIconoTactil]}
+                  accessibilityLabel="Editar"
+                >
+                  <MaterialIcons name="edit" size={18} color={tasksUi.calendario.hoy} />
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                onPress={onAbrir}
+                style={[styles.popoverIcono, isCompact && styles.popoverIconoTactil]}
+                accessibilityLabel="Abrir"
+              >
+                <MaterialIcons name="open-in-new" size={18} color={tasksUi.calendario.hoy} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={onCerrar}
+                style={[styles.popoverIcono, isCompact && styles.popoverIconoTactil]}
+                accessibilityLabel="Cerrar"
+              >
+                <MaterialIcons name="close" size={18} color={tasksUi.calendario.hoy} />
+              </TouchableOpacity>
+            </View>
           </View>
+          <Text style={styles.popoverTitulo} numberOfLines={3}>
+            {item.titulo}
+          </Text>
           <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverScrollContent}>
             <Text style={styles.popoverDesc}>
               {item.descripcion?.trim() || 'Sin descripción'}
@@ -609,6 +662,9 @@ function PopoverVistaItem({
                   <Text style={styles.popoverLabel}>Lista de comprobación</Text>
                   <ContadorChecklist checklist={casillas} />
                 </View>
+                <View style={styles.popoverProgreso}>
+                  <View style={[styles.popoverProgresoRelleno, { width: `${Math.round(progreso * 100)}%` }]} />
+                </View>
                 {casillas.map((casilla) => (
                   <TouchableOpacity
                     key={casilla.id}
@@ -623,7 +679,7 @@ function PopoverVistaItem({
                       <MaterialIcons
                         name={casilla.hecho ? 'check-box' : 'check-box-outline-blank'}
                         size={20}
-                        color={casilla.hecho ? '#16a34a' : '#94a3b8'}
+                        color={casilla.hecho ? tasksUi.calendario.hoy : tasksUi.color.textoTerciario}
                       />
                     )}
                     <Text style={[styles.popoverCasillaTexto, casilla.hecho && styles.popoverCasillaHecha]}>
@@ -652,13 +708,17 @@ function BotonOjo({
   onPress,
 }: {
   compacto?: boolean;
-  onPress: () => void;
+  onPress: (origen: { x: number; y: number }) => void;
 }) {
   const lado = compacto ? ALTO_OJO_BLOQUE : MIN_TOUCH;
   return (
     <TouchableOpacity
-      onPress={() => {
-        onPress();
+      onPress={(e) => {
+        const n = e.nativeEvent as { pageX: number; pageY: number; clientX?: number; clientY?: number };
+        onPress({
+          x: typeof n.clientX === 'number' ? n.clientX : n.pageX,
+          y: typeof n.clientY === 'number' ? n.clientY : n.pageY,
+        });
       }}
       style={[styles.ojoBtn, { width: lado, height: lado, minWidth: lado, minHeight: lado }]}
       hitSlop={compacto ? 6 : 4}
@@ -682,7 +742,7 @@ function PastillaAgenda({
 }: {
   item: ItemAgenda;
   onAbrir: () => void;
-  onVistaPrevia: () => void;
+  onVistaPrevia: (origen: { x: number; y: number }) => void;
   arrastrable?: boolean;
   arrastrando?: boolean;
   recienSoltada?: boolean;
@@ -779,7 +839,7 @@ function BloqueHorario({
   arrastrando: boolean;
   recienSoltada: boolean;
   onAbrir: () => void;
-  onVistaPrevia: () => void;
+  onVistaPrevia: (origen: { x: number; y: number }) => void;
   onDragStart?: (payload: PayloadDragAgenda) => void;
   onDragEnd?: () => void;
 }) {
@@ -1146,6 +1206,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   const [isoDragOver, setIsoDragOver] = useState<string | null>(null);
   const [claveRecienSoltada, setClaveRecienSoltada] = useState<string | null>(null);
   const [vistaPrevia, setVistaPrevia] = useState<ItemAgenda | null>(null);
+  const [anclaVista, setAnclaVista] = useState<{ x: number; y: number } | null>(null);
   const [huecoAlta, setHuecoAlta] = useState<HuecoAgenda | null>(null);
   const [minutosAhora, setMinutosAhora] = useState(() => {
     const ahora = new Date();
@@ -1410,6 +1471,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
     arrastro.current = true;
     setClaveArrastrando(payload.clave);
     setVistaPrevia(null);
+    setAnclaVista(null);
   }, []);
 
   const terminarArrastre = useCallback(() => {
@@ -1638,11 +1700,12 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
       onDragStart={iniciarArrastre}
       onDragEnd={terminarArrastre}
       onAbrir={() => abrirTrasDrag(item)}
-      onVistaPrevia={() => {
+      onVistaPrevia={(origen) => {
         ignoraClickCelda.current = true;
         setTimeout(() => {
           ignoraClickCelda.current = false;
         }, 0);
+        setAnclaVista(origen);
         setVistaPrevia(item);
       }}
     />
@@ -1667,6 +1730,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
     setTareas((lista) => lista.filter((t) => t.id_tarea !== tareaId));
     setTareasHechas((lista) => [hecha, ...lista.filter((t) => t.id_tarea !== tareaId)]);
     setVistaPrevia(null);
+    setAnclaVista(null);
   }, []);
 
   const marcarCasillaVista = useCallback(async (tareaId: string, casillaId: string, hecho: boolean) => {
@@ -1748,7 +1812,16 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
         <PopoverVistaItem
           key={vistaPrevia.clave}
           item={vistaPrevia}
-          onCerrar={() => setVistaPrevia(null)}
+          ancla={anclaVista}
+          onAbrir={() => {
+            setVistaPrevia(null);
+            setAnclaVista(null);
+            abrir(vistaPrevia);
+          }}
+          onCerrar={() => {
+            setVistaPrevia(null);
+            setAnclaVista(null);
+          }}
           onMarcarCasilla={
             vistaPrevia.tipo === 'tarea' && vistaPrevia.puedeMover
               ? (casillaId, hecho) => marcarCasillaVista(vistaPrevia.id, casillaId, hecho)
@@ -2079,11 +2152,12 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                             arrastrando={claveArrastrando === b.item.clave}
                             recienSoltada={claveRecienSoltada === b.item.clave}
                             onAbrir={() => abrirTrasDrag(b.item)}
-                            onVistaPrevia={() => {
+                            onVistaPrevia={(origen) => {
                               ignoraClickCelda.current = true;
                               setTimeout(() => {
                                 ignoraClickCelda.current = false;
                               }, 0);
+                              setAnclaVista(origen);
                               setVistaPrevia(b.item);
                             }}
                             onDragStart={iniciarArrastre}
@@ -2722,42 +2796,79 @@ const styles = StyleSheet.create({
 
   popoverOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    backgroundColor: 'rgba(17, 17, 17, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
     zIndex: 100,
   },
+  popoverOverlayHoja: {
+    justifyContent: 'flex-end',
+    alignItems: 'stretch',
+    padding: 0,
+  },
   popoverCard: {
     width: '100%',
     maxWidth: 360,
     maxHeight: '80%',
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
-    padding: 14,
+    borderRadius: 16,
+    padding: 16,
     gap: 10,
-    ...(Platform.OS === 'web'
-      ? ({ boxShadow: '0 12px 32px rgba(0,0,0,0.18)' } as object)
-      : { elevation: 16 }),
+  },
+  popoverCardAncla: {
+    position: 'absolute',
+    maxWidth: 340,
+    margin: 0,
+  },
+  popoverCardHoja: {
+    maxWidth: '100%',
+    width: '100%',
+    maxHeight: '88%',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingBottom: 20,
   },
   popoverHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 8,
   },
+  popoverCuadrado: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+  },
+  popoverTipo: {
+    ...tasksUi.tipo.micro,
+    fontWeight: '600',
+    color: tasksUi.color.textoSecundario,
+  },
+  popoverIconos: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  popoverIcono: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  popoverIconoTactil: { width: MIN_TOUCH, height: MIN_TOUCH },
   popoverTitulo: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '700',
-    color: tasksUi.color.textoPrimario,
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: -0.3,
+    color: tasksUi.calendario.hoy,
   },
   popoverAccion: { gap: 6 },
   btnRealizada: {
     minHeight: MIN_TOUCH,
     borderRadius: 10,
-    backgroundColor: '#16a34a',
+    backgroundColor: 'transparent',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2765,17 +2876,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   btnRealizadaTexto: {
-    color: '#ffffff',
+    color: tasksUi.calendario.hoy,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
   },
-  popoverCerrar: {
-    width: MIN_TOUCH,
-    height: MIN_TOUCH,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: -6,
-    marginRight: -6,
+  popoverProgreso: {
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(17, 17, 17, 0.08)',
+    overflow: 'hidden',
+  },
+  popoverProgresoRelleno: {
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: tasksUi.calendario.hoy,
   },
   popoverScroll: { flexGrow: 0, maxHeight: 420 },
   popoverScrollContent: { gap: 10 },
