@@ -25,7 +25,7 @@ import { MiaCalendarioPedidos } from '../../components/mia/MiaCalendarioPedidos'
 import { MiaGruposFamiliasModal } from '../../components/mia/MiaGruposFamiliasModal';
 import { MiaProveedoresConfigModal } from '../../components/mia/MiaProveedoresConfigModal';
 import { MIN_TOUCH } from '../../constants/layout';
-import { colors, radius, statusColors } from '../../constants/theme';
+import { miaColors, radius } from '../../constants/theme';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { generarPdfMiaInforme } from '../../lib/miaInformePdf';
 import { useMiaGruposFamilias } from '../../hooks/useMiaGruposFamilias';
@@ -140,9 +140,9 @@ type DraftLinea = {
 };
 
 const SEMAFORO: Record<SemaforoStock, { bg: string; text: string; label: string }> = {
-  rojo: { ...statusColors.danger, label: 'Bajo mínimo' },
-  verde: { ...statusColors.success, label: 'Entre mínimo y máximo' },
-  azul: { ...statusColors.info, label: 'Sobre máximo' },
+  rojo: { bg: miaColors.dangerMuted, text: miaColors.danger, label: 'Bajo mínimo' },
+  verde: { bg: miaColors.successMuted, text: miaColors.success, label: 'Entre mínimo y máximo' },
+  azul: { bg: miaColors.infoMuted, text: miaColors.info, label: 'Sobre máximo' },
 };
 
 function numOrNull(v: unknown): number | null {
@@ -956,7 +956,7 @@ export default function MiaScreen() {
   if (!puedeVer) {
     return (
       <View style={[styles.container, styles.centro]}>
-        <MaterialIcons name="lock-outline" size={32} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={32} color={miaColors.textSecondary} />
         <Text style={styles.sinPermisoText}>No tienes permiso para ver MIA.</Text>
         <TouchableOpacity onPress={() => router.back()} style={styles.btnPrimary}>
           <Text style={styles.btnPrimaryText}>Volver</Text>
@@ -995,7 +995,7 @@ export default function MiaScreen() {
           <MaterialIcons
             name="shopping-cart"
             size={16}
-            color={vista === 'pedido' ? '#0369a1' : '#64748b'}
+            color={vista === 'pedido' ? miaColors.accent : miaColors.textSecondary}
           />
           <Text style={[styles.vistaBtnText, vista === 'pedido' && styles.vistaBtnTextActivo]}>
             Pedido
@@ -1009,7 +1009,7 @@ export default function MiaScreen() {
           <MaterialIcons
             name="calendar-month"
             size={16}
-            color={vista === 'calendario' ? '#0369a1' : '#64748b'}
+            color={vista === 'calendario' ? miaColors.accent : miaColors.textSecondary}
           />
           <Text style={[styles.vistaBtnText, vista === 'calendario' && styles.vistaBtnTextActivo]}>
             Calendario
@@ -1039,7 +1039,7 @@ export default function MiaScreen() {
                     style={styles.linkGestionar}
                     disabled={busy}
                   >
-                    <MaterialIcons name="schedule" size={14} color="#0369a1" />
+                    <MaterialIcons name="schedule" size={14} color={miaColors.accent} />
                     <Text style={styles.linkGestionarText}>Plazos por proveedor</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -1072,7 +1072,7 @@ export default function MiaScreen() {
                     style={styles.linkGestionar}
                     disabled={busy}
                   >
-                    <MaterialIcons name="settings" size={14} color="#0369a1" />
+                    <MaterialIcons name="settings" size={14} color={miaColors.accent} />
                     <Text style={styles.linkGestionarText}>Gestionar agrupaciones</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -1132,8 +1132,8 @@ export default function MiaScreen() {
                   value={syncStock}
                   onValueChange={setSyncStock}
                   disabled={busy}
-                  trackColor={{ false: '#cbd5e1', true: '#7dd3fc' }}
-                  thumbColor={syncStock ? '#0ea5e9' : '#f8fafc'}
+                  trackColor={{ false: miaColors.border, true: miaColors.accentMuted }}
+                  thumbColor={syncStock ? miaColors.accent : miaColors.surface}
                 />
                 <Text style={styles.switchHint}>{syncStock ? 'Sí' : 'No'}</Text>
               </View>
@@ -1148,10 +1148,10 @@ export default function MiaScreen() {
               disabled={!puedeCalcular || !warehouseId || !grupoFamiliaId || busy}
             >
               {calculando ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={miaColors.onAccent} size="small" />
               ) : (
                 <>
-                  <MaterialIcons name="auto-awesome" size={18} color="#fff" />
+                  <MaterialIcons name="auto-awesome" size={18} color={miaColors.onAccent} />
                   <Text style={styles.btnPrimaryText}>Calcular</Text>
                 </>
               )}
@@ -1164,7 +1164,7 @@ export default function MiaScreen() {
 
           {hayMismatch && (
             <View style={styles.warnBox}>
-              <MaterialIcons name="warning-amber" size={18} color="#b45309" />
+              <MaterialIcons name="warning-amber" size={18} color={miaColors.warning} />
               <Text style={styles.warnText}>
                 Hay desajustes local↔almacén
                 {mismatches?.nombresSinAlmacen?.length
@@ -1184,7 +1184,7 @@ export default function MiaScreen() {
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Text style={styles.stepTitle}>Informes recientes</Text>
-              {loadingRecientes ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
+              {loadingRecientes ? <ActivityIndicator size="small" color={miaColors.accent} /> : null}
             </View>
             {informesRecientes.length === 0 && !loadingRecientes ? (
               <Text style={styles.hintMuted}>No hay informes para este almacén.</Text>
@@ -1249,13 +1249,13 @@ export default function MiaScreen() {
                             accessibilityLabel={`Borrar informe ${etiqueta}`}
                           >
                             {borrandoId === id ? (
-                              <ActivityIndicator size="small" color={colors.danger} />
+                              <ActivityIndicator size="small" color={miaColors.danger} />
                             ) : (
-                              <MaterialIcons name="delete-outline" size={20} color={colors.danger} />
+                              <MaterialIcons name="delete-outline" size={20} color={miaColors.danger} />
                             )}
                           </TouchableOpacity>
                         ) : null}
-                        <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+                        <MaterialIcons name="chevron-right" size={22} color={miaColors.textSecondary} />
                       </View>
                     );
                   })
@@ -1267,13 +1267,13 @@ export default function MiaScreen() {
 
         {error ? (
           <View style={styles.errorBox}>
-            <MaterialIcons name="error-outline" size={18} color="#b91c1c" />
+            <MaterialIcons name="error-outline" size={18} color={miaColors.danger} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
         {okMsg ? (
           <View style={styles.okBox}>
-            <MaterialIcons name="check-circle" size={18} color="#15803d" />
+            <MaterialIcons name="check-circle" size={18} color={miaColors.success} />
             <Text style={styles.okText}>{okMsg}</Text>
           </View>
         ) : null}
@@ -1281,7 +1281,7 @@ export default function MiaScreen() {
         {/* Paso 2 */}
         {cargandoInforme ? (
           <View style={[styles.card, styles.centro, { paddingVertical: 32 }]}>
-            <ActivityIndicator color="#0ea5e9" />
+            <ActivityIndicator color={miaColors.accent} />
             <Text style={[styles.hintMuted, { marginTop: 8 }]}>Cargando informe…</Text>
           </View>
         ) : null}
@@ -1322,10 +1322,10 @@ export default function MiaScreen() {
                   disabled={!puedeAjustar || !editable || busy}
                 >
                   {guardando ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
+                    <ActivityIndicator size="small" color={miaColors.accent} />
                   ) : (
                     <>
-                      <MaterialIcons name="save" size={18} color="#0ea5e9" />
+                      <MaterialIcons name="save" size={18} color={miaColors.accent} />
                       <Text style={styles.btnSecondaryText}>
                         {isDirty ? 'Guardar ajustes*' : 'Guardar ajustes'}
                       </Text>
@@ -1338,10 +1338,10 @@ export default function MiaScreen() {
                   disabled={busy || drafts.length === 0}
                 >
                   {descargandoPdf ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
+                    <ActivityIndicator size="small" color={miaColors.accent} />
                   ) : (
                     <>
-                      <MaterialIcons name="picture-as-pdf" size={18} color="#0ea5e9" />
+                      <MaterialIcons name="picture-as-pdf" size={18} color={miaColors.accent} />
                       <Text style={styles.btnSecondaryText}>PDF</Text>
                     </>
                   )}
@@ -1356,10 +1356,10 @@ export default function MiaScreen() {
                   disabled={!puedeAprobar || !puedeAprobarEstado || busy || totalesLocales.productos === 0}
                 >
                   {aprobando ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={miaColors.onAccent} />
                   ) : (
                     <>
-                      <MaterialIcons name="check" size={18} color="#fff" />
+                      <MaterialIcons name="check" size={18} color={miaColors.onAccent} />
                       <Text style={styles.btnPrimaryText}>
                         {estadoInforme === 'aprobado_parcial' ? 'Reintentar' : 'Aprobar'}
                       </Text>
@@ -1388,7 +1388,7 @@ export default function MiaScreen() {
                 ) : null}
                 {avisos.map((a) => (
                   <View key={a} style={styles.avisoChip}>
-                    <MaterialIcons name="info-outline" size={14} color="#b45309" />
+                    <MaterialIcons name="info-outline" size={14} color={miaColors.warning} />
                     <Text style={styles.avisoText}>{labelAviso(a)}</Text>
                   </View>
                 ))}
@@ -1418,8 +1418,8 @@ export default function MiaScreen() {
                 <Switch
                   value={ocultarSinPedido}
                   onValueChange={setOcultarSinPedido}
-                  trackColor={{ false: colors.borderStrong, true: colors.accentMuted }}
-                  thumbColor={ocultarSinPedido ? colors.accent : colors.bg}
+                  trackColor={{ false: miaColors.border, true: miaColors.accentMuted }}
+                  thumbColor={ocultarSinPedido ? miaColors.accent : miaColors.surface}
                 />
                 <Text style={styles.switchHint}>
                   Ocultar sin pedido ({lineasSinPedido}{' '}
@@ -1440,7 +1440,7 @@ export default function MiaScreen() {
                 return (
                   <View key={g.proveedorId} style={styles.proveedorBlock}>
                     <View style={styles.proveedorHeader}>
-                      <MaterialIcons name="local-shipping" size={18} color="#0ea5e9" />
+                      <MaterialIcons name="local-shipping" size={18} color={miaColors.accent} />
                       <Text style={styles.proveedorTitle}>{g.proveedorNombre}</Text>
                       <Text style={styles.proveedorSub}>{formatMoneda(subtotal)}</Text>
                     </View>
@@ -1509,8 +1509,8 @@ export default function MiaScreen() {
                               value={d.omitida}
                               onValueChange={(v) => updateDraft(key, { omitida: v })}
                               disabled={!editable || busy}
-                              trackColor={{ false: '#cbd5e1', true: '#fda4af' }}
-                              thumbColor={d.omitida ? '#e11d48' : '#f8fafc'}
+                              trackColor={{ false: miaColors.border, true: miaColors.dangerMuted }}
+                              thumbColor={d.omitida ? miaColors.danger : miaColors.surface}
                             />
                           </View>
                         </View>
@@ -1558,29 +1558,29 @@ export default function MiaScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e2e8f0' },
+  container: { flex: 1, backgroundColor: miaColors.bg },
   centro: { alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
-  sinPermisoText: { fontSize: 15, color: '#64748b', textAlign: 'center' },
+  sinPermisoText: { fontSize: 15, color: miaColors.textSecondary, textAlign: 'center' },
   header: {
-    backgroundColor: '#ffffff',
+    backgroundColor: miaColors.surface,
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: miaColors.border,
   },
   backBtn: { alignSelf: 'flex-start', marginBottom: 4, minHeight: 32, justifyContent: 'center' },
-  backText: { color: '#0ea5e9', fontSize: 15, fontWeight: '600' },
+  backText: { color: miaColors.accent, fontSize: 15, fontWeight: '600' },
   headerTextWrap: { gap: 2 },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 13, color: '#64748b' },
+  title: { fontSize: 20, fontWeight: '700', color: miaColors.text },
+  subtitle: { fontSize: 13, color: miaColors.textSecondary },
   vistaRow: {
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 4,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: miaColors.bg,
   },
   vistaBtn: {
     flex: 1,
@@ -1591,30 +1591,30 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     minHeight: MIN_TOUCH,
     borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    backgroundColor: miaColors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: miaColors.border,
   },
-  vistaBtnActivo: { backgroundColor: '#e0f2fe', borderColor: '#7dd3fc' },
-  vistaBtnText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-  vistaBtnTextActivo: { color: '#0369a1' },
+  vistaBtnActivo: { backgroundColor: miaColors.accentMuted, borderColor: miaColors.accentBorder },
+  vistaBtnText: { fontSize: 13, fontWeight: '600', color: miaColors.textSecondary },
+  vistaBtnTextActivo: { color: miaColors.accent },
   scroll: { flex: 1, position: 'relative', zIndex: 0 },
   scrollContent: { padding: 16, paddingBottom: 40, gap: 12 },
   card: {
-    backgroundColor: '#ffffff',
+    backgroundColor: miaColors.surface,
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: miaColors.border,
   },
   cardOnTop: { position: 'relative', zIndex: 30 },
   cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
-  stepTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
+  stepTitle: { fontSize: 16, fontWeight: '700', color: miaColors.text, marginBottom: 8 },
   paramsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' },
   paramsCol: { flexDirection: 'column', alignItems: 'stretch' },
   fieldGrow: { flex: 1, minWidth: 200 },
   fieldFull: { width: '100%', minWidth: 0 },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 4 },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: miaColors.textSecondary, marginBottom: 4 },
   fieldLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1629,57 +1629,57 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingVertical: 2,
   },
-  linkGestionarText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
+  linkGestionarText: { fontSize: 12, fontWeight: '600', color: miaColors.accent },
   numField: { width: 120 },
   inputNum: {
     height: 36,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: miaColors.border,
     borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    backgroundColor: miaColors.bg,
     paddingHorizontal: 10,
     fontSize: 14,
-    color: '#0f172a',
+    color: miaColors.text,
   },
   switchField: { minWidth: 160 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 36 },
-  switchHint: { fontSize: 13, color: '#475569' },
+  switchHint: { fontSize: 13, color: miaColors.textSecondary },
   btnPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: miaColors.accent,
     borderRadius: 10,
     paddingHorizontal: 14,
     minHeight: MIN_TOUCH,
   },
   btnCalcular: { minWidth: 130 },
-  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  btnPrimaryText: { color: miaColors.onAccent, fontWeight: '700', fontSize: 14 },
   btnSecondary: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#f0f9ff',
+    backgroundColor: miaColors.accentMuted,
     borderWidth: 1,
-    borderColor: '#bae6fd',
+    borderColor: miaColors.accentBorder,
     borderRadius: 10,
     paddingHorizontal: 12,
     minHeight: MIN_TOUCH,
   },
-  btnSecondaryText: { color: '#0369a1', fontWeight: '700', fontSize: 13 },
+  btnSecondaryText: { color: miaColors.accent, fontWeight: '700', fontSize: 13 },
   btnSecondaryDirty: {
-    borderColor: '#f59e0b',
-    backgroundColor: '#fffbeb',
+    borderColor: miaColors.warning,
+    backgroundColor: miaColors.warningMuted,
   },
-  dirtyHint: { fontSize: 12, color: '#b45309', marginBottom: 8, marginTop: -2 },
+  dirtyHint: { fontSize: 12, color: miaColors.warning, marginBottom: 8, marginTop: -2 },
   btnSuccess: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#16a34a',
+    backgroundColor: miaColors.success,
     borderRadius: 10,
     paddingHorizontal: 14,
     minHeight: MIN_TOUCH,
@@ -1687,57 +1687,57 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.45 },
   actionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actionsWrap: { width: '100%' },
-  hintMuted: { fontSize: 12, color: '#94a3b8', marginTop: 6 },
+  hintMuted: { fontSize: 12, color: miaColors.textSecondary, marginTop: 6 },
   warnBox: {
     marginTop: 12,
     flexDirection: 'row',
     gap: 8,
-    backgroundColor: '#fffbeb',
-    borderColor: '#fcd34d',
+    backgroundColor: miaColors.warningMuted,
+    borderColor: miaColors.warningBorder,
     borderWidth: 1,
     borderRadius: 8,
     padding: 10,
     alignItems: 'flex-start',
   },
-  warnText: { flex: 1, fontSize: 12, color: '#92400e', lineHeight: 18 },
+  warnText: { flex: 1, fontSize: 12, color: miaColors.warning, lineHeight: 18 },
   errorBox: {
     flexDirection: 'row',
     gap: 8,
-    backgroundColor: '#fef2f2',
-    borderColor: '#fecaca',
+    backgroundColor: miaColors.dangerMuted,
+    borderColor: miaColors.dangerBorder,
     borderWidth: 1,
     borderRadius: 8,
     padding: 10,
     alignItems: 'flex-start',
   },
-  errorText: { flex: 1, fontSize: 13, color: '#b91c1c' },
+  errorText: { flex: 1, fontSize: 13, color: miaColors.danger },
   okBox: {
     flexDirection: 'row',
     gap: 8,
-    backgroundColor: '#f0fdf4',
-    borderColor: '#bbf7d0',
+    backgroundColor: miaColors.successMuted,
+    borderColor: miaColors.successBorder,
     borderWidth: 1,
     borderRadius: 8,
     padding: 10,
     alignItems: 'flex-start',
   },
-  okText: { flex: 1, fontSize: 13, color: '#166534' },
+  okText: { flex: 1, fontSize: 13, color: miaColors.success },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
   chip: {
-    backgroundColor: colors.navActive,
+    backgroundColor: miaColors.borderSoft,
     borderRadius: radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  chipActivo: { backgroundColor: colors.accent },
-  chipText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
-  chipTextActivo: { color: '#ffffff' },
+  chipActivo: { backgroundColor: miaColors.accent },
+  chipText: { fontSize: 12, fontWeight: '700', color: miaColors.textSecondary },
+  chipTextActivo: { color: miaColors.onAccent },
   recienteRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 4,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: miaColors.borderSoft,
     gap: 4,
   },
   recienteMain: { flex: 1, paddingVertical: 6 },
@@ -1747,20 +1747,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  recienteActivo: { backgroundColor: '#f0f9ff', marginHorizontal: -6, paddingHorizontal: 6, borderRadius: 8 },
-  recienteTitle: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
-  recienteSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  estadoChip: { fontWeight: '700', color: '#0369a1', textTransform: 'capitalize' },
+  recienteActivo: { backgroundColor: miaColors.accentMuted, marginHorizontal: -6, paddingHorizontal: 6, borderRadius: 8 },
+  recienteTitle: { fontSize: 13, fontWeight: '600', color: miaColors.text },
+  recienteSub: { fontSize: 12, color: miaColors.textSecondary, marginTop: 2 },
+  estadoChip: { fontWeight: '700', color: miaColors.info, textTransform: 'capitalize' },
   frescorBox: {
-    backgroundColor: '#fffbeb',
+    backgroundColor: miaColors.warningMuted,
     borderRadius: 8,
     padding: 10,
     marginBottom: 10,
     gap: 6,
   },
-  frescorText: { fontSize: 12, color: '#78350f', lineHeight: 18 },
+  frescorText: { fontSize: 12, color: miaColors.warning, lineHeight: 18 },
   avisoChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  avisoText: { fontSize: 12, color: '#92400e', flex: 1 },
+  avisoText: { fontSize: 12, color: miaColors.warning, flex: 1 },
   totalesBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1770,22 +1770,22 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: miaColors.border,
   },
-  totalesText: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  totalesText: { fontSize: 14, fontWeight: '700', color: miaColors.text },
   proveedorBlock: { marginBottom: 14 },
   proveedorHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#f8fafc',
+    backgroundColor: miaColors.bg,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
     marginBottom: 6,
   },
-  proveedorTitle: { flex: 1, fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  proveedorSub: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
+  proveedorTitle: { flex: 1, fontSize: 14, fontWeight: '700', color: miaColors.text },
+  proveedorSub: { fontSize: 13, fontWeight: '600', color: miaColors.accent },
   tableHead: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1793,7 +1793,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     gap: 6,
   },
-  th: { fontSize: 11, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' },
+  th: { fontSize: 11, fontWeight: '700', color: miaColors.textSecondary, textTransform: 'uppercase' },
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1801,7 +1801,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 4,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: miaColors.borderSoft,
   },
   tableRowStack: { flexWrap: 'wrap' },
   tableRowOmit: { opacity: 0.55 },
@@ -1818,32 +1818,32 @@ const styles = StyleSheet.create({
   },
   stockDot: { width: 6, height: 6, borderRadius: radius.pill },
   stockPillText: { fontSize: 12, fontWeight: '700' },
-  stockSinSemaforo: { fontSize: 12, color: colors.textSecondary, textAlign: 'right' },
+  stockSinSemaforo: { fontSize: 12, color: miaColors.textSecondary, textAlign: 'right' },
   filtroRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   colCoste: { width: 88, textAlign: 'right' },
   colOmit: { width: 56, alignItems: 'center' },
   productoTitulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
-  productoNombre: { fontSize: 13, fontWeight: '600', color: colors.textStrong, flexShrink: 1 },
+  productoNombre: { fontSize: 13, fontWeight: '600', color: miaColors.text, flexShrink: 1 },
   idBadge: {
-    backgroundColor: colors.accentMuted,
+    backgroundColor: miaColors.accentMuted,
     borderRadius: radius.pill,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  idBadgeText: { fontSize: 11, fontWeight: '700', color: colors.accentPressed },
-  productoMeta: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
+  idBadgeText: { fontSize: 11, fontWeight: '700', color: miaColors.accent },
+  productoMeta: { fontSize: 11, color: miaColors.textSecondary, marginTop: 2 },
   inputQty: {
     width: 72,
     height: 36,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: miaColors.border,
     borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    backgroundColor: miaColors.bg,
     paddingHorizontal: 8,
     fontSize: 13,
     textAlign: 'right',
-    color: '#0f172a',
+    color: miaColors.text,
   },
-  inputDisabled: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
-  costeCell: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
+  inputDisabled: { backgroundColor: miaColors.borderSoft, color: miaColors.textSecondary },
+  costeCell: { fontSize: 13, fontWeight: '600', color: miaColors.text },
 });

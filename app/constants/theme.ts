@@ -50,6 +50,35 @@ export const statusColors = {
   danger: { bg: '#fee2e2', text: '#b91c1c' },
 } as const;
 
+/**
+ * Paleta de la pantalla MIA. No sustituye a `colors`: el resto de la app sigue en sky.
+ * Los fondos claros son el lavado de cada estado, para avisos y semáforo.
+ */
+export const miaColors = {
+  bg: '#F8FAFC',
+  surface: '#FFFFFF',
+  border: '#E2E8F0',
+  borderSoft: '#F1F5F9',
+  text: '#0F172A',
+  textSecondary: '#475569',
+  accent: '#4F46E5',
+  accentMuted: '#EEF2FF',
+  accentBorder: '#C7D2FE',
+  onAccent: '#FFFFFF',
+  success: '#047857',
+  successMuted: '#ECFDF5',
+  successBorder: '#A7F3D0',
+  warning: '#B45309',
+  warningMuted: '#FFFBEB',
+  warningBorder: '#FDE68A',
+  info: '#0369A1',
+  infoMuted: '#F0F9FF',
+  infoBorder: '#BAE6FD',
+  danger: '#B91C1C',
+  dangerMuted: '#FEF2F2',
+  dangerBorder: '#FECACA',
+} as const;
+
 export const radius = {
   sm: 6,
   md: 10,
