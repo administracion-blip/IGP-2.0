@@ -1384,6 +1384,7 @@ export default function MiaScreen() {
                     </>
                   )}
                 </TouchableOpacity>
+                {!isPhone ? (
                 <TouchableOpacity
                   style={[styles.btnSecondary, (busy || drafts.length === 0) && styles.btnDisabled]}
                   onPress={descargarPdf}
@@ -1398,7 +1399,8 @@ export default function MiaScreen() {
                     </>
                   )}
                 </TouchableOpacity>
-                {puedeAprobar && puedeAprobarEstado ? (
+                ) : null}
+                {!isPhone && puedeAprobar && puedeAprobarEstado ? (
                 <TouchableOpacity
                   style={[
                     styles.btnSuccess,
@@ -1594,6 +1596,50 @@ export default function MiaScreen() {
             </ScrollView>
           </View>
         </View>
+        {isPhone && informe && !cargandoInforme ? (
+          <View style={styles.barraMovil}>
+            <TouchableOpacity
+              style={[
+                styles.btnSecondary,
+                styles.barraBtn,
+                (busy || drafts.length === 0) && styles.btnDisabled,
+              ]}
+              onPress={descargarPdf}
+              disabled={busy || drafts.length === 0}
+            >
+              {descargandoPdf ? (
+                <ActivityIndicator size="small" color={miaColors.accent} />
+              ) : (
+                <>
+                  <MaterialIcons name="picture-as-pdf" size={18} color={miaColors.accent} />
+                  <Text style={styles.btnSecondaryText}>PDF</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            {puedeAprobar && puedeAprobarEstado ? (
+              <TouchableOpacity
+                style={[
+                  styles.btnSuccess,
+                  styles.barraBtn,
+                  (busy || totalesLocales.productos === 0) && styles.btnDisabled,
+                ]}
+                onPress={aprobar}
+                disabled={busy || totalesLocales.productos === 0}
+              >
+                {aprobando ? (
+                  <ActivityIndicator size="small" color={miaColors.onAccent} />
+                ) : (
+                  <>
+                    <MaterialIcons name="check" size={18} color={miaColors.onAccent} />
+                    <Text style={styles.btnPrimaryText}>
+                      {estadoInforme === 'aprobado_parcial' ? 'Reintentar' : 'Aprobar'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
       </View>
       )}
 
@@ -1787,6 +1833,18 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.45 },
   actionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actionsRight: { justifyContent: 'flex-end', alignSelf: 'flex-start' },
+  barraMovil: {
+    flexDirection: 'row',
+    gap: 8,
+    marginHorizontal: -16,
+    marginBottom: -12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: miaColors.surface,
+    borderTopWidth: 1,
+    borderTopColor: miaColors.border,
+  },
+  barraBtn: { flex: 1, minHeight: MIN_TOUCH },
   actionsWrap: { width: '100%' },
   revisionIntro: { flex: 1, minWidth: 0 },
   revisionTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
