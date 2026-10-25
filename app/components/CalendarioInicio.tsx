@@ -121,7 +121,7 @@ const PAD_BANDA_MES = 2;
 /** Rejilla horaria visible (Google Calendar). */
 const HORA_VISTA_INICIO = 8;
 const HORA_VISTA_FIN = 22;
-const ALTO_HORA = 48;
+const ALTO_HORA = 58;
 const ALTO_BLOQUE_MIN = 22;
 const ALTO_OJO_BLOQUE = 28;
 const MINUTOS_DIA_INICIO = HORA_VISTA_INICIO * 60;
@@ -864,8 +864,8 @@ function BloqueHorario({
         flexDirection: 'row',
         alignItems: 'flex-start',
         backgroundColor: fondo,
-        borderRadius: 4,
-        border: `1px solid ${tasksUi.color.bordeSutil}`,
+        borderRadius: 6,
+        border: 'none',
         borderLeft: `3px solid ${color}`,
         overflow: 'hidden',
         paddingRight: 2,
@@ -1993,6 +1993,25 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                     {`${String(h).padStart(2, '0')}:00`}
                   </Text>
                 ))}
+                {diasSemana.includes(hoy) &&
+                minutosAhora >= MINUTOS_DIA_INICIO &&
+                minutosAhora < MINUTOS_DIA_FIN ? (
+                  <Text
+                    pointerEvents="none"
+                    style={[
+                      styles.horaAhora,
+                      fuenteInter('medium'),
+                      {
+                        top:
+                          ((minutosAhora - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA +
+                          PAD_REJILLA_TOP -
+                          8,
+                      },
+                    ]}
+                  >
+                    {`${String(Math.floor(minutosAhora / 60)).padStart(2, '0')}:${String(minutosAhora % 60).padStart(2, '0')}`}
+                  </Text>
+                ) : null}
               </View>
               <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil, { height: ALTO_REJILLA_CAJA }]}>
                 {diasSemana.map((iso) => {
@@ -2364,9 +2383,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 4,
-    padding: 4,
-    borderRadius: 10,
-    backgroundColor: tasksUi.calendario.todoElDia,
+    paddingVertical: 2,
+    backgroundColor: 'transparent',
     minHeight: 32,
   },
   rejillaScroll: {
@@ -2441,18 +2459,28 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
+  horaAhora: {
+    position: 'absolute',
+    right: 14,
+    ...tasksUi.tipo.micro,
+    ...tasksUi.tabularNums,
+    color: tasksUi.calendario.hoy,
+    fontWeight: '600',
+    backgroundColor: tasksUi.color.superficie,
+    zIndex: 5,
+  },
   lineaHora: {
     position: 'absolute',
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: tasksUi.calendario.lineaRejilla,
+    backgroundColor: 'rgba(17, 17, 17, 0.04)',
   },
   lineaAhora: {
     position: 'absolute',
     left: 0,
     right: 0,
-    height: 2,
+    height: 1,
     backgroundColor: tasksUi.calendario.hoy,
     zIndex: 4,
   },
@@ -2460,8 +2488,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: -3,
     top: -3,
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 4,
     backgroundColor: tasksUi.calendario.hoy,
   },
@@ -2470,7 +2498,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     borderLeftWidth: 3,
-    borderRadius: 12,
+    borderRadius: 6,
     overflow: 'hidden',
     paddingRight: 2,
     zIndex: 2,
@@ -2499,10 +2527,7 @@ const styles = StyleSheet.create({
   bandaCarriles: {
     position: 'relative',
     width: '100%',
-    backgroundColor: tasksUi.color.superficieHundida,
-    borderRadius: tasksUi.radius.contenedor,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    backgroundColor: 'transparent',
   },
   bandaCarrilesMes: {
     backgroundColor: 'transparent',
@@ -2519,12 +2544,13 @@ const styles = StyleSheet.create({
   barraCuerpo: {
     flex: 1,
     minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'stretch',
     backgroundColor: FONDO_AGENDA.proyecto,
-    borderWidth: 1,
-    borderColor: tasksUi.agendaFondo.proyecto,
-    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: COLOR_AGENDA.proyecto,
+    borderRadius: 4,
     justifyContent: 'center',
-    paddingHorizontal: 6,
     overflow: 'hidden',
   },
   barraContinuaIzq: {
@@ -2537,7 +2563,13 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 0,
     borderRightWidth: 0,
   },
-  barraTitulo: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: COLOR_AGENDA.proyecto },
+  barraTitulo: {
+    ...tasksUi.tipo.etiqueta,
+    fontWeight: '600',
+    color: COLOR_AGENDA.proyecto,
+    paddingHorizontal: 8,
+    alignSelf: 'center',
+  },
   barraTituloMes: { fontSize: 12, lineHeight: 16 },
   masProyectos: {
     position: 'absolute',
@@ -2578,7 +2610,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: tasksUi.calendario.lineaRejilla,
+    borderBottomColor: 'rgba(17, 17, 17, 0.04)',
   },
   mesFilaUltima: { borderBottomWidth: 0 },
   celda: {
