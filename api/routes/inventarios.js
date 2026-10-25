@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import { hasPermission, requireAnyPermission, requirePermission } from '../middleware/auth.js';
 import { permiteAlmacen } from '../lib/alcanceAlmacenes.js';
+import { listFamiliasMia } from '../lib/mia/gruposFamilias.js';
 import { responderError } from '../lib/http/responderError.js';
 import {
   actualizarPlantilla,
@@ -51,6 +52,15 @@ async function conAlmacen(req, res, warehouseId) {
 function atrapar(res, err, mensaje) {
   return responderError(res, err, { mensaje, statusPorDefecto: 400 });
 }
+
+router.get('/inventarios/familias', gestionar, async (req, res) => {
+  try {
+    const result = await listFamiliasMia();
+    return res.json(result);
+  } catch (err) {
+    return atrapar(res, err, 'Error listando familias');
+  }
+});
 
 router.get('/inventarios/plantillas', ver, async (req, res) => {
   try {

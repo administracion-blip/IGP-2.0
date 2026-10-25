@@ -40,6 +40,7 @@ function presentar(meta, miembros) {
     warehouseId: meta.WarehouseId,
     nombre: meta.nombre,
     modo: meta.modo,
+    numMiembros: Number.isFinite(Number(meta.numMiembros)) ? Number(meta.numMiembros) : 0,
     creadoEn: meta.creadoEn,
     actualizadoEn: meta.actualizadoEn,
   };
@@ -105,6 +106,7 @@ export async function crearPlantilla({ warehouseId, nombre, modo, miembros }, us
     actualizadoEn: ahora,
     actualizadoPor: usuario || '',
     miembrosVersion: 1,
+    numMiembros: lista.length,
   }, { crear: true });
   await escribirMiembros(pk, modo, lista);
   return obtenerPlantilla(id);
@@ -140,13 +142,14 @@ export async function actualizarPlantilla(plantillaId, { nombre, modo, miembros 
   await actualizar(
     { PK: pk, SK: skMeta() },
     {
-      expression: 'SET nombre = :nombre, modo = :modo, miembrosVersion = :nueva, actualizadoEn = :ahora, actualizadoPor = :quien',
+      expression: 'SET nombre = :nombre, modo = :modo, miembrosVersion = :nueva, numMiembros = :num, actualizadoEn = :ahora, actualizadoPor = :quien',
       condition: 'miembrosVersion = :vieja',
       values: {
         ':nombre': nombreNuevo,
         ':modo': modoNuevo,
         ':nueva': version + 1,
         ':vieja': version,
+        ':num': lista.length,
         ':ahora': ahora,
         ':quien': quien,
       },

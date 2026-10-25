@@ -106,6 +106,9 @@ test('sin permiso no se crea una plantilla; quien cuenta tampoco', async () => {
   });
   assert.equal(cuenta.status, 403);
   assert.equal(cuenta.body.error, 'Permiso insuficiente');
+
+  const familias = await api('GET', '/api/inventarios/familias');
+  assert.equal(familias.status, 403);
 });
 
 test('plantilla por almacén: familias, listado y borrado', async () => {
@@ -117,6 +120,7 @@ test('plantilla por almacén: familias, listado y borrado', async () => {
   });
   assert.equal(creada.status, 201);
   assert.equal(creada.body.warehouseId, '000001');
+  assert.equal(creada.body.numMiembros, 1);
   assert.deepEqual(creada.body.miembros, [{ id: '12', nombre: 'BOT WHISKYS' }]);
 
   const otra = await api('POST', '/api/inventarios/plantillas', {
@@ -128,6 +132,7 @@ test('plantilla por almacén: familias, listado y borrado', async () => {
   assert.equal(lista.status, 200);
   assert.deepEqual(lista.body.plantillas.map((p) => p.nombre), ['Botellas']);
   assert.equal(lista.body.plantillas[0].miembros, undefined);
+  assert.equal(lista.body.plantillas[0].numMiembros, 1);
 
   const una = await api('GET', `/api/inventarios/plantillas/${creada.body.plantillaId}`);
   assert.equal(una.body.modo, 'familias');
@@ -141,6 +146,7 @@ test('plantilla por almacén: familias, listado y borrado', async () => {
     miembros: [{ id: '12', nombre: 'BOT WHISKYS' }, { id: '13', nombre: 'GINEBRAS' }],
   });
   assert.equal(editada.status, 200);
+  assert.equal(editada.body.numMiembros, 2);
   assert.deepEqual(editada.body.miembros.map((m) => m.id), ['12', '13']);
 
   const borrada = await api('DELETE', `/api/inventarios/plantillas/${creada.body.plantillaId}`);

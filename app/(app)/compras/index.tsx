@@ -44,6 +44,17 @@ const PEDIDOS_PROVEEDORES: Opcion[] = [
   { id: 'acuerdos', label: 'Acuerdos', icon: 'handshake', descripcion: 'Acuerdos comerciales con proveedores', permiso: 'acuerdos.ver' },
 ];
 
+/** Qué se cuenta en cada almacén. La revisión y el Excel se añaden aquí. */
+const INVENTARIO: Opcion[] = [
+  {
+    id: 'inventario-plantillas',
+    label: 'Plantillas de inventario',
+    icon: 'inventory',
+    descripcion: 'Familias a contar en cada almacén',
+    permiso: 'inventario.gestionar',
+  },
+];
+
 /** Fuera de los dos bloques: misma ruta y el mismo sitio suelto de antes. */
 const ESCANDALLOS: Opcion = {
   id: 'escandallos',
@@ -56,6 +67,7 @@ const ESCANDALLOS: Opcion = {
 const GRUPOS: Grupo[] = [
   { id: 'internos', titulo: 'Pedidos internos', opciones: PEDIDOS_INTERNOS },
   { id: 'proveedores', titulo: 'Pedidos a proveedores', opciones: PEDIDOS_PROVEEDORES },
+  { id: 'inventario', titulo: 'Inventario', opciones: INVENTARIO },
 ];
 
 function porNombre(a: Opcion, b: Opcion): number {
@@ -92,6 +104,7 @@ export default function ComprasIndexScreen() {
     if (id === 'mia') router.push('/compras/mia');
     if (id === 'escandallos') router.push('/compras/escandallos');
     if (id === 'acuerdos') router.push('/acuerdos');
+    if (id === 'inventario-plantillas') router.push('/compras/inventario-plantillas');
   }
 
   function renderTarjeta(opcion: Opcion) {
