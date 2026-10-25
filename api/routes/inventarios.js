@@ -21,6 +21,7 @@ import {
   actualizarCabecera,
   borrarInventario,
   borrarLinea,
+  anotarExportacion,
   cambiarEstado,
   crearInventario,
   guardarLinea,
@@ -28,6 +29,7 @@ import {
   obtenerInventario,
 } from '../lib/inventarios/inventarios.js';
 import { abrirConteo } from '../lib/inventarios/conteo.js';
+import { bufferInventario } from '../lib/inventarios/excel.js';
 import { guardarUmbral, leerUmbral } from '../lib/inventarios/umbral.js';
 
 const router = Router();
@@ -36,7 +38,10 @@ const ver = requireAnyPermission('inventario.gestionar', 'inventario.contar');
 const gestionar = requirePermission('inventario.gestionar');
 
 function quien(req) {
-  return req.user?.email || req.user?.sub || '';
+  const email = req.user?.email || req.user?.sub || '';
+  const nombre = String(req.user?.Nombre || '').trim();
+  if (nombre && email && nombre !== email) return `${nombre} (${email})`;
+  return email;
 }
 
 async function puedeGestionar(req) {
@@ -188,6 +193,32 @@ router.post('/inventarios', ver, async (req, res) => {
     return responderConteo(req, res, inventario, 201);
   } catch (err) {
     return atrapar(res, err, 'Error creando el inventario');
+  }
+});
+
+router.get('/inventarios/:id/excel', gestionar, async (req, res) => {
+  try {
+    const inventario = await obtenerInventario(req.params.id);
+    if (!(await conAlmacen(req, res, inventario.warehouseId))) return;
+    if (inventario.estado !== 'revisado' && inventario.estado !== 'exportado') {
+      return res.status(409).json({ error: 'Solo se exporta un inventario revisado' });
+    }
+    if (inventario.estado === 'exportado' && req.query.repetir !== '1') {
+      return res.status(409).json({
+        error: 'Este inventario ya se exportó. Confirma para descargarlo otra vez.',
+      });
+    }
+    const buffer = await bufferInventario(inventario);
+    const veces = inventario.estado === 'revisado' ? 1 : (Number(inventario.exportaciones) || 1) + 1;
+    if (inventario.estado === 'revisado') {
+      await cambiarEstado(inventario.inventarioId, 'exportado', quien(req));
+    }
+    await anotarExportacion(inventario.inventarioId, quien(req), veces);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="Inventario-${inventario.fecha}.xlsx"`);
+    return res.send(buffer);
+  } catch (err) {
+    return atrapar(res, err, 'Error exportando el inventario');
   }
 });
 

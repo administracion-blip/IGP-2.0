@@ -61,6 +61,9 @@ function presentarMeta(meta, lineas) {
     actualizadoEn: meta.actualizadoEn,
     estadoEn: meta.estadoEn || null,
     estadoPor: meta.estadoPor || '',
+    exportaciones: Number(meta.exportaciones) || 0,
+    ultimaExportacionEn: meta.ultimaExportacionEn || null,
+    ultimaExportacionPor: meta.ultimaExportacionPor || '',
     ...(lineas && { lineas }),
   };
 }
@@ -243,6 +246,30 @@ export async function cambiarEstado(inventarioId, estado, usuario, { soloContar 
         ':quien': usuario || '',
         ':actual': meta.estado,
         ':importado': 'importado',
+      },
+    },
+  );
+  return obtenerInventario(meta.inventarioId);
+}
+
+/** Anota otra descarga del Excel. El estado sigue siendo exportado. */
+export async function anotarExportacion(inventarioId, usuario, veces) {
+  const { meta } = await cargar(inventarioId);
+  if (meta.estado !== 'exportado') {
+    throw errorInventario('Solo se anota la exportación de un inventario exportado');
+  }
+  const n = Number.isInteger(veces) && veces > 0 ? veces : (Number(meta.exportaciones) || 0) + 1;
+  const ahora = new Date().toISOString();
+  await actualizar(
+    { PK: pkInventario(meta.inventarioId), SK: skMeta() },
+    {
+      expression: 'SET exportaciones = :veces, ultimaExportacionEn = :ahora, ultimaExportacionPor = :quien, actualizadoEn = :ahora, actualizadoPor = :quien',
+      condition: 'estado = :exportado',
+      values: {
+        ':veces': n,
+        ':ahora': ahora,
+        ':quien': usuario || '',
+        ':exportado': 'exportado',
       },
     },
   );

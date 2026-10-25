@@ -11,7 +11,10 @@ import {
   TextInput,
   Pressable,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
+import * as FileSystemLegacy from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
@@ -55,6 +58,11 @@ type Inventario = {
   employeeNombre?: string;
   plantillaNombre?: string;
   estado: string;
+  estadoEn?: string | null;
+  estadoPor?: string;
+  exportaciones?: number;
+  ultimaExportacionEn?: string | null;
+  ultimaExportacionPor?: string;
   lineas?: Linea[];
 };
 type Resumen = {
@@ -105,6 +113,22 @@ function mismaBotella(a: number, b: number): boolean {
   return Math.abs(a - b) < 1e-9;
 }
 
+function fechaHoraEs(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+  if (typeof btoa !== 'undefined') return btoa(binary);
+  // @ts-expect-error Buffer en entornos Node/web embebido
+  return Buffer.from(bytes).toString('base64');
+}
+
 function textoSemaforo(s: Semaforo): string {
   if (s === 'ok') return 'Dentro';
   if (s === 'fuera') return 'Fuera';
@@ -113,7 +137,7 @@ function textoSemaforo(s: Semaforo): string {
 }
 
 export default function InventarioRevisionScreen() {
-  const { hasPermiso } = useAuth();
+  const { hasPermiso, user } = useAuth();
   const puede = hasPermiso('inventario.gestionar');
   const { shouldStackPanels } = useBreakpoint();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -131,6 +155,7 @@ export default function InventarioRevisionScreen() {
   const [cargandoLista, setCargandoLista] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
+  const [descargando, setDescargando] = useState(false);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const listaTicket = useRef(0);
 
@@ -345,7 +370,7 @@ export default function InventarioRevisionScreen() {
     void persistir(linea.productId, stockReal, valor);
   }
 
-  async function cambiarEstado(estado: 'revisado' | 'contado') {
+  async function cambiarEstado(estado: 'revisado' | 'contado' | 'importado') {
     if (!inventario) return false;
     try {
       const res = await apiFetch(`/api/inventarios/${encodeURIComponent(inventario.inventarioId)}/estado`, {
@@ -358,7 +383,12 @@ export default function InventarioRevisionScreen() {
         setError(mensajeDe(body, 'No se ha podido cambiar el estado'));
         return false;
       }
-      setInventario((actual) => (actual ? { ...actual, estado } : actual));
+      setInventario((actual) => (actual ? {
+        ...actual,
+        estado: typeof body.estado === 'string' ? body.estado : estado,
+        estadoEn: typeof body.estadoEn === 'string' ? body.estadoEn : actual.estadoEn,
+        estadoPor: typeof body.estadoPor === 'string' ? body.estadoPor : actual.estadoPor,
+      } : actual));
       if (warehouseId) await cargarLista(warehouseId);
       return true;
     } catch (e) {
@@ -402,6 +432,84 @@ export default function InventarioRevisionScreen() {
     const previo = timers.current[linea.productId];
     if (previo) clearTimeout(previo);
     await persistir(linea.productId, null, 0);
+  }
+
+  async function descargarExcel() {
+    if (!inventario || descargando) return;
+    const id = inventario.inventarioId;
+    if (inventario.estado === 'exportado') {
+      const cuando = fechaHoraEs(inventario.ultimaExportacionEn || inventario.estadoEn);
+      const persona = inventario.ultimaExportacionPor || inventario.estadoPor || '';
+      const ok = await confirmar(
+        'Ya se exportó',
+        `Este Excel ya se descargó${cuando ? ` el ${cuando}` : ''}${persona ? ` por ${persona}` : ''}. Ágora no se actualiza solo. ¿Descargarlo otra vez?`,
+        { confirmarLabel: 'Descargar otra vez' },
+      );
+      if (!ok) return;
+    }
+    setDescargando(true);
+    setError(null);
+    try {
+      const repetir = inventario.estado === 'exportado' ? '?repetir=1' : '';
+      const res = await apiFetch(`/api/inventarios/${encodeURIComponent(id)}/excel${repetir}`, { timeoutMs: 0 });
+      if (!res.ok) {
+        const body = await leerJson(res);
+        setError(mensajeDe(body, 'No se ha podido generar el Excel'));
+        return;
+      }
+      const buffer = await res.arrayBuffer();
+      const disp = res.headers.get('Content-Disposition') || '';
+      const nombre = disp.match(/filename="?([^"]+)"?/)?.[1] || `Inventario-${inventario.fecha}.xlsx`;
+      if (Platform.OS === 'web') {
+        const blob = new Blob([buffer], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = nombre;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+        const fileUri = `${cacheDir}${nombre}`;
+        await FileSystemLegacy.writeAsStringAsync(fileUri, arrayBufferToBase64(buffer), {
+          encoding: FileSystemLegacy.EncodingType.Base64,
+        });
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          dialogTitle: nombre,
+        });
+      }
+      await abrir(id);
+      if (warehouseId) await cargarLista(warehouseId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setDescargando(false);
+    }
+  }
+
+  async function marcarImportado() {
+    if (!inventario || inventario.estado !== 'exportado') return;
+    const persona = user?.Nombre || user?.email || 'esta sesión';
+    const ok = await confirmar(
+      'Marcar como importado',
+      `Se anota ahora, a nombre de ${persona}. El inventario queda cerrado. Ágora solo cambia cuando importas el Excel a mano.`,
+      { confirmarLabel: 'Marcar importado' },
+    );
+    if (!ok) return;
+    await cambiarEstado('importado');
+  }
+
+  async function volverARevisado() {
+    const ok = await confirmar(
+      'Volver a revisado',
+      'Podrás corregir líneas y volver a descargar el Excel.',
+      { confirmarLabel: 'Volver a revisado' },
+    );
+    if (!ok) return;
+    await cambiarEstado('revisado');
   }
 
   if (!puede) {
@@ -620,13 +728,41 @@ export default function InventarioRevisionScreen() {
                 <Pressable style={styles.boton} onPress={() => void marcarRevisado()} accessibilityRole="button">
                   <Text style={styles.botonTexto}>Marcar como revisado</Text>
                 </Pressable>
-              ) : (
-                <Text style={styles.aviso}>
-                  {editable
-                    ? 'Estado revisado. Puedes corregir una línea o devolver un producto al conteo.'
-                    : `Estado ${inventario.estado}. Este inventario ya no se corrige aquí.`}
-                </Text>
-              )}
+              ) : null}
+              {inventario.estado === 'revisado' || inventario.estado === 'exportado' ? (
+                <Pressable
+                  style={[styles.boton, descargando && styles.botonOff]}
+                  disabled={descargando}
+                  onPress={() => void descargarExcel()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Descargar Excel"
+                >
+                  {descargando
+                    ? <ActivityIndicator color={colors.surface} />
+                    : <Text style={styles.botonTexto}>Descargar Excel</Text>}
+                </Pressable>
+              ) : null}
+              {inventario.estado === 'exportado' ? (
+                <View style={styles.acciones}>
+                  <Pressable style={styles.boton} onPress={() => void marcarImportado()} accessibilityRole="button">
+                    <Text style={styles.botonTexto}>Marcar como importado</Text>
+                  </Pressable>
+                  <Pressable style={styles.secundario} onPress={() => void volverARevisado()} accessibilityRole="button">
+                    <Text style={styles.secundarioTexto}>Volver a revisado</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              <Text style={styles.aviso}>
+                {inventario.estado === 'revisado'
+                  ? 'Puedes corregir una línea antes de descargar. El Excel lleva el stock real contado, sin redondear. Ubicación y código de barras van vacíos.'
+                  : inventario.estado === 'exportado'
+                    ? `Exportado${fechaHoraEs(inventario.ultimaExportacionEn) ? ` el ${fechaHoraEs(inventario.ultimaExportacionEn)}` : ''}${inventario.ultimaExportacionPor ? ` por ${inventario.ultimaExportacionPor}` : ''}. Cuando lo importes en Ágora, márcalo aquí.`
+                    : inventario.estado === 'importado'
+                      ? `Importado${fechaHoraEs(inventario.estadoEn) ? ` el ${fechaHoraEs(inventario.estadoEn)}` : ''}${inventario.estadoPor ? ` por ${inventario.estadoPor}` : ''}. Ya no se puede corregir.`
+                      : editable
+                        ? ''
+                        : `Estado ${inventario.estado}. Este inventario ya no se corrige aquí.`}
+              </Text>
             </View>
           ) : null}
         </View>
@@ -728,6 +864,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: SPACING.lg,
   },
+  botonOff: { opacity: 0.5 },
+  acciones: { gap: SPACING.sm },
   botonTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.surface },
   secundario: {
     minHeight: MIN_TOUCH,
