@@ -141,9 +141,6 @@ export type TipoAgendaInicio = 'tarea' | 'reunion' | 'proyecto';
 export const COLOR_AGENDA: Record<TipoAgendaInicio, string> = tasksUi.agendaTipo;
 
 const COLOR_AHORA = '#f43f5e';
-const COLOR_TAREA_HECHA = tasksUi.calendario.hecha;
-const FONDO_TAREA_HECHA = tasksUi.calendario.hechaFondo;
-const TEXTO_TAREA_HECHA = tasksUi.calendario.hechaTexto;
 
 const FONDO_AGENDA: Record<TipoAgendaInicio, string> = tasksUi.agendaFondo;
 
@@ -390,7 +387,6 @@ function empaquetarBarras(items: ItemAgenda[], lunes: string): { barras: BarraEm
 }
 
 function colorPuntoDia(item: ItemAgenda): string {
-  if (item.hecho) return COLOR_TAREA_HECHA;
   return COLOR_AGENDA[item.tipo];
 }
 
@@ -587,7 +583,7 @@ function PopoverVistaItem({
   const casillas = [...(item.checklist ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
   const casillasHechas = casillas.filter((c) => c.hecho).length;
   const progreso = casillas.length > 0 ? casillasHechas / casillas.length : 0;
-  const colorTipo = item.hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
+  const colorTipo = COLOR_AGENDA[item.tipo];
   const cristal =
     Platform.OS === 'web'
       ? ({ backgroundColor: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(18px)' } as object)
@@ -794,8 +790,8 @@ function PastillaAgenda({
   onDragEnd?: () => void;
 }) {
   const hecho = Boolean(item.hecho);
-  const color = hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
-  const fondo = hecho ? FONDO_TAREA_HECHA : FONDO_AGENDA[item.tipo];
+  const color = COLOR_AGENDA[item.tipo];
+  const fondo = FONDO_AGENDA[item.tipo];
   const tramo = etiquetaTramo(item);
   const ficha = item.tipo === 'tarea' || item.tipo === 'reunion';
   const toqueLargo =
@@ -805,6 +801,7 @@ function PastillaAgenda({
       style={[
         styles.pill,
         { backgroundColor: fondo },
+        hecho && styles.hechoOpaco,
         arrastrando && styles.pillArrastrando,
         recienSoltada && styles.pillRecienSoltada,
       ]}
@@ -906,8 +903,8 @@ function BloqueHorario({
 }) {
   const { item, top, height, carril, nCarriles } = bloque;
   const hecho = Boolean(item.hecho);
-  const color = hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
-  const fondo = hecho ? FONDO_TAREA_HECHA : FONDO_AGENDA[item.tipo];
+  const color = COLOR_AGENDA[item.tipo];
+  const fondo = FONDO_AGENDA[item.tipo];
   const tramo = etiquetaTramo(item);
   const anchoPct = 100 / nCarriles;
   const compacto = height < 36;
@@ -969,7 +966,7 @@ function BloqueHorario({
         style={[
           styles.bloque,
           estiloPos,
-          { backgroundColor: fondo, borderLeftColor: color },
+          { backgroundColor: fondo, borderLeftColor: color, opacity: hecho ? 0.5 : 1 },
           arrastrando && styles.pillArrastrando,
           recienSoltada && styles.pillRecienSoltada,
         ]}
@@ -1007,7 +1004,7 @@ function BloqueHorario({
         paddingRight: 2,
         zIndex: 2,
         cursor: arrastrable ? (arrastrando ? 'grabbing' : 'grab') : 'pointer',
-        opacity: arrastrando ? 0.4 : 1,
+        opacity: arrastrando ? 0.4 : hecho ? 0.5 : 1,
         outline: recienSoltada ? `1px solid ${tasksUi.color.acento}` : undefined,
       },
     },
@@ -1999,6 +1996,51 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
     setReservaBarra((prev) => (prev === ancho ? prev : ancho));
   }, []);
 
+  const scrollInicialClave = useRef<string | null>(null);
+  const altoRejillaRef = useRef(0);
+  const desplazarRejillaAlCargar = useCallback(() => {
+    if (vista !== 'semana' || cargando) return;
+    const clave = `${lunes}:${conFecha.length}`;
+    if (scrollInicialClave.current === clave) return;
+    if (!rejillaScrollRef.current) return;
+    if (altoRejillaRef.current <= 0) return;
+    let primer: number | null = null;
+    for (const iso of diasDeSemana(lunes)) {
+      for (const b of bloquesPorDia.get(iso)?.bloques ?? []) {
+        const ini = minutosDeHhmm(b.item.horaInicio ?? '');
+        if (ini == null) continue;
+        const vis = Math.min(Math.max(ini, MINUTOS_DIA_INICIO), MINUTOS_DIA_FIN);
+        if (primer == null || vis < primer) primer = vis;
+      }
+    }
+    const hoyEnSemana = diasDeSemana(lunes).includes(hoy);
+    const ahoraEnRango = minutosAhora >= MINUTOS_DIA_INICIO && minutosAhora < MINUTOS_DIA_FIN;
+    const yDe = (minutos: number) =>
+      ((minutos - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA + PAD_REJILLA_TOP;
+    const yEvento = primer != null ? yDe(primer) : null;
+    const yAhora = hoyEnSemana && ahoraEnRango ? yDe(minutosAhora) : null;
+    const altoVista = altoRejillaRef.current || 420;
+    let y = 0;
+    if (yEvento != null && yAhora != null) {
+      const arriba = Math.min(yEvento, yAhora) - 28;
+      const abajo = Math.max(yEvento, yAhora) + 20;
+      y = abajo - Math.max(0, arriba) <= altoVista ? Math.max(0, arriba) : Math.max(0, yAhora - 28);
+    } else if (yEvento != null) {
+      y = Math.max(0, yEvento - 28);
+    } else if (yAhora != null) {
+      y = Math.max(0, yAhora - 28);
+    } else {
+      scrollInicialClave.current = clave;
+      return;
+    }
+    rejillaScrollRef.current.scrollTo({ y, animated: false });
+    scrollInicialClave.current = clave;
+  }, [vista, cargando, lunes, conFecha.length, bloquesPorDia, hoy, minutosAhora]);
+
+  useEffect(() => {
+    desplazarRejillaAlCargar();
+  }, [desplazarRejillaAlCargar]);
+
   useEffect(() => {
     if (Platform.OS !== 'web' || vista !== 'semana') return;
     medirBarraRejilla();
@@ -2017,16 +2059,6 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   if (acceso.permisosCargando) return null;
   if (!puedeTareas && !puedeReuniones) return null;
 
-  const tituloRango = vista === 'semana' ? etiquetaSemana(lunes) : etiquetaMes(ancla);
-  const esPeriodoActual =
-    vista === 'semana'
-      ? lunesDeSemanaIso(ancla) === lunesDeSemanaIso(hoy)
-      : inicioMesIso(ancla) === inicioMesIso(hoy);
-  const tituloBloque = esPeriodoActual
-    ? vista === 'semana'
-      ? 'Esta semana'
-      : 'Este mes'
-    : 'Agenda';
   const semanaMovil = isPhone && isPortrait;
   const diasSemana = diasDeSemana(lunes);
 
@@ -2094,7 +2126,6 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
       ) : null}
 
       <View style={[styles.toolbar, styles.toolbarSobre, shouldStackToolbar && styles.toolbarWrap]}>
-        <Text style={styles.tituloBloque}>{tituloBloque}</Text>
         <View style={styles.rango}>
           <TouchableOpacity
             style={styles.rangoBtn}
@@ -2104,8 +2135,13 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
             <MaterialIcons name="chevron-left" size={22} color={tasksUi.color.textoPrimario} />
           </TouchableOpacity>
           <Text style={[styles.rangoTexto, fuenteInter('semibold')]} numberOfLines={1}>
-            {tituloRango}
+            {etiquetaMes(ancla)}
           </Text>
+          {vista === 'semana' ? (
+            <Text style={styles.rangoPequeno} numberOfLines={1}>
+              {etiquetaSemana(lunes)}
+            </Text>
+          ) : null}
           <TouchableOpacity
             style={styles.rangoBtn}
             onPress={() => ir(1)}
@@ -2200,16 +2236,6 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
             embebido && semanaMovil && styles.semanaCuerpoEmbebidaMovil,
           ]}
         >
-          <BandaCarriles
-            barras={empaquetadoSemana.barras}
-            overflow={empaquetadoSemana.overflow}
-            altoCarril={ALTO_CARRIL_SEMANA}
-            columnasFijas={semanaMovil}
-            conGutterHoras
-            onAbrir={abrir}
-          />
-
-          {/* Cabecera de días. El padding derecho reserva el hueco de la barra de la rejilla. */}
           <View
             style={[
               styles.semanaCabecera,
@@ -2221,7 +2247,6 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
             <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
               {diasSemana.map((iso) => {
                 const esHoy = iso === hoy;
-                const delDiaTodos = porDiaCubierto.get(iso) ?? [];
                 return (
                   <View
                     key={`h-${iso}`}
@@ -2232,14 +2257,13 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                       <Text style={[styles.colNum, fuenteInter('semibold'), esHoy && styles.colNumTextoHoy]}>{diaNumero(iso)}</Text>
                     </View>
                     {esHoy ? <View style={styles.colHoyLinea} /> : <View style={styles.colHoyLineaHueco} />}
-                    {delDiaTodos.length > 0 ? <Text style={styles.colCount}>{delDiaTodos.length}</Text> : null}
                   </View>
                 );
               })}
             </View>
           </View>
 
-          {/* Franja todo el día */}
+          {/* Franja todo el día: proyectos de varios días y citas sin hora */}
           <View
             style={[
               styles.todoElDiaFila,
@@ -2252,7 +2276,15 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                 Todo el día
               </Text>
             </View>
-            <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
+            <View style={[styles.todoElDiaCuerpo, semanaMovil && styles.semanaDiasMovil]}>
+              <BandaCarriles
+                barras={empaquetadoSemana.barras}
+                overflow={empaquetadoSemana.overflow}
+                altoCarril={ALTO_CARRIL_SEMANA}
+                columnasFijas={semanaMovil}
+                onAbrir={abrir}
+              />
+              <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
               {diasSemana.map((iso) => {
                 const items = todoElDiaPorDia.get(iso) ?? [];
                 const sobre = isoDragOver === iso;
@@ -2280,6 +2312,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                 );
               })}
             </View>
+            </View>
           </View>
 
           {/* Rejilla horaria */}
@@ -2288,7 +2321,11 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
             style={[styles.rejillaScroll, embebido ? styles.rejillaScrollEmbebida : styles.rejillaScrollInicio]}
             nestedScrollEnabled
             showsVerticalScrollIndicator
-            onLayout={medirBarraRejilla}
+            onLayout={(e) => {
+              altoRejillaRef.current = e.nativeEvent.layout.height;
+              medirBarraRejilla();
+              desplazarRejillaAlCargar();
+            }}
           >
             <View style={[styles.rejillaFila, semanaMovil && styles.semanaFilaMovil, { minHeight: ALTO_REJILLA_CAJA }]}>
               <View style={[styles.gutterHora, { height: ALTO_REJILLA_CAJA }]}>
@@ -2604,7 +2641,7 @@ const styles = StyleSheet.create({
   cuerpoAgenda: { position: 'relative', zIndex: 0, gap: 10 },
   cuerpoAgendaEmbebido: { flex: 1, minHeight: 0 },
   tituloBloque: { ...tasksUi.tipo.tituloSeccion },
-  rango: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 200 },
+  rango: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 200 },
   rangoBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
@@ -2620,6 +2657,12 @@ const styles = StyleSheet.create({
     lineHeight: 36,
     color: tasksUi.calendario.hoy,
     textAlign: 'center',
+    ...tasksUi.tabularNums,
+  },
+  rangoPequeno: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: tasksUi.color.textoSecundario,
     ...tasksUi.tabularNums,
   },
   hoyBtn: {
@@ -2690,6 +2733,10 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     width: '100%',
     minHeight: 44,
+  },
+  todoElDiaCuerpo: {
+    flex: 1,
+    minWidth: 0,
   },
   todoElDiaLabel: {
     ...tasksUi.tipo.micro,
@@ -2912,7 +2959,6 @@ const styles = StyleSheet.create({
   colDia: { ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoSecundario },
   colDiaHoy: { color: tasksUi.calendario.hoy },
   badgeHoy: { ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.calendario.hoy },
-  colCount: { marginLeft: 'auto', ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoTerciario },
 
   mesWrap: { gap: 8 },
   mesCabecera: { flexDirection: 'row' },
@@ -3034,7 +3080,8 @@ const styles = StyleSheet.create({
   pillMetaFila: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   pillMeta: { ...tasksUi.tipo.micro, fontWeight: '500' },
   pillMetaTexto: { flexShrink: 1 },
-  pillHecho: { color: TEXTO_TAREA_HECHA, textDecorationLine: 'line-through' },
+  pillHecho: { textDecorationLine: 'line-through' },
+  hechoOpaco: { opacity: 0.5 },
   pillArrastrando: { opacity: 0.4 },
   pillRecienSoltada: { borderColor: tasksUi.color.acento },
 
