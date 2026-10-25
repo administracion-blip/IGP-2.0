@@ -6,6 +6,7 @@
  */
 import { Router } from 'express';
 import { hasPermission, requireAnyPermission, requirePermission } from '../middleware/auth.js';
+import { exportStocks } from '../lib/agora/client.js';
 import { permiteAlmacen } from '../lib/alcanceAlmacenes.js';
 import { listFamiliasMia } from '../lib/mia/gruposFamilias.js';
 import { responderError } from '../lib/http/responderError.js';
@@ -26,6 +27,7 @@ import {
   listarInventarios,
   obtenerInventario,
 } from '../lib/inventarios/inventarios.js';
+import { abrirConteo } from '../lib/inventarios/conteo.js';
 
 const router = Router();
 
@@ -51,6 +53,31 @@ async function conAlmacen(req, res, warehouseId) {
 
 function atrapar(res, err, mensaje) {
   return responderError(res, err, { mensaje, statusPorDefecto: 400 });
+}
+
+/** Quien solo cuenta no recibe el stock teórico. */
+function sinTeorico(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  if (Array.isArray(payload.lineas)) {
+    return {
+      ...payload,
+      lineas: payload.lineas.map((ln) => {
+        if (!ln || typeof ln !== 'object') return ln;
+        const { stockTeorico, ...resto } = ln;
+        return resto;
+      }),
+    };
+  }
+  if ('stockTeorico' in payload) {
+    const { stockTeorico, ...resto } = payload;
+    return resto;
+  }
+  return payload;
+}
+
+async function responderConteo(req, res, payload, status = 200) {
+  const gestiona = await puedeGestionar(req);
+  return res.status(status).json(gestiona ? payload : sinTeorico(payload));
 }
 
 router.get('/inventarios/familias', gestionar, async (req, res) => {
@@ -127,11 +154,21 @@ router.get('/inventarios', ver, async (req, res) => {
   }
 });
 
+router.post('/inventarios/conteo', ver, async (req, res) => {
+  try {
+    if (!(await conAlmacen(req, res, req.body?.warehouseId))) return;
+    const inventario = await abrirConteo(req.body || {}, quien(req), { exportStocks });
+    return responderConteo(req, res, inventario, 201);
+  } catch (err) {
+    return atrapar(res, err, 'Error abriendo el conteo');
+  }
+});
+
 router.post('/inventarios', ver, async (req, res) => {
   try {
     if (!(await conAlmacen(req, res, req.body?.warehouseId))) return;
     const inventario = await crearInventario(req.body || {}, quien(req));
-    return res.status(201).json(inventario);
+    return responderConteo(req, res, inventario, 201);
   } catch (err) {
     return atrapar(res, err, 'Error creando el inventario');
   }
@@ -141,7 +178,7 @@ router.get('/inventarios/:id', ver, async (req, res) => {
   try {
     const inventario = await obtenerInventario(req.params.id);
     if (!(await conAlmacen(req, res, inventario.warehouseId))) return;
-    return res.json(inventario);
+    return responderConteo(req, res, inventario);
   } catch (err) {
     return atrapar(res, err, 'Error leyendo el inventario');
   }
@@ -152,7 +189,7 @@ router.patch('/inventarios/:id', gestionar, async (req, res) => {
     const actual = await obtenerInventario(req.params.id);
     if (!(await conAlmacen(req, res, actual.warehouseId))) return;
     const inventario = await actualizarCabecera(req.params.id, req.body || {}, quien(req));
-    return res.json(inventario);
+    return responderConteo(req, res, inventario);
   } catch (err) {
     return atrapar(res, err, 'Error actualizando el inventario');
   }
@@ -168,7 +205,7 @@ router.patch('/inventarios/:id/estado', ver, async (req, res) => {
       quien(req),
       { soloContar: !(await puedeGestionar(req)) },
     );
-    return res.json(inventario);
+    return responderConteo(req, res, inventario);
   } catch (err) {
     return atrapar(res, err, 'Error cambiando el estado');
   }
@@ -185,7 +222,7 @@ router.put('/inventarios/:id/lineas/:productId', ver, async (req, res) => {
       quien(req),
       { soloContar: !(await puedeGestionar(req)) },
     );
-    return res.json(linea);
+    return responderConteo(req, res, linea);
   } catch (err) {
     return atrapar(res, err, 'Error guardando la línea');
   }

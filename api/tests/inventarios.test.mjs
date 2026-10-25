@@ -193,9 +193,13 @@ test('el stock real se guarda con decimales y el conteo no cambia el teórico', 
     botellasAbiertas: 0.9,
   });
   assert.equal(contada.status, 200);
-  assert.equal(contada.body.stockTeorico, 203);
+  assert.equal('stockTeorico' in contada.body, false);
   assert.equal(contada.body.stockReal, 8.75);
   assert.equal(contada.body.botellasAbiertas, 0.9);
+  usuarioActual = COMPRAS;
+  const guardado = await api('GET', `/api/inventarios/${creado.body.inventarioId}`);
+  assert.equal(guardado.body.lineas[0].stockTeorico, 203);
+  usuarioActual = CONTADOR;
 
   const mala = await api('PUT', `/api/inventarios/${creado.body.inventarioId}/lineas/1367`, {
     botellasAbiertas: 0.33,

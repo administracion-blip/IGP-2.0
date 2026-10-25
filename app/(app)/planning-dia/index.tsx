@@ -49,6 +49,14 @@ type TarjetaInterna = {
 
 const TARJETAS_INTERNAS: TarjetaInterna[] = [
   {
+    id: 'inventario',
+    label: 'Inventario',
+    descripcion: 'Contar el almacén sin ver el stock teórico',
+    icon: 'inventory',
+    ruta: '/planning-dia/inventario',
+    permiso: 'inventario.contar',
+  },
+  {
     id: 'cuadrante',
     label: 'Cuadrante de personal',
     descripcion: 'Turnos vs fichajes (Factorial HR) por local y fechas',
@@ -149,6 +157,7 @@ export default function PlanningDiaIndexScreen() {
 
   const tarjetaInternaVisible = useCallback(
     (t: TarjetaInterna) => {
+      if (t.id === 'inventario') return hasPermiso('inventario.contar') || hasPermiso('inventario.gestionar');
       if (t.id === 'actuaciones') return puedeVerActuacionesPlanning(hasPermiso);
       if (t.id === 'activaciones') return puedeVerActivacionesPlanning(hasPermiso);
       if (t.id === 'arqueo-caja') return puedeVerArqueoCaja(hasPermiso);
