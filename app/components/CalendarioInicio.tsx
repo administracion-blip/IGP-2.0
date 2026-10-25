@@ -25,7 +25,6 @@ import {
   Platform,
   Modal,
   Animated,
-  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -539,12 +538,33 @@ function BotonMarcarRealizada({
   );
 }
 
-type PuntoFicha = { x: number; y: number };
+type PuntoFicha = { x: number; y: number; derecha?: number };
 
 function puntoDeTarjeta(nodo: EventTarget | null): PuntoFicha | null {
   if (!nodo || typeof (nodo as HTMLElement).getBoundingClientRect !== 'function') return null;
   const r = (nodo as HTMLElement).getBoundingClientRect();
-  return { x: r.left, y: r.bottom };
+  return { x: r.left, y: r.bottom, derecha: r.right };
+}
+
+/** En web, `fixed` dentro del scroll de inicio no es la ventana. Se pinta en `document.body`. */
+function portalAlBody(children: ReactNode): ReactNode {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return children;
+  const { createPortal } = require('react-dom') as typeof import('react-dom');
+  return createPortal(children, document.body);
+}
+
+/** Abre hacia la izquierda si la tarjeta está cerca del borde derecho. */
+function anclarEnVentana(punto: PuntoFicha, ancho: number, altoEstimado: number) {
+  const margen = 12;
+  const anchoVentana = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const altoVentana = typeof window !== 'undefined' ? window.innerHeight : 800;
+  let left = punto.x;
+  if (left + ancho > anchoVentana - margen) {
+    left = (punto.derecha ?? punto.x) - ancho;
+  }
+  left = Math.max(margen, Math.min(left, anchoVentana - ancho - margen));
+  const top = Math.max(margen, Math.min(punto.y, altoVentana - altoEstimado));
+  return { left, top };
 }
 
 function PopoverVistaItem({
@@ -572,7 +592,6 @@ function PopoverVistaItem({
   onMarcarRealizada?: () => Promise<void>;
 }) {
   const { isCompact } = useBreakpoint();
-  const { width: anchoVentana, height: altoVentana } = useWindowDimensions();
   const [casillaEnCurso, setCasillaEnCurso] = useState<string | null>(null);
   const [errorCasillas, setErrorCasillas] = useState<string | null>(null);
   const [marcandoRealizada, setMarcandoRealizada] = useState(false);
@@ -586,22 +605,31 @@ function PopoverVistaItem({
   const colorTipo = COLOR_AGENDA[item.tipo];
   const cristal =
     Platform.OS === 'web'
-      ? ({ backgroundColor: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(18px)' } as object)
+      ? ({
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          backdropFilter: 'blur(18px)',
+          borderWidth: 1,
+          borderColor: 'rgba(17,17,17,0.12)',
+          ...tasksUi.sombraFlotante,
+        } as object)
       : {
           backgroundColor: 'rgba(255,255,255,0.96)',
           borderWidth: 1,
-          borderColor: tasksUi.color.bordeSutil,
+          borderColor: 'rgba(17,17,17,0.12)',
           ...tasksUi.sombraFlotante,
         };
   const hoja = !flotante && (isCompact || Platform.OS !== 'web');
   const anclado = !hoja && ancla != null;
   const anchoTarjeta = 340;
-  const izquierda = ancla
-    ? Math.max(12, Math.min(flotante ? ancla.x : ancla.x + 12, anchoVentana - anchoTarjeta - 12))
-    : 12;
-  const arriba = ancla
-    ? Math.max(12, Math.min(flotante ? ancla.y : ancla.y + 8, altoVentana - 320))
-    : 12;
+  const anclaje = ancla
+    ? anclarEnVentana(
+        flotante ? ancla : { x: ancla.x + 12, y: ancla.y + 8, derecha: ancla.derecha },
+        anchoTarjeta,
+        320,
+      )
+    : { left: 12, top: 12 };
+  const izquierda = anclaje.left;
+  const arriba = anclaje.top;
   const puedeMarcar = item.tipo === 'tarea' && item.puedeMover && Boolean(onMarcarCasilla);
   const puedeRealizar =
     item.tipo === 'tarea' &&
@@ -740,16 +768,22 @@ function PopoverVistaItem({
   );
 
   if (flotante && Platform.OS === 'web') {
-    return (
+    return portalAlBody(
       <View
         {...eventosRaton}
         style={[
           styles.popoverFija,
-          { position: 'fixed' as 'absolute', left: izquierda, top: arriba, width: anchoTarjeta },
+          {
+            position: 'fixed' as 'absolute',
+            left: izquierda,
+            top: arriba,
+            width: anchoTarjeta,
+            zIndex: 2000,
+          },
         ]}
       >
         {tarjeta}
-      </View>
+      </View>,
     );
   }
 
@@ -1023,10 +1057,8 @@ function FichaTramo({
   onCerrar: () => void;
   onAbrir: (item: ItemAgenda) => void;
 }) {
-  const { width: anchoVentana, height: altoVentana } = useWindowDimensions();
   const ancho = 300;
-  const izquierda = Math.max(12, Math.min(punto.x, anchoVentana - ancho - 12));
-  const arriba = Math.max(12, Math.min(punto.y, altoVentana - 280));
+  const { left: izquierda, top: arriba } = anclarEnVentana(punto, ancho, 280);
   const lista = (
     <View style={styles.fichaTramo}>
       <Text style={styles.fichaTramoCabecera}>En este tramo</Text>
@@ -1051,15 +1083,21 @@ function FichaTramo({
   );
 
   if (Platform.OS === 'web') {
-    return (
+    return portalAlBody(
       <View
         style={[
           styles.popoverFija,
-          { position: 'fixed' as 'absolute', left: izquierda, top: arriba, width: ancho },
+          {
+            position: 'fixed' as 'absolute',
+            left: izquierda,
+            top: arriba,
+            width: ancho,
+            zIndex: 2000,
+          },
         ]}
       >
         {lista}
-      </View>
+      </View>,
     );
   }
 
@@ -3107,7 +3145,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.96)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    borderColor: 'rgba(17,17,17,0.12)',
     paddingVertical: 8,
     ...tasksUi.sombraFlotante,
   },
