@@ -1020,14 +1020,9 @@ export default function MiaScreen() {
       {vista === 'calendario' ? (
         <MiaCalendarioPedidos />
       ) : (
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Paso 1 */}
-        <View style={[styles.card, styles.cardOnTop]}>
-          <Text style={styles.stepTitle}>1. Parámetros</Text>
+      <View style={styles.pedidoBody}>
+        <View style={[styles.card, styles.cardOnTop, styles.paramsStrip]}>
+          <Text style={[styles.stepTitle, styles.paramsTitle]}>1. Parámetros</Text>
 
           <View style={[styles.paramsRow, shouldStackToolbar && styles.paramsCol]}>
             <View style={[styles.fieldGrow, shouldStackToolbar && styles.fieldFull]}>
@@ -1179,9 +1174,28 @@ export default function MiaScreen() {
           )}
         </View>
 
-        {/* Informes recientes */}
+        {error ? (
+          <View style={styles.errorBox}>
+            <MaterialIcons name="error-outline" size={18} color={miaColors.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
+        {okMsg ? (
+          <View style={styles.okBox}>
+            <MaterialIcons name="check-circle" size={18} color={miaColors.success} />
+            <Text style={styles.okText}>{okMsg}</Text>
+          </View>
+        ) : null}
+
+        <View style={[styles.paneles, shouldStackPanels && styles.panelesStack]}>
+          <View style={styles.panel}>
+            <ScrollView
+              style={styles.panelScroll}
+              contentContainerStyle={styles.panelContent}
+              keyboardShouldPersistTaps="handled"
+            >
         {warehouseId ? (
-          <View style={styles.card}>
+          <View>
             <View style={styles.cardHeaderRow}>
               <Text style={styles.stepTitle}>Informes recientes</Text>
               {loadingRecientes ? <ActivityIndicator size="small" color={miaColors.accent} /> : null}
@@ -1263,31 +1277,30 @@ export default function MiaScreen() {
               </>
             )}
           </View>
-        ) : null}
-
-        {error ? (
-          <View style={styles.errorBox}>
-            <MaterialIcons name="error-outline" size={18} color={miaColors.danger} />
-            <Text style={styles.errorText}>{error}</Text>
+        ) : (
+          <View>
+            <Text style={styles.stepTitle}>Informes recientes</Text>
+            <Text style={styles.hintMuted}>Selecciona un almacén para ver los informes.</Text>
           </View>
-        ) : null}
-        {okMsg ? (
-          <View style={styles.okBox}>
-            <MaterialIcons name="check-circle" size={18} color={miaColors.success} />
-            <Text style={styles.okText}>{okMsg}</Text>
+        )}
+            </ScrollView>
           </View>
-        ) : null}
 
-        {/* Paso 2 */}
+          <View style={styles.panel}>
+            <ScrollView
+              style={styles.panelScroll}
+              contentContainerStyle={styles.panelContent}
+              keyboardShouldPersistTaps="handled"
+            >
         {cargandoInforme ? (
-          <View style={[styles.card, styles.centro, { paddingVertical: 32 }]}>
+          <View style={[styles.centro, { paddingVertical: 32 }]}>
             <ActivityIndicator color={miaColors.accent} />
             <Text style={[styles.hintMuted, { marginTop: 8 }]}>Cargando informe…</Text>
           </View>
         ) : null}
 
         {informe && !cargandoInforme ? (
-          <View style={styles.card}>
+          <View>
             <View style={[styles.cardHeaderRow, shouldStackPanels && styles.paramsCol]}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.stepTitle}>2. Revisión</Text>
@@ -1521,8 +1534,16 @@ export default function MiaScreen() {
               })
             )}
           </View>
+        ) : !cargandoInforme ? (
+          <View>
+            <Text style={styles.stepTitle}>2. Revisión</Text>
+            <Text style={styles.hintMuted}>Calcula un pedido o abre un informe reciente.</Text>
+          </View>
         ) : null}
-      </ScrollView>
+            </ScrollView>
+          </View>
+        </View>
+      </View>
       )}
 
       {ConfirmarView}
@@ -1598,8 +1619,36 @@ const styles = StyleSheet.create({
   vistaBtnActivo: { backgroundColor: miaColors.accentMuted, borderColor: miaColors.accentBorder },
   vistaBtnText: { fontSize: 13, fontWeight: '600', color: miaColors.textSecondary },
   vistaBtnTextActivo: { color: miaColors.accent },
-  scroll: { flex: 1, position: 'relative', zIndex: 0 },
-  scrollContent: { padding: 16, paddingBottom: 40, gap: 12 },
+  pedidoBody: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+    gap: 8,
+    overflow: 'hidden',
+  },
+  paramsStrip: { paddingVertical: 10, paddingHorizontal: 12 },
+  paramsTitle: { fontSize: 14, marginBottom: 6 },
+  paneles: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  panelesStack: { flexDirection: 'column' },
+  panel: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+    backgroundColor: miaColors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: miaColors.border,
+    overflow: 'hidden',
+  },
+  panelScroll: { flex: 1 },
+  panelContent: { padding: 14, paddingBottom: 28 },
   card: {
     backgroundColor: miaColors.surface,
     borderRadius: 12,
