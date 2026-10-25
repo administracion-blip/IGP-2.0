@@ -124,7 +124,6 @@ const HORA_VISTA_INICIO = 8;
 const HORA_VISTA_FIN = 22;
 const ALTO_HORA = 58;
 const ALTO_BLOQUE_MIN = 22;
-const ALTO_OJO_BLOQUE = 28;
 const MINUTOS_DIA_INICIO = HORA_VISTA_INICIO * 60;
 const MINUTOS_DIA_FIN = HORA_VISTA_FIN * 60;
 const ALTO_REJILLA = (HORA_VISTA_FIN - HORA_VISTA_INICIO) * ALTO_HORA;
@@ -520,18 +519,33 @@ function BotonMarcarRealizada({
   );
 }
 
+type PuntoFicha = { x: number; y: number };
+
+function puntoDeTarjeta(nodo: EventTarget | null): PuntoFicha | null {
+  if (!nodo || typeof (nodo as HTMLElement).getBoundingClientRect !== 'function') return null;
+  const r = (nodo as HTMLElement).getBoundingClientRect();
+  return { x: r.left, y: r.bottom };
+}
+
 function PopoverVistaItem({
   item,
   ancla,
+  flotante,
   onCerrar,
   onAbrir,
+  onRatonEntrar,
+  onRatonSalir,
   onMarcarCasilla,
   onMarcarRealizada,
 }: {
   item: ItemAgenda;
   ancla: { x: number; y: number } | null;
+  /** En web, anclada y sin velo. En nativo, hoja inferior. */
+  flotante?: boolean;
   onCerrar: () => void;
   onAbrir: () => void;
+  onRatonEntrar?: () => void;
+  onRatonSalir?: () => void;
   /** Marca o desmarca una casilla. Solo si la tarea se puede editar. */
   onMarcarCasilla?: (casillaId: string, hecho: boolean) => Promise<void>;
   /** Cierra la tarea. Solo si se puede editar y aún no está hecha. */
@@ -559,10 +573,15 @@ function PopoverVistaItem({
           borderColor: tasksUi.color.bordeSutil,
           ...tasksUi.sombraFlotante,
         };
-  const anclado = !isCompact && ancla != null;
+  const hoja = !flotante && (isCompact || Platform.OS !== 'web');
+  const anclado = !hoja && ancla != null;
   const anchoTarjeta = 340;
-  const izquierda = ancla ? Math.max(12, Math.min(ancla.x + 12, anchoVentana - anchoTarjeta - 12)) : 12;
-  const arriba = ancla ? Math.max(12, Math.min(ancla.y + 8, altoVentana - 320)) : 12;
+  const izquierda = ancla
+    ? Math.max(12, Math.min(flotante ? ancla.x : ancla.x + 12, anchoVentana - anchoTarjeta - 12))
+    : 12;
+  const arriba = ancla
+    ? Math.max(12, Math.min(flotante ? ancla.y : ancla.y + 8, altoVentana - 320))
+    : 12;
   const puedeMarcar = item.tipo === 'tarea' && item.puedeMover && Boolean(onMarcarCasilla);
   const puedeRealizar =
     item.tipo === 'tarea' &&
@@ -595,19 +614,18 @@ function PopoverVistaItem({
     }
   };
 
-  return (
-    <Modal visible transparent animationType={isCompact ? 'slide' : 'fade'} onRequestClose={onCerrar}>
-      <Pressable
-        style={[styles.popoverOverlay, isCompact && styles.popoverOverlayHoja]}
-        onPress={onCerrar}
-        accessibilityLabel="Cerrar vista previa"
-      >
+  const eventosRaton =
+    Platform.OS === 'web' && flotante
+      ? { onMouseEnter: onRatonEntrar, onMouseLeave: onRatonSalir }
+      : {};
+
+  const tarjeta = (
         <Pressable
           style={[
             styles.popoverCard,
             cristal,
-            isCompact && styles.popoverCardHoja,
-            anclado && [styles.popoverCardAncla, { left: izquierda, top: arriba, width: anchoTarjeta }],
+            hoja && styles.popoverCardHoja,
+            anclado && !flotante && [styles.popoverCardAncla, { left: izquierda, top: arriba, width: anchoTarjeta }],
           ]}
           onPress={() => {}}
         >
@@ -699,42 +717,41 @@ function PopoverVistaItem({
             </View>
           ) : null}
         </Pressable>
+  );
+
+  if (flotante && Platform.OS === 'web') {
+    return (
+      <View
+        {...eventosRaton}
+        style={[
+          styles.popoverFija,
+          { position: 'fixed' as 'absolute', left: izquierda, top: arriba, width: anchoTarjeta },
+        ]}
+      >
+        {tarjeta}
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible transparent animationType={hoja ? 'slide' : 'fade'} onRequestClose={onCerrar}>
+      <Pressable
+        style={[styles.popoverOverlay, hoja && styles.popoverOverlayHoja]}
+        onPress={onCerrar}
+        accessibilityLabel="Cerrar vista previa"
+      >
+        {tarjeta}
       </Pressable>
     </Modal>
-  );
-}
-
-function BotonOjo({
-  compacto,
-  onPress,
-}: {
-  compacto?: boolean;
-  onPress: (origen: { x: number; y: number }) => void;
-}) {
-  const lado = compacto ? ALTO_OJO_BLOQUE : MIN_TOUCH;
-  return (
-    <TouchableOpacity
-      onPress={(e) => {
-        const n = e.nativeEvent as { pageX: number; pageY: number; clientX?: number; clientY?: number };
-        onPress({
-          x: typeof n.clientX === 'number' ? n.clientX : n.pageX,
-          y: typeof n.clientY === 'number' ? n.clientY : n.pageY,
-        });
-      }}
-      style={[styles.ojoBtn, { width: lado, height: lado, minWidth: lado, minHeight: lado }]}
-      hitSlop={compacto ? 6 : 4}
-      accessibilityLabel="Ver detalle"
-      accessibilityRole="button"
-    >
-      <MaterialIcons name="visibility" size={compacto ? 16 : 18} color={tasksUi.color.textoTerciario} />
-    </TouchableOpacity>
   );
 }
 
 function PastillaAgenda({
   item,
   onAbrir,
-  onVistaPrevia,
+  onHoverEntrar,
+  onHoverSalir,
+  onPulsacionLarga,
   arrastrable,
   arrastrando,
   recienSoltada,
@@ -743,7 +760,9 @@ function PastillaAgenda({
 }: {
   item: ItemAgenda;
   onAbrir: () => void;
-  onVistaPrevia: (origen: { x: number; y: number }) => void;
+  onHoverEntrar?: (punto: PuntoFicha) => void;
+  onHoverSalir?: () => void;
+  onPulsacionLarga?: () => void;
   arrastrable?: boolean;
   arrastrando?: boolean;
   recienSoltada?: boolean;
@@ -754,6 +773,9 @@ function PastillaAgenda({
   const color = hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
   const fondo = hecho ? FONDO_TAREA_HECHA : FONDO_AGENDA[item.tipo];
   const tramo = etiquetaTramo(item);
+  const ficha = item.tipo === 'tarea' || item.tipo === 'reunion';
+  const toqueLargo =
+    Platform.OS !== 'web' && ficha ? { delayLongPress: 400, onLongPress: onPulsacionLarga } : {};
   const cuerpo = (
     <View
       style={[
@@ -768,6 +790,7 @@ function PastillaAgenda({
         onPress={onAbrir}
         activeOpacity={0.75}
         accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}`}
+        {...toqueLargo}
       >
         <View style={[styles.pillFranja, { backgroundColor: color }]} />
         <View style={styles.pillCuerpo}>
@@ -787,19 +810,28 @@ function PastillaAgenda({
           </View>
         </View>
       </TouchableOpacity>
-      {item.tipo === 'tarea' || item.tipo === 'reunion' ? (
-        <BotonOjo onPress={onVistaPrevia} />
-      ) : null}
     </View>
   );
 
-  if (Platform.OS !== 'web' || !arrastrable) return cuerpo;
-  if (item.tipo !== 'tarea' && item.tipo !== 'reunion') return cuerpo;
+  const ratonWeb =
+    Platform.OS === 'web' && ficha
+      ? {
+          onMouseEnter: (e: { currentTarget: EventTarget }) => {
+            const punto = puntoDeTarjeta(e.currentTarget);
+            if (punto) onHoverEntrar?.(punto);
+          },
+          onMouseLeave: () => onHoverSalir?.(),
+        }
+      : null;
+
+  if (Platform.OS !== 'web' || !ficha) return cuerpo;
+  if (!arrastrable) return createElement('div', ratonWeb ?? {}, cuerpo);
 
   const payload: PayloadDragAgenda = { tipo: item.tipo, id: item.id, clave: item.clave };
   return createElement(
     'div',
     {
+      ...ratonWeb,
       draggable: true,
       onDragStart: (e: DragEvent<HTMLDivElement>) => {
         e.stopPropagation();
@@ -831,7 +863,9 @@ function BloqueHorario({
   arrastrando,
   recienSoltada,
   onAbrir,
-  onVistaPrevia,
+  onHoverEntrar,
+  onHoverSalir,
+  onPulsacionLarga,
   onDragStart,
   onDragEnd,
 }: {
@@ -840,7 +874,9 @@ function BloqueHorario({
   arrastrando: boolean;
   recienSoltada: boolean;
   onAbrir: () => void;
-  onVistaPrevia: (origen: { x: number; y: number }) => void;
+  onHoverEntrar?: (punto: PuntoFicha) => void;
+  onHoverSalir?: () => void;
+  onPulsacionLarga?: () => void;
   onDragStart?: (payload: PayloadDragAgenda) => void;
   onDragEnd?: () => void;
 }) {
@@ -861,6 +897,9 @@ function BloqueHorario({
     boxSizing: 'border-box' as const,
   };
 
+  const ficha = item.tipo === 'tarea' || item.tipo === 'reunion';
+  const toqueLargo =
+    Platform.OS !== 'web' && ficha ? { delayLongPress: 400, onLongPress: onPulsacionLarga } : {};
   const interior = (
     <>
       <TouchableOpacity
@@ -868,6 +907,7 @@ function BloqueHorario({
         onPress={onAbrir}
         activeOpacity={0.8}
         accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}${tramo ? `, ${tramo}` : ''}`}
+        {...toqueLargo}
       >
         <View style={styles.bloqueTituloFila}>
           <Text
@@ -885,11 +925,21 @@ function BloqueHorario({
           </Text>
         ) : null}
       </TouchableOpacity>
-      <BotonOjo compacto onPress={onVistaPrevia} />
     </>
   );
 
-  if (Platform.OS !== 'web' || !arrastrable || (item.tipo !== 'tarea' && item.tipo !== 'reunion')) {
+  const ratonWeb =
+    Platform.OS === 'web' && ficha
+      ? {
+          onMouseEnter: (e: { currentTarget: EventTarget }) => {
+            const punto = puntoDeTarjeta(e.currentTarget);
+            if (punto) onHoverEntrar?.(punto);
+          },
+          onMouseLeave: () => onHoverSalir?.(),
+        }
+      : null;
+
+  if (Platform.OS !== 'web' || !ficha) {
     return (
       <View
         style={[
@@ -909,7 +959,8 @@ function BloqueHorario({
   return createElement(
     'div',
     {
-      draggable: true,
+      ...ratonWeb,
+      draggable: arrastrable,
       onDragStart: (e: DragEvent<HTMLDivElement>) => {
         e.stopPropagation();
         const raw = JSON.stringify(payload);
@@ -931,7 +982,7 @@ function BloqueHorario({
         overflow: 'hidden',
         paddingRight: 2,
         zIndex: 2,
-        cursor: arrastrando ? 'grabbing' : 'grab',
+        cursor: arrastrable ? (arrastrando ? 'grabbing' : 'grab') : 'pointer',
         opacity: arrastrando ? 0.4 : 1,
         outline: recienSoltada ? `1px solid ${tasksUi.color.acento}` : undefined,
       },
@@ -1216,6 +1267,8 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   const seqReuniones = useRef(0);
   const seqHechas = useRef(0);
   const arrastro = useRef(false);
+  const timerAbrirFicha = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerCerrarFicha = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoraClickCelda = useRef(false);
   const timerSoltada = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seqMove = useRef(new Map<string, number>());
@@ -1470,10 +1523,82 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
 
   const iniciarArrastre = useCallback((payload: PayloadDragAgenda) => {
     arrastro.current = true;
+    if (timerAbrirFicha.current) clearTimeout(timerAbrirFicha.current);
+    if (timerCerrarFicha.current) clearTimeout(timerCerrarFicha.current);
+    timerAbrirFicha.current = null;
+    timerCerrarFicha.current = null;
     setClaveArrastrando(payload.clave);
     setVistaPrevia(null);
     setAnclaVista(null);
   }, []);
+
+  const cerrarFicha = useCallback(() => {
+    if (timerAbrirFicha.current) clearTimeout(timerAbrirFicha.current);
+    if (timerCerrarFicha.current) clearTimeout(timerCerrarFicha.current);
+    timerAbrirFicha.current = null;
+    timerCerrarFicha.current = null;
+    setVistaPrevia(null);
+    setAnclaVista(null);
+  }, []);
+
+  const entrarFicha = useCallback(() => {
+    if (timerCerrarFicha.current) {
+      clearTimeout(timerCerrarFicha.current);
+      timerCerrarFicha.current = null;
+    }
+  }, []);
+
+  const programarCierreFicha = useCallback(() => {
+    if (timerAbrirFicha.current) {
+      clearTimeout(timerAbrirFicha.current);
+      timerAbrirFicha.current = null;
+    }
+    if (timerCerrarFicha.current) clearTimeout(timerCerrarFicha.current);
+    timerCerrarFicha.current = setTimeout(() => {
+      timerCerrarFicha.current = null;
+      setVistaPrevia(null);
+      setAnclaVista(null);
+    }, 150);
+  }, []);
+
+  const programarAperturaFicha = useCallback((item: ItemAgenda, punto: PuntoFicha) => {
+    if (arrastro.current) return;
+    if (item.tipo !== 'tarea' && item.tipo !== 'reunion') return;
+    if (timerCerrarFicha.current) {
+      clearTimeout(timerCerrarFicha.current);
+      timerCerrarFicha.current = null;
+    }
+    if (timerAbrirFicha.current) clearTimeout(timerAbrirFicha.current);
+    timerAbrirFicha.current = setTimeout(() => {
+      timerAbrirFicha.current = null;
+      if (arrastro.current) return;
+      setAnclaVista(punto);
+      setVistaPrevia(item);
+    }, 300);
+  }, []);
+
+  const abrirFichaNativa = useCallback((item: ItemAgenda) => {
+    if (item.tipo !== 'tarea' && item.tipo !== 'reunion') return;
+    setAnclaVista(null);
+    setVistaPrevia(item);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !vistaPrevia) return;
+    const onTecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cerrarFicha();
+    };
+    window.addEventListener('keydown', onTecla);
+    return () => window.removeEventListener('keydown', onTecla);
+  }, [vistaPrevia, cerrarFicha]);
+
+  useEffect(
+    () => () => {
+      if (timerAbrirFicha.current) clearTimeout(timerAbrirFicha.current);
+      if (timerCerrarFicha.current) clearTimeout(timerCerrarFicha.current);
+    },
+    [],
+  );
 
   const terminarArrastre = useCallback(() => {
     setClaveArrastrando(null);
@@ -1701,14 +1826,9 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
       onDragStart={iniciarArrastre}
       onDragEnd={terminarArrastre}
       onAbrir={() => abrirTrasDrag(item)}
-      onVistaPrevia={(origen) => {
-        ignoraClickCelda.current = true;
-        setTimeout(() => {
-          ignoraClickCelda.current = false;
-        }, 0);
-        setAnclaVista(origen);
-        setVistaPrevia(item);
-      }}
+      onHoverEntrar={(punto) => programarAperturaFicha(item, punto)}
+      onHoverSalir={programarCierreFicha}
+      onPulsacionLarga={() => abrirFichaNativa(item)}
     />
   );
 
@@ -1814,15 +1934,14 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
           key={vistaPrevia.clave}
           item={vistaPrevia}
           ancla={anclaVista}
+          flotante={Platform.OS === 'web'}
+          onRatonEntrar={entrarFicha}
+          onRatonSalir={programarCierreFicha}
           onAbrir={() => {
-            setVistaPrevia(null);
-            setAnclaVista(null);
+            cerrarFicha();
             abrir(vistaPrevia);
           }}
-          onCerrar={() => {
-            setVistaPrevia(null);
-            setAnclaVista(null);
-          }}
+          onCerrar={cerrarFicha}
           onMarcarCasilla={
             vistaPrevia.tipo === 'tarea' && vistaPrevia.puedeMover
               ? (casillaId, hecho) => marcarCasillaVista(vistaPrevia.id, casillaId, hecho)
@@ -2153,14 +2272,9 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                             arrastrando={claveArrastrando === b.item.clave}
                             recienSoltada={claveRecienSoltada === b.item.clave}
                             onAbrir={() => abrirTrasDrag(b.item)}
-                            onVistaPrevia={(origen) => {
-                              ignoraClickCelda.current = true;
-                              setTimeout(() => {
-                                ignoraClickCelda.current = false;
-                              }, 0);
-                              setAnclaVista(origen);
-                              setVistaPrevia(b.item);
-                            }}
+                            onHoverEntrar={(punto) => programarAperturaFicha(b.item, punto)}
+                            onHoverSalir={programarCierreFicha}
+                            onPulsacionLarga={() => abrirFichaNativa(b.item)}
                             onDragStart={iniciarArrastre}
                             onDragEnd={terminarArrastre}
                           />
@@ -2793,10 +2907,9 @@ const styles = StyleSheet.create({
   pillArrastrando: { opacity: 0.4 },
   pillRecienSoltada: { borderColor: tasksUi.color.acento },
 
-  ojoBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
+  popoverFija: {
+    position: 'fixed' as 'absolute',
+    zIndex: 80,
   },
 
   popoverOverlay: {
