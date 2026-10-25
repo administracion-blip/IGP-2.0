@@ -28,6 +28,7 @@ import {
   obtenerInventario,
 } from '../lib/inventarios/inventarios.js';
 import { abrirConteo } from '../lib/inventarios/conteo.js';
+import { guardarUmbral, leerUmbral } from '../lib/inventarios/umbral.js';
 
 const router = Router();
 
@@ -79,6 +80,22 @@ async function responderConteo(req, res, payload, status = 200) {
   const gestiona = await puedeGestionar(req);
   return res.status(status).json(gestiona ? payload : sinTeorico(payload));
 }
+
+router.get('/inventarios/umbral', gestionar, async (req, res) => {
+  try {
+    return res.json(await leerUmbral());
+  } catch (err) {
+    return atrapar(res, err, 'Error leyendo el umbral');
+  }
+});
+
+router.put('/inventarios/umbral', gestionar, async (req, res) => {
+  try {
+    return res.json(await guardarUmbral(req.body?.porcentaje, quien(req)));
+  } catch (err) {
+    return atrapar(res, err, 'Error guardando el umbral');
+  }
+});
 
 router.get('/inventarios/familias', gestionar, async (req, res) => {
   try {

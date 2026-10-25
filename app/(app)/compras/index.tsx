@@ -53,6 +53,13 @@ const INVENTARIO: Opcion[] = [
     descripcion: 'Familias a contar en cada almacén',
     permiso: 'inventario.gestionar',
   },
+  {
+    id: 'inventario-revision',
+    label: 'Revisión de inventario',
+    icon: 'rule',
+    descripcion: 'Comparar el conteo con el stock teórico del momento',
+    permiso: 'inventario.gestionar',
+  },
 ];
 
 /** Fuera de los dos bloques: misma ruta y el mismo sitio suelto de antes. */
@@ -105,6 +112,7 @@ export default function ComprasIndexScreen() {
     if (id === 'escandallos') router.push('/compras/escandallos');
     if (id === 'acuerdos') router.push('/acuerdos');
     if (id === 'inventario-plantillas') router.push('/compras/inventario-plantillas');
+    if (id === 'inventario-revision') router.push('/compras/inventario-revision');
   }
 
   function renderTarjeta(opcion: Opcion) {
