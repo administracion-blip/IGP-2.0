@@ -27,6 +27,7 @@ import {
   guardarLinea,
   listarInventarios,
   obtenerInventario,
+  ultimoImportado,
 } from '../lib/inventarios/inventarios.js';
 import { abrirConteo } from '../lib/inventarios/conteo.js';
 import { bufferInventario } from '../lib/inventarios/excel.js';
@@ -161,6 +162,17 @@ router.delete('/inventarios/plantillas/:id', gestionar, async (req, res) => {
     return res.json(await borrarPlantilla(req.params.id));
   } catch (err) {
     return atrapar(res, err, 'Error borrando la plantilla');
+  }
+});
+
+router.get('/inventarios/ultimo', ver, async (req, res) => {
+  try {
+    const warehouseId = req.query.warehouseId;
+    if (!warehouseId) return res.status(400).json({ error: 'warehouseId es obligatorio' });
+    if (!(await conAlmacen(req, res, warehouseId))) return;
+    return res.json(await ultimoImportado(warehouseId));
+  } catch (err) {
+    return atrapar(res, err, 'Error leyendo el último inventario importado');
   }
 });
 

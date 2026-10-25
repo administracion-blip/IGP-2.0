@@ -156,6 +156,36 @@ export async function listarInventarios(warehouseId) {
     .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.creadoEn.localeCompare(a.creadoEn));
 }
 
+/**
+ * Último inventario importado de un almacén. Solo fecha y estado: sin líneas
+ * ni stock. MIA podrá usarlo más adelante para ver si tiene más de 7 días;
+ * esta función no calcula ese plazo y no llama a MIA.
+ */
+export async function ultimoImportado(warehouseId) {
+  const wid = almacenId(warehouseId);
+  const metas = await queryPorAlmacen(wid, 'INV#');
+  const importados = metas.filter((meta) => meta.estado === 'importado');
+  importados.sort((a, b) => {
+    const porFecha = String(b.fecha || '').localeCompare(String(a.fecha || ''));
+    if (porFecha !== 0) return porFecha;
+    const porCierre = String(b.estadoEn || '').localeCompare(String(a.estadoEn || ''));
+    if (porCierre !== 0) return porCierre;
+    return String(b.inventarioId || '').localeCompare(String(a.inventarioId || ''));
+  });
+  const meta = importados[0];
+  if (!meta) return { warehouseId: wid, inventario: null };
+  return {
+    warehouseId: wid,
+    inventario: {
+      inventarioId: meta.inventarioId,
+      fecha: meta.fecha,
+      estado: meta.estado,
+      estadoEn: meta.estadoEn || null,
+      estadoPor: meta.estadoPor || '',
+    },
+  };
+}
+
 export async function crearInventario(body, usuario) {
   const wid = almacenId(body?.warehouseId);
   const fecha = fechaIso(body?.fecha);
