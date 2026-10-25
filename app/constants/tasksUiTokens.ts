@@ -53,6 +53,50 @@ export const tasksColor = {
   overlay: 'rgba(15, 23, 42, 0.45)',
 } as const;
 
+/** Color de un hex `#rrggbb` al alfa indicado. El calendario usa 0,08 en los fondos de tipo. */
+export function tasksColorConAlfa(hex: string, alfa = 0.08): string {
+  const h = hex.replace('#', '');
+  if (h.length !== 6) return hex;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alfa})`;
+}
+
+/**
+ * Tipos de la agenda de inicio. El resto de la interfaz es neutro;
+ * solo estos tres colores identifican el evento.
+ */
+export const tasksAgendaTipo = {
+  tarea: '#ca8a04',
+  reunion: '#7c3aed',
+  proyecto: '#db2777',
+} as const;
+
+/** Fondo del evento: 8 % del color de tipo. */
+export const tasksAgendaFondo = {
+  tarea: tasksColorConAlfa(tasksAgendaTipo.tarea, 0.08),
+  reunion: tasksColorConAlfa(tasksAgendaTipo.reunion, 0.08),
+  proyecto: tasksColorConAlfa(tasksAgendaTipo.proyecto, 0.08),
+} as const;
+
+/**
+ * Cromo del calendario de inicio, en blanco y negro.
+ * Sustituye los hex sueltos `#0ea5e9`, `#eef1f6` y `#e7ebf0`.
+ */
+export const tasksCalendario = {
+  /** Día de hoy y acción de alta. */
+  hoy: '#111111',
+  hoyTexto: '#ffffff',
+  /** Línea de la rejilla. Antes `#e7ebf0`. */
+  lineaRejilla: 'rgba(17, 17, 17, 0.08)',
+  /** Hueco de «Todo el día». Antes `#eef1f6`. */
+  todoElDia: '#ffffff',
+  hecha: '#94a3b8',
+  hechaFondo: 'rgba(17, 17, 17, 0.05)',
+  hechaTexto: '#64748b',
+} as const;
+
 export type TasksColor = typeof tasksColor;
 
 // ─── Tipografía (6 estilos; no añadir más sin decisión de diseño) ─────────────
@@ -173,6 +217,9 @@ export const tasksUi = {
   tabla: tasksTabla,
   icono: tasksIcono,
   tabularNums: tasksTabularNums,
+  agendaTipo: tasksAgendaTipo,
+  agendaFondo: tasksAgendaFondo,
+  calendario: tasksCalendario,
 } as const;
 
 export default tasksUi;
