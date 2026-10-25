@@ -237,7 +237,14 @@ function compararPorHoraInicio(a: ItemAgenda, b: ItemAgenda): number {
   return a.titulo.localeCompare(b.titulo, 'es');
 }
 
-function empaquetarBloquesDia(items: ItemAgenda[]): BloqueEmpaquetado[] {
+type MasTramo = {
+  clave: string;
+  top: number;
+  n: number;
+  items: ItemAgenda[];
+};
+
+function empaquetarBloquesDia(items: ItemAgenda[]): { bloques: BloqueEmpaquetado[]; mas: MasTramo[] } {
   const conHora: Array<{ item: ItemAgenda; inicio: number; fin: number }> = [];
   for (const item of items) {
     if (!tieneTramoHorario(item)) continue;
@@ -273,7 +280,9 @@ function empaquetarBloquesDia(items: ItemAgenda[]): BloqueEmpaquetado[] {
   }
 
   // Agrupar solapes para repartir ancho (nCarriles del cluster).
+  // Si coinciden más de 2, se pintan los dos primeros carriles y una pastilla +N.
   const resultados: BloqueEmpaquetado[] = [];
+  const mas: MasTramo[] = [];
   let i = 0;
   while (i < conCarril.length) {
     let clusterFin = conCarril[i].fin;
@@ -284,9 +293,11 @@ function empaquetarBloquesDia(items: ItemAgenda[]): BloqueEmpaquetado[] {
       maxCarril = Math.max(maxCarril, conCarril[j].carril);
       j += 1;
     }
-    const nCarriles = maxCarril + 1;
-    for (let k = i; k < j; k += 1) {
-      const t = conCarril[k];
+    const recortar = maxCarril + 1 > 2;
+    const nCarriles = recortar ? 2 : maxCarril + 1;
+    const grupo = conCarril.slice(i, j);
+    for (const t of grupo) {
+      if (recortar && t.carril >= 2) continue;
       const inicioVis = Math.max(t.inicio, MINUTOS_DIA_INICIO);
       const finVis = Math.min(t.fin, MINUTOS_DIA_FIN);
       const top = ((inicioVis - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA;
@@ -300,10 +311,23 @@ function empaquetarBloquesDia(items: ItemAgenda[]): BloqueEmpaquetado[] {
         nCarriles,
       });
     }
+    if (recortar) {
+      const inicioVis = Math.max(grupo[0].inicio, MINUTOS_DIA_INICIO);
+      const finVis = Math.min(clusterFin, MINUTOS_DIA_FIN);
+      const topCluster = ((inicioVis - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA;
+      const altoCluster = Math.max(18, ((finVis - inicioVis) / 60) * ALTO_HORA);
+      const topPill = Math.max(0, Math.min(topCluster + altoCluster - 18, ALTO_REJILLA - 18));
+      mas.push({
+        clave: `mas-${grupo.map((t) => t.item.clave).join('|')}`,
+        top: topPill,
+        n: grupo.filter((t) => t.carril >= 2).length,
+        items: grupo.map((t) => t.item).sort(compararPorHoraInicio),
+      });
+    }
     i = j;
   }
 
-  return resultados;
+  return { bloques: resultados, mas };
 }
 
 type BarraEmpaquetada = {
@@ -991,6 +1015,90 @@ function BloqueHorario({
   );
 }
 
+function FichaTramo({
+  items,
+  punto,
+  onCerrar,
+  onAbrir,
+}: {
+  items: ItemAgenda[];
+  punto: PuntoFicha;
+  onCerrar: () => void;
+  onAbrir: (item: ItemAgenda) => void;
+}) {
+  const { width: anchoVentana, height: altoVentana } = useWindowDimensions();
+  const ancho = 300;
+  const izquierda = Math.max(12, Math.min(punto.x, anchoVentana - ancho - 12));
+  const arriba = Math.max(12, Math.min(punto.y, altoVentana - 280));
+  const lista = (
+    <View style={styles.fichaTramo}>
+      <Text style={styles.fichaTramoCabecera}>En este tramo</Text>
+      {items.map((item) => {
+        const tramo = etiquetaTramo(item);
+        return (
+          <TouchableOpacity
+            key={item.clave}
+            style={styles.fichaTramoFila}
+            onPress={() => onAbrir(item)}
+            accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}`}
+          >
+            <View style={[styles.popoverCuadrado, { backgroundColor: COLOR_AGENDA[item.tipo] }]} />
+            <Text style={styles.fichaTramoHora}>{tramo ?? 'Sin hora'}</Text>
+            <Text style={[styles.fichaTramoTitulo, item.hecho && styles.pillHecho]} numberOfLines={1}>
+              {item.titulo}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  if (Platform.OS === 'web') {
+    return (
+      <View
+        style={[
+          styles.popoverFija,
+          { position: 'fixed' as 'absolute', left: izquierda, top: arriba, width: ancho },
+        ]}
+      >
+        {lista}
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onCerrar}>
+      <Pressable style={[styles.popoverOverlay, styles.popoverOverlayHoja]} onPress={onCerrar}>
+        <Pressable onPress={() => {}}>{lista}</Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function PastillaMas({ tramo, onAbrir }: { tramo: MasTramo; onAbrir: (punto: PuntoFicha) => void }) {
+  return (
+    <TouchableOpacity
+      style={[styles.pastillaMas, { top: tramo.top + PAD_REJILLA_TOP }]}
+      onPress={(e) => {
+        const ev = e as { stopPropagation?: () => void; currentTarget?: unknown; nativeEvent: { pageX: number; pageY: number; clientX?: number; clientY?: number } };
+        ev.stopPropagation?.();
+        const punto = puntoDeTarjeta((ev.currentTarget as EventTarget | null) ?? null);
+        const n = ev.nativeEvent;
+        onAbrir(
+          punto ?? {
+            x: typeof n.clientX === 'number' ? n.clientX : n.pageX,
+            y: typeof n.clientY === 'number' ? n.clientY : n.pageY,
+          },
+        );
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`${tramo.n} más en este tramo`}
+    >
+      <Text style={[styles.pastillaMasTexto, fuenteInter('medium')]}>{`+${tramo.n}`}</Text>
+    </TouchableOpacity>
+  );
+}
+
 function EnvolverSemana({
   movil,
   embebido,
@@ -1259,6 +1367,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   const [claveRecienSoltada, setClaveRecienSoltada] = useState<string | null>(null);
   const [vistaPrevia, setVistaPrevia] = useState<ItemAgenda | null>(null);
   const [anclaVista, setAnclaVista] = useState<{ x: number; y: number } | null>(null);
+  const [tramoMas, setTramoMas] = useState<{ items: ItemAgenda[]; punto: PuntoFicha } | null>(null);
   const [huecoAlta, setHuecoAlta] = useState<HuecoAgenda | null>(null);
   const [minutosAhora, setMinutosAhora] = useState(() => {
     const ahora = new Date();
@@ -1584,13 +1693,15 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || !vistaPrevia) return;
+    if (Platform.OS !== 'web' || (!vistaPrevia && !tramoMas)) return;
     const onTecla = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') cerrarFicha();
+      if (e.key !== 'Escape') return;
+      if (tramoMas) setTramoMas(null);
+      else cerrarFicha();
     };
     window.addEventListener('keydown', onTecla);
     return () => window.removeEventListener('keydown', onTecla);
-  }, [vistaPrevia, cerrarFicha]);
+  }, [vistaPrevia, tramoMas, cerrarFicha]);
 
   useEffect(
     () => () => {
@@ -1957,6 +2068,18 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
         />
       ) : null}
 
+      {tramoMas ? (
+        <FichaTramo
+          items={tramoMas.items}
+          punto={tramoMas.punto}
+          onCerrar={() => setTramoMas(null)}
+          onAbrir={(item) => {
+            setTramoMas(null);
+            abrir(item);
+          }}
+        />
+      ) : null}
+
       {huecoAlta ? (
         <AltaHuecoAgenda
           hueco={huecoAlta}
@@ -2208,7 +2331,8 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
               </View>
               <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil, { height: ALTO_REJILLA_CAJA }]}>
                 {diasSemana.map((iso) => {
-                  const bloques = bloquesPorDia.get(iso) ?? [];
+                  const pack = bloquesPorDia.get(iso) ?? { bloques: [], mas: [] };
+                  const bloques = pack.bloques;
                   const sobre = isoDragOver === iso;
                   return (
                     <ZonaDropDia
@@ -2277,6 +2401,13 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                             onPulsacionLarga={() => abrirFichaNativa(b.item)}
                             onDragStart={iniciarArrastre}
                             onDragEnd={terminarArrastre}
+                          />
+                        ))}
+                        {pack.mas.map((tramo) => (
+                          <PastillaMas
+                            key={tramo.clave}
+                            tramo={tramo}
+                            onAbrir={(punto) => setTramoMas({ items: tramo.items, punto })}
                           />
                         ))}
                       </Pressable>
@@ -2906,6 +3037,59 @@ const styles = StyleSheet.create({
   pillHecho: { color: TEXTO_TAREA_HECHA, textDecorationLine: 'line-through' },
   pillArrastrando: { opacity: 0.4 },
   pillRecienSoltada: { borderColor: tasksUi.color.acento },
+
+  pastillaMas: {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(17,17,17,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 4,
+  },
+  pastillaMasTexto: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: tasksUi.calendario.hoy,
+  },
+  fichaTramo: {
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: tasksUi.color.bordeSutil,
+    paddingVertical: 8,
+    ...tasksUi.sombraFlotante,
+  },
+  fichaTramoCabecera: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: tasksUi.color.textoTerciario,
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+  },
+  fichaTramoFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: MIN_TOUCH,
+  },
+  fichaTramoHora: {
+    fontSize: 12,
+    color: tasksUi.color.textoSecundario,
+    width: 88,
+    ...tasksUi.tabularNums,
+  },
+  fichaTramoTitulo: {
+    flex: 1,
+    fontSize: 13,
+    color: tasksUi.color.textoPrimario,
+  },
 
   popoverFija: {
     position: 'fixed' as 'absolute',
