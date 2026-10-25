@@ -141,6 +141,7 @@ export type TipoAgendaInicio = 'tarea' | 'reunion' | 'proyecto';
 
 export const COLOR_AGENDA: Record<TipoAgendaInicio, string> = tasksUi.agendaTipo;
 
+const COLOR_AHORA = '#f43f5e';
 const COLOR_TAREA_HECHA = tasksUi.calendario.hecha;
 const FONDO_TAREA_HECHA = tasksUi.calendario.hechaFondo;
 const TEXTO_TAREA_HECHA = tasksUi.calendario.hechaTexto;
@@ -2054,7 +2055,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                     key={h}
                     style={[
                       styles.horaEtiqueta,
-                      fuenteInter('medium'),
+                      fuenteInter('regular'),
                       {
                         top:
                           ((h - HORA_VISTA_INICIO) / (HORA_VISTA_FIN - HORA_VISTA_INICIO)) * ALTO_REJILLA +
@@ -2487,7 +2488,7 @@ const styles = StyleSheet.create({
     ...tasksUi.tipo.micro,
     ...tasksUi.tabularNums,
     color: tasksUi.color.textoTerciario,
-    fontWeight: '600',
+    fontWeight: '400',
   },
   colHeaderSemana: {
     flex: 1,
@@ -2535,12 +2536,16 @@ const styles = StyleSheet.create({
   },
   horaAhora: {
     position: 'absolute',
-    right: 14,
+    right: 8,
     ...tasksUi.tipo.micro,
     ...tasksUi.tabularNums,
-    color: tasksUi.calendario.hoy,
+    color: '#ffffff',
     fontWeight: '600',
-    backgroundColor: tasksUi.color.superficie,
+    backgroundColor: COLOR_AHORA,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    overflow: 'hidden',
     zIndex: 5,
   },
   lineaHora: {
@@ -2555,7 +2560,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: tasksUi.calendario.hoy,
+    backgroundColor: COLOR_AHORA,
     zIndex: 4,
   },
   lineaAhoraPunto: {
@@ -2565,7 +2570,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: tasksUi.calendario.hoy,
+    backgroundColor: COLOR_AHORA,
   },
   bloque: {
     position: 'absolute',
