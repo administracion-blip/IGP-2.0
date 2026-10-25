@@ -161,6 +161,14 @@ export const tables = {
    */
   miaInformeLineas: process.env.DDB_MIA_INFORME_LINEAS_TABLE || 'Igp_MiaInformeLineas',
   /**
+   * Inventarios — plantillas, cabeceras y líneas en una sola tabla.
+   * PK = PLANTILLA#<id> | INV#<id>
+   * SK = META | FAMILIA#<id> | PRODUCTO#<id> | LINE#<productId>
+   * GSI WarehouseId-Clave-index (solo los META):
+   *   HASH WarehouseId, RANGE Clave = PLANTILLA#<id> | INV#<fecha>#<id>
+   */
+  inventarios: process.env.DDB_INVENTARIOS_TABLE || 'Igp_Inventarios',
+  /**
    * MIA — meta de sincronizaciones (Stocks, etc.).
    * PK = GLOBAL, SK = STOCKS | STOCKS#<warehouseId> | …
    */

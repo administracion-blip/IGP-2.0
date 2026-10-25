@@ -109,6 +109,10 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   'mia.aprobar': 'Permite aprobar los informes de pedido de MIA.',
   'mia.confirmar_agora':
     'Permite que, al aprobar un informe de MIA, el pedido se cree en Ágora ya confirmado en lugar de como borrador.',
+  'inventario.gestionar':
+    'Permite crear y editar las plantillas de inventario, revisar conteos, cambiar el estado (revisado, exportado, importado) y borrar inventarios.',
+  'inventario.contar':
+    'Permite hacer el conteo: ver la plantilla, anotar el stock real y las botellas abiertas, y marcar el inventario como contado.',
   'escandallos.ver': 'Permite ver las recetas (escandallos) de los platos.',
   'escandallos.editar':
     'Permite crear, modificar y borrar recetas de platos, incluida su imagen.',
