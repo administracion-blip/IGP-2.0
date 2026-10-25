@@ -6,9 +6,11 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Font from 'expo-font';
 import { BotonIconoCabecera } from '../ui/BotonIconoCabecera';
 import { MIN_TOUCH } from '../../constants/layout';
-import { colors, radius, shadowCard, SPACING, typography } from '../../constants/theme';
+import { fontFamily } from '../../constants/theme';
+import { tasksUi } from '../../constants/tasksUiTokens';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { CalendarioInicio } from '../CalendarioInicio';
 
@@ -37,9 +39,15 @@ export function AgendaFlotante() {
             onPress={() => {}}
           >
             <View style={styles.panelHeader}>
-              <Text style={styles.panelTitulo}>Agenda</Text>
-              <TouchableOpacity onPress={cerrar} style={styles.cerrarBtn} accessibilityLabel="Cerrar agenda">
-                <MaterialIcons name="close" size={20} color={colors.textSecondary} />
+              <Text style={[styles.panelTitulo, Font.isLoaded(fontFamily.semibold) && styles.panelTituloInter]}>
+                Agenda
+              </Text>
+              <TouchableOpacity
+                onPress={cerrar}
+                style={[styles.cerrarBtn, isCompact && styles.cerrarBtnTactil]}
+                accessibilityLabel="Cerrar agenda"
+              >
+                <MaterialIcons name="close" size={20} color={tasksUi.calendario.hoy} />
               </TouchableOpacity>
             </View>
             <View style={styles.cuerpo}>
@@ -55,10 +63,10 @@ export function AgendaFlotante() {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: colors.overlay,
+    backgroundColor: tasksUi.color.overlay,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: SPACING.sm,
+    padding: tasksUi.space[2],
   },
   overlayPantalla: {
     paddingTop: 0,
@@ -72,12 +80,12 @@ const styles = StyleSheet.create({
     maxWidth: 1040,
     height: '90%',
     maxHeight: '90%',
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: tasksUi.color.bordeSutil,
     overflow: 'hidden',
-    ...shadowCard(),
+    ...tasksUi.sombraFlotante,
   },
   panelPantalla: {
     flex: 1,
@@ -92,20 +100,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 10,
+    paddingHorizontal: tasksUi.space[4],
+    paddingVertical: tasksUi.space[2],
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: tasksUi.color.bordeSutil,
+    backgroundColor: tasksUi.color.superficie,
   },
   panelTitulo: {
-    ...typography.subtitulo,
     fontSize: 15,
+    fontWeight: '600',
+    color: tasksUi.calendario.hoy,
   },
+  panelTituloInter: { fontFamily: fontFamily.semibold },
   cerrarBtn: {
-    minWidth: MIN_TOUCH - 8,
-    minHeight: MIN_TOUCH - 8,
+    minWidth: 32,
+    minHeight: 32,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
+  cerrarBtnTactil: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH },
   cuerpo: { flex: 1, minHeight: 0 },
 });

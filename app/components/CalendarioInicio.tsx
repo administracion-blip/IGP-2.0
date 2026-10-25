@@ -29,7 +29,9 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Font from 'expo-font';
 import { MIN_TOUCH } from '../constants/layout';
+import { fontFamily } from '../constants/theme';
 import { tasksUi } from '../constants/tasksUiTokens';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { useAccesoTasks } from '../hooks/useAccesoTasks';
@@ -143,6 +145,12 @@ const FONDO_TAREA_HECHA = tasksUi.calendario.hechaFondo;
 const TEXTO_TAREA_HECHA = tasksUi.calendario.hechaTexto;
 
 const FONDO_AGENDA: Record<TipoAgendaInicio, string> = tasksUi.agendaFondo;
+
+/** Inter solo si el arranque ya la registró; si falló la carga, sigue la fuente del sistema. */
+function fuenteInter(peso: keyof typeof fontFamily): { fontFamily: string } | null {
+  const nombre = fontFamily[peso];
+  return Font.isLoaded(nombre) ? { fontFamily: nombre } : null;
+}
 
 const ETIQUETA_TIPO: Record<TipoAgendaInicio, string> = {
   tarea: 'Tarea',
@@ -1779,7 +1787,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
           >
             <MaterialIcons name="chevron-left" size={22} color={tasksUi.color.textoPrimario} />
           </TouchableOpacity>
-          <Text style={styles.rangoTexto} numberOfLines={1}>
+          <Text style={[styles.rangoTexto, fuenteInter('semibold')]} numberOfLines={1}>
             {tituloRango}
           </Text>
           <TouchableOpacity
@@ -1809,7 +1817,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                 accessibilityLabel={`Vista ${etiqueta}`}
                 accessibilityState={{ selected: activo }}
               >
-                <MaterialIcons name={icono} size={20} color={activo ? tasksUi.calendario.hoyTexto : tasksUi.color.textoTerciario} />
+                <MaterialIcons name={icono} size={18} color={activo ? tasksUi.calendario.hoy : tasksUi.color.textoTerciario} />
                 <Text style={[styles.viewModeTexto, activo && styles.viewModeTextoActivo]}>{etiqueta}</Text>
               </TouchableOpacity>
             );
@@ -1905,7 +1913,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                   >
                     <Text style={styles.colDow}>{weekdayShortEs(iso).toUpperCase()}</Text>
                     <View style={[styles.colNumWrap, esHoy && styles.colNumHoy]}>
-                      <Text style={[styles.colNum, esHoy && styles.colNumTextoHoy]}>{diaNumero(iso)}</Text>
+                      <Text style={[styles.colNum, fuenteInter('semibold'), esHoy && styles.colNumTextoHoy]}>{diaNumero(iso)}</Text>
                     </View>
                     {esHoy ? <View style={styles.colHoyLinea} /> : <View style={styles.colHoyLineaHueco} />}
                     {delDiaTodos.length > 0 ? <Text style={styles.colCount}>{delDiaTodos.length}</Text> : null}
@@ -1973,6 +1981,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                     key={h}
                     style={[
                       styles.horaEtiqueta,
+                      fuenteInter('medium'),
                       {
                         top:
                           ((h - HORA_VISTA_INICIO) / (HORA_VISTA_FIN - HORA_VISTA_INICIO)) * ALTO_REJILLA +
@@ -2136,6 +2145,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                             <Text
                               style={[
                                 styles.mesNum,
+                                fuenteInter('semibold'),
                                 esHoy && styles.colNumTextoHoy,
                                 !delMes && !esHoy && styles.celdaNumFuera,
                               ]}
@@ -2260,20 +2270,24 @@ const styles = StyleSheet.create({
     width: MIN_TOUCH,
     height: MIN_TOUCH,
     borderRadius: tasksUi.radius.control,
-    backgroundColor: tasksUi.color.superficie,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rangoTexto: { ...tasksUi.tipo.dato, minWidth: 110, textAlign: 'center' },
+  rangoTexto: {
+    fontSize: 30,
+    fontWeight: '600',
+    letterSpacing: -0.6,
+    lineHeight: 36,
+    color: tasksUi.calendario.hoy,
+    textAlign: 'center',
+    ...tasksUi.tabularNums,
+  },
   hoyBtn: {
     minHeight: MIN_TOUCH,
     paddingHorizontal: 12,
     borderRadius: tasksUi.radius.control,
-    backgroundColor: tasksUi.color.superficie,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2281,10 +2295,8 @@ const styles = StyleSheet.create({
   viewModeWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
-    borderRadius: tasksUi.radius.control,
-    overflow: 'hidden',
+    gap: 2,
+    backgroundColor: 'transparent',
   },
   viewModeBtn: {
     flexDirection: 'row',
@@ -2292,12 +2304,13 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.control,
+    backgroundColor: 'transparent',
   },
   viewModeBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  viewModeBtnActive: { backgroundColor: tasksUi.calendario.hoy },
+  viewModeBtnActive: { backgroundColor: 'rgba(17, 17, 17, 0.06)' },
   viewModeTexto: { fontSize: 13, fontWeight: '500', color: tasksUi.color.textoTerciario },
-  viewModeTextoActivo: { color: tasksUi.calendario.hoyTexto, fontWeight: '600' },
+  viewModeTextoActivo: { color: tasksUi.calendario.hoy, fontWeight: '600' },
 
   leyenda: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   leyendaItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
@@ -2380,6 +2393,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 14,
     ...tasksUi.tipo.micro,
+    ...tasksUi.tabularNums,
     color: tasksUi.color.textoTerciario,
     fontWeight: '600',
   },
@@ -2405,7 +2419,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   colNumHoy: { backgroundColor: tasksUi.calendario.hoy },
-  colNum: { fontSize: 22, fontWeight: '700', color: tasksUi.color.textoPrimario, lineHeight: 26 },
+  colNum: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: tasksUi.color.textoPrimario,
+    lineHeight: 26,
+    ...tasksUi.tabularNums,
+  },
   colNumTextoHoy: { color: tasksUi.calendario.hoyTexto },
   colHoyLinea: {
     width: 36,
@@ -2594,7 +2614,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  mesNum: { fontSize: 16, fontWeight: '700', color: tasksUi.color.textoPrimario, lineHeight: 20 },
+  mesNum: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: tasksUi.color.textoPrimario,
+    lineHeight: 20,
+    ...tasksUi.tabularNums,
+  },
   celdaNum: { fontSize: 13, fontWeight: '600', color: tasksUi.color.textoPrimario },
   celdaNumHoy: { color: tasksUi.calendario.hoy },
   celdaNumFuera: { color: tasksUi.color.textoTerciario },
