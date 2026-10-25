@@ -16,6 +16,7 @@ import { queryUltimaCompraPorProductos } from '../dynamo/comprasProveedor.js';
 import { formatId6 } from '../usuarioLocales.js';
 import { aplicarFactorDia, resolverAjusteFacturacion } from './ajusteFacturacion.js';
 import { listConfigByWarehouse } from './configProducto.js';
+import { cargarEnCamino, claveEnCamino } from './enCamino.js';
 import {
   aggregateVentasPorProductoFecha,
   aplicarColchon,
@@ -153,6 +154,7 @@ export function buildLineaPedido({
   proveedoresCfg,
   modoDemanda,
   nombreFallback,
+  enCamino = 0,
 }) {
   const stock = toNum(config?.Quantity, 0);
   const { proveedorId, proveedorNombre } = resolverProveedor(config, ultima);
@@ -161,10 +163,9 @@ export function buildLineaPedido({
     proveedoresCfg?.get(claveProveedor(proveedorId)) || null,
   );
   const minMax = calcularMinMax({ consumoDiario, plazoDias, frecuenciaDias, colchonDias });
-  // Fase 3 restará aquí los pedidos en camino.
-  const enCamino = 0;
+  const pendiente = Math.max(0, toNum(enCamino, 0));
   const necesidad = minMax
-    ? Math.max(0, minMax.maximo - stock - enCamino)
+    ? Math.max(0, minMax.maximo - stock - pendiente)
     : Math.max(0, demandaAjustada - stock);
   const formato = pickFormatoCompra(config);
   const qty = redondearCantidadCompra(necesidad, formato);
@@ -202,7 +203,7 @@ export function buildLineaPedido({
       frecuenciaDias,
       minimo,
       maximo,
-      enCamino,
+      enCamino: pendiente,
       semaforo: semaforoStock(stock, minimo, maximo),
       modoDemanda,
     },
@@ -443,6 +444,9 @@ export async function calcularPedidoMia(input) {
   const ultimaPorProducto = await queryUltimaCompraPorProductos(productIdsFiltrados, { warehouseId });
 
   const proveedoresCfg = await mapaProveedoresConfig();
+  const enCaminoMapa = await cargarEnCamino(warehouseId);
+  const enCaminoDe = (productId, ultima) =>
+    enCaminoMapa.get(claveEnCamino(productId, ultima?.PurchaseUnitId)) || 0;
   const fColchon = factorColchon(nDiasRango, colchonDias);
   /** Demanda diaria del periodo sin colchón (el colchón va en mínimo y máximo). */
   const consumoDiarioDe = (demandaAjustada) =>
@@ -490,6 +494,7 @@ export async function calcularPedidoMia(input) {
         colchonDias,
         proveedoresCfg,
         modoDemanda: 'directo',
+        enCamino: enCaminoDe(productId, pickUltima(ultimaPorProducto, productId)),
       }));
     }
   } else {
@@ -575,6 +580,7 @@ export async function calcularPedidoMia(input) {
         colchonDias,
         proveedoresCfg,
         modoDemanda: 'directo',
+        enCamino: enCaminoDe(productId, pickUltima(ultimaPorProducto, productId)),
       }));
     }
 
@@ -596,6 +602,7 @@ export async function calcularPedidoMia(input) {
         proveedoresCfg,
         modoDemanda: 'escandallo',
         nombreFallback: info.nombre,
+        enCamino: enCaminoDe(ingId, pickUltima(ultimaPorProducto, ingId)),
       }));
     }
   }

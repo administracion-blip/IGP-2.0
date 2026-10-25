@@ -519,6 +519,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
         ok: true,
         serie: payload.Serie,
         number: payload.Number ?? null,
+        date: payload.Date ?? null,
         status: payload.Status,
         lineas: poLines.length,
         agoraStatus: result.status,
@@ -560,6 +561,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
       supplierId: r.supplierId ?? null,
       serie: r.serie ?? null,
       number: r.number ?? null,
+      date: r.date ?? null,
       ok: true,
     };
   }

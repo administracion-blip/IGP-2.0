@@ -202,6 +202,41 @@ export async function exportIncomingDeliveryNotes(businessDay, workplaces = null
   throw lastError;
 }
 
+/** Exporta pedidos de compra (PurchaseOrders) de un día. Solo lectura. El business-day es la Date del pedido. */
+export async function exportPurchaseOrders(businessDay) {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const params = new URLSearchParams();
+  params.set('filter', 'PurchaseOrders');
+  params.set('business-day', businessDay);
+  params.set('include-processed', 'true');
+  const url = `${baseUrl}/api/export/?${params.toString()}`;
+  let lastError;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[agora] Reintento ${attempt}/${MAX_RETRIES} PurchaseOrders business-day=${businessDay}`);
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+      }
+      const res = await fetchWithTimeout(url, {
+        method: 'GET',
+        headers: { 'Api-Token': token },
+      });
+      if (res.status >= 500) throw new Error(`Ágora respondió ${res.status}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw errorAgora(res.status, text.slice(0, 200));
+      }
+      return await res.json();
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
 /** Exporta maestros de familias desde Ágora (export-master filter=Families). Guía 8.9.3, sección Familias. */
 export async function exportFamilies() {
   const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');

@@ -35,6 +35,7 @@ import {
   updateLineas,
 } from '../lib/mia/informes.js';
 import { aprobarInformeMia } from '../lib/mia/aprobar.js';
+import { syncEntregasAlmacen } from '../lib/mia/syncEntregas.js';
 import { listProveedoresParaAjustes, upsertProveedorConfig } from '../lib/mia/proveedoresConfig.js';
 import {
   listByLocalId,
@@ -145,6 +146,25 @@ router.post('/mia/stocks/sync', requirePermission('mia.sincronizar'), async (req
   } catch (err) {
     req.log?.error?.({ err }, '[mia/stocks/sync] Error');
     return responderError(res, err, { mensaje: 'Error sincronizando stocks', status: 502, extra: { ok: false } });
+  }
+});
+
+router.post('/mia/entregas/sync', requirePermission('mia.sincronizar'), async (req, res) => {
+  const body = req.body || {};
+  const wid = normalizeWarehouseId(body.warehouseId ?? req.query.warehouseId);
+  if (!wid || wid === '000000') {
+    return res.status(400).json({ error: 'warehouseId es obligatorio' });
+  }
+  if (!(await permiteAlmacen(req, wid))) return sinAcceso(res);
+  try {
+    const result = await syncEntregasAlmacen(wid, {
+      maxDias: body.maxDias,
+      maxInformes: body.maxInformes,
+    });
+    return res.json(result);
+  } catch (err) {
+    req.log?.error?.({ err }, '[mia/entregas/sync] Error');
+    return responderError(res, err, { mensaje: 'Error sincronizando entregas', status: 502, extra: { ok: false } });
   }
 });
 

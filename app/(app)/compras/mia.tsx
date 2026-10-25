@@ -53,6 +53,7 @@ type MiaLinea = {
   proveedorId: string;
   proveedorNombre?: string;
   cantidadPedida: number;
+  cantidadEntregada?: number | null;
   qty?: number;
   qtyCalculada?: number;
   omitida?: boolean;
@@ -136,6 +137,7 @@ type DraftLinea = {
   nombre: string;
   proveedorNombre: string;
   cantidadPedida: string;
+  cantidadEntregada: number | null;
   omitida: boolean;
   unit: string;
   costeUnitario: number;
@@ -145,6 +147,7 @@ type DraftLinea = {
   minimo: number | null;
   maximo: number | null;
   semaforo: SemaforoStock | null;
+  enCamino: number;
 };
 
 const SEMAFORO: Record<SemaforoStock, { bg: string; text: string; label: string }> = {
@@ -226,6 +229,7 @@ function toDraft(lineas: MiaLinea[]): DraftLinea[] {
       nombre: String(ln.nombre || ln.productId || '').trim(),
       proveedorNombre: String(ln.proveedorNombre || ln.proveedorId || 'Sin proveedor').trim(),
       cantidadPedida: String(qty),
+      cantidadEntregada: numOrNull(ln.cantidadEntregada),
       omitida: ln.omitida === true,
       unit: String(ln.unit || '').trim() || 'ud',
       costeUnitario: Number(ln.costeUnitario) || 0,
@@ -234,6 +238,7 @@ function toDraft(lineas: MiaLinea[]): DraftLinea[] {
       minimo: numOrNull(ln.minimo),
       maximo: numOrNull(ln.maximo),
       semaforo: ln.semaforo && ln.semaforo in SEMAFORO ? ln.semaforo : null,
+      enCamino: numOrNull(ln.enCamino) ?? 0,
     };
   });
 }
@@ -279,6 +284,7 @@ export default function MiaScreen() {
   const puedeVer = hasPermiso('mia.ver');
   const puedeCalcular = hasPermiso('mia.calcular');
   const puedeAprobar = hasPermiso('mia.aprobar');
+  const puedeSincronizar = hasPermiso('mia.sincronizar');
   const puedeConfigurar = hasPermiso('mia.configurar');
   const puedeAjustar = puedeCalcular || puedeAprobar;
 
@@ -304,13 +310,14 @@ export default function MiaScreen() {
   const [fechaHasta, setFechaHasta] = useState(addDaysIso(jornada, 6));
   const [semanasHistorico, setSemanasHistorico] = useState('4');
   const [colchonDias, setColchonDias] = useState('1');
-  const [syncStock, setSyncStock] = useState(false);
+  const [syncStock, setSyncStock] = useState(true);
 
   const [calculando, setCalculando] = useState(false);
   const [cargandoInforme, setCargandoInforme] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [aprobando, setAprobando] = useState(false);
   const [descargandoPdf, setDescargandoPdf] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
 
   const [informe, setInforme] = useState<MiaInforme | null>(null);
   const [drafts, setDrafts] = useState<DraftLinea[]>([]);
@@ -327,6 +334,7 @@ export default function MiaScreen() {
   const [borrandoId, setBorrandoId] = useState<string | null>(null);
   const [vista, setVista] = useState<VistaMia>('pedido');
   const [ocultarSinPedido, setOcultarSinPedido] = useState(true);
+  const [busqueda, setBusqueda] = useState('');
   const [modalProveedoresVisible, setModalProveedoresVisible] = useState(false);
 
   const opcionesAlmacen = useMemo(
@@ -401,6 +409,27 @@ export default function MiaScreen() {
       .map((g) => ({ ...g, lineas: g.lineas.filter((d) => !sinPedido(d)) }))
       .filter((g) => g.lineas.length > 0);
   }, [gruposDraft, ocultarSinPedido]);
+
+  const gruposFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLocaleLowerCase('es');
+    if (!q) return gruposVisibles;
+    return gruposVisibles
+      .map((g) => ({
+        ...g,
+        lineas: g.lineas.filter((d) => {
+          const campos = [
+            d.nombre,
+            d.productId,
+            d.cantidadPedida,
+            d.cantidadEntregada,
+            d.proveedorNombre,
+            g.proveedorNombre,
+          ];
+          return campos.some((c) => String(c ?? '').toLocaleLowerCase('es').includes(q));
+        }),
+      }))
+      .filter((g) => g.lineas.length > 0);
+  }, [gruposVisibles, busqueda]);
 
   const totalesLocales = useMemo(() => {
     let productos = 0;
@@ -525,7 +554,12 @@ export default function MiaScreen() {
     setFrescor(null);
     setOkMsg(null);
     setFiltroEstado('todos');
+    setBusqueda('');
   }, [warehouseId]);
+
+  useEffect(() => {
+    setBusqueda('');
+  }, [informe?.informeId]);
 
   const aplicarResultado = useCallback(
     (data: {
@@ -651,6 +685,53 @@ export default function MiaScreen() {
     },
     [aplicarResultado],
   );
+
+  const sincronizarEntregas = useCallback(async () => {
+    if (!puedeSincronizar || !warehouseId || sincronizando) return;
+    setSincronizando(true);
+    setError(null);
+    setOkMsg(null);
+    try {
+      const r = await apiFetch('/api/mia/entregas/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ warehouseId }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || data.ok === false || data.error) {
+        setError(data.error || 'No se pudieron sincronizar las entregas');
+        return;
+      }
+      const id = informe?.informeId;
+      if (id) {
+        const rr = await apiFetch(`/api/mia/informes/${encodeURIComponent(id)}`);
+        const full = await rr.json().catch(() => ({}));
+        if (rr.ok && Array.isArray(full.lineas)) {
+          const entregadas = new Map(
+            toDraft(full.lineas).map((d) => [lineKey(d.proveedorId, d.productId), d.cantidadEntregada]),
+          );
+          const aplicar = (lista: DraftLinea[]) =>
+            lista.map((d) => {
+              const key = lineKey(d.proveedorId, d.productId);
+              if (!entregadas.has(key)) return d;
+              return { ...d, cantidadEntregada: entregadas.get(key) ?? null };
+            });
+          setDrafts(aplicar);
+          setBaseline(aplicar);
+        }
+      }
+      const n = Number(data.lineasActualizadas) || 0;
+      setOkMsg(
+        n === 1
+          ? 'Entregas sincronizadas: 1 línea actualizada.'
+          : `Entregas sincronizadas: ${n} líneas actualizadas.`,
+      );
+    } catch (e) {
+      setError(errorMessage(e, 'Error sincronizando entregas'));
+    } finally {
+      setSincronizando(false);
+    }
+  }, [puedeSincronizar, warehouseId, sincronizando, informe?.informeId]);
 
   const informesFiltrados = useMemo(() => {
     if (filtroEstado === 'todos') return informesRecientes;
@@ -986,7 +1067,7 @@ export default function MiaScreen() {
     );
   }
 
-  const busy = calculando || cargandoInforme || guardando || aprobando || descargandoPdf;
+  const busy = calculando || cargandoInforme || guardando || aprobando || descargandoPdf || sincronizando;
   const hayMismatch =
     (mismatches?.nombresSinAlmacen?.length || 0) > 0 ||
     (mismatches?.almacenesSinLocal?.length || 0) > 0;
@@ -1384,6 +1465,24 @@ export default function MiaScreen() {
                     </>
                   )}
                 </TouchableOpacity>
+                {!isPhone && puedeSincronizar ? (
+                <TouchableOpacity
+                  style={[styles.btnSecondary, (busy || !warehouseId) && styles.btnDisabled]}
+                  onPress={() => {
+                    void sincronizarEntregas();
+                  }}
+                  disabled={busy || !warehouseId}
+                >
+                  {sincronizando ? (
+                    <ActivityIndicator size="small" color={miaColors.accent} />
+                  ) : (
+                    <>
+                      <MaterialIcons name="sync" size={18} color={miaColors.accent} />
+                      <Text style={styles.btnSecondaryText}>Sincronizar entregas</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                ) : null}
                 {!isPhone ? (
                 <TouchableOpacity
                   style={[styles.btnSecondary, (busy || drafts.length === 0) && styles.btnDisabled]}
@@ -1479,6 +1578,28 @@ export default function MiaScreen() {
                 </Text>
             )}
 
+            <View style={styles.busquedaRow}>
+              <MaterialIcons name="search" size={18} color={miaColors.textSecondary} />
+              <TextInput
+                style={styles.busquedaInput}
+                value={busqueda}
+                onChangeText={setBusqueda}
+                placeholder="Buscar producto, id, cantidad o proveedor"
+                placeholderTextColor={miaColors.textSecondary}
+                autoCorrect={false}
+                accessibilityLabel="Buscar en la revisión"
+              />
+              {busqueda ? (
+                <TouchableOpacity
+                  onPress={() => setBusqueda('')}
+                  accessibilityLabel="Limpiar búsqueda"
+                  style={styles.busquedaClear}
+                >
+                  <MaterialIcons name="close" size={18} color={miaColors.textSecondary} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
             {lineasSinPedido > 0 ? (
               <View style={styles.filtroRow}>
                 <Switch
@@ -1494,14 +1615,16 @@ export default function MiaScreen() {
               </View>
             ) : null}
 
-            {gruposVisibles.length === 0 ? (
+            {gruposFiltrados.length === 0 ? (
               <Text style={styles.hintMuted}>
-                {gruposDraft.length === 0
-                  ? 'Sin líneas de pedido en este informe.'
-                  : 'No hay nada que pedir: todos los productos tienen stock suficiente.'}
+                {busqueda.trim()
+                  ? 'Ningún producto coincide con la búsqueda.'
+                  : gruposDraft.length === 0
+                    ? 'Sin líneas de pedido en este informe.'
+                    : 'No hay nada que pedir: todos los productos tienen stock suficiente.'}
               </Text>
             ) : (
-              gruposVisibles.map((g) => {
+              gruposFiltrados.map((g) => {
                 const subtotal = g.lineas.reduce((s, d) => s + costeDraft(d), 0);
                 return (
                   <View key={g.proveedorId} style={styles.proveedorBlock}>
@@ -1515,6 +1638,7 @@ export default function MiaScreen() {
                       <Text style={[styles.th, styles.colProducto]}>Producto</Text>
                       <Text style={[styles.th, styles.colStock]}>Stock</Text>
                       <Text style={[styles.th, styles.colQty]}>Cant.</Text>
+                      <Text style={[styles.th, styles.colEntrega]}>Entreg.</Text>
                       <Text style={[styles.th, styles.colCoste]}>Coste</Text>
                       <Text style={[styles.th, styles.colOmit]}>Omitir</Text>
                     </View>
@@ -1545,6 +1669,7 @@ export default function MiaScreen() {
                               {d.minimo != null && d.maximo != null
                                 ? ` · Mín ${formatCantidad(d.minimo)} · Máx ${formatCantidad(d.maximo)}`
                                 : ''}
+                              {d.enCamino > 0 ? ` · En camino ${formatCantidad(d.enCamino)}` : ''}
                             </Text>
                           </View>
                           <View style={styles.colStock}>
@@ -1569,6 +1694,9 @@ export default function MiaScreen() {
                             keyboardType="decimal-pad"
                             editable={editable && !busy && !d.omitida}
                           />
+                          <Text style={[styles.colEntrega, styles.costeCell]}>
+                            {formatCantidad(d.cantidadEntregada)}
+                          </Text>
                           <Text style={[styles.colCoste, styles.costeCell]}>{formatMoneda(costeDraft(d))}</Text>
                           <View style={styles.colOmit}>
                             <Switch
@@ -1598,6 +1726,25 @@ export default function MiaScreen() {
         </View>
         {isPhone && informe && !cargandoInforme ? (
           <View style={styles.barraMovil}>
+            {puedeSincronizar ? (
+              <TouchableOpacity
+                style={[styles.btnSecondary, styles.barraBtn, (busy || !warehouseId) && styles.btnDisabled]}
+                onPress={() => {
+                  void sincronizarEntregas();
+                }}
+                disabled={busy || !warehouseId}
+                accessibilityLabel="Sincronizar entregas"
+              >
+                {sincronizando ? (
+                  <ActivityIndicator size="small" color={miaColors.accent} />
+                ) : (
+                  <>
+                    <MaterialIcons name="sync" size={18} color={miaColors.accent} />
+                    <Text style={styles.btnSecondaryText}>Entregas</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={[
                 styles.btnSecondary,
@@ -1996,6 +2143,7 @@ const styles = StyleSheet.create({
   tableRowOmit: { opacity: 0.55 },
   colProducto: { flex: 1, minWidth: 140 },
   colQty: { width: 72, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  colEntrega: { width: 72, textAlign: 'right', fontVariant: ['tabular-nums'] },
   colStock: { width: 84, alignItems: 'flex-end', textAlign: 'right' },
   stockPill: {
     flexDirection: 'row',
@@ -2014,6 +2162,31 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   filtroRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  busquedaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: miaColors.border,
+    borderRadius: 8,
+    backgroundColor: miaColors.bg,
+    paddingHorizontal: 10,
+    minHeight: MIN_TOUCH,
+    marginBottom: 8,
+  },
+  busquedaInput: {
+    flex: 1,
+    fontSize: 14,
+    color: miaColors.text,
+    minHeight: MIN_TOUCH,
+    paddingVertical: 8,
+  },
+  busquedaClear: {
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   colCoste: { width: 88, textAlign: 'right', fontVariant: ['tabular-nums'] },
   colOmit: { width: 56, alignItems: 'center', textAlign: 'center' },
   productoTitulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
