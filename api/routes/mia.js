@@ -34,6 +34,7 @@ import {
   updateLineas,
 } from '../lib/mia/informes.js';
 import { aprobarInformeMia } from '../lib/mia/aprobar.js';
+import { listProveedoresParaAjustes, upsertProveedorConfig } from '../lib/mia/proveedoresConfig.js';
 import {
   listByLocalId,
   listByWarehouseId,
@@ -172,6 +173,36 @@ router.put('/mia/config', requirePermission('mia.configurar'), async (req, res) 
   try {
     const item = await upsertConfigProducto(body);
     res.json({ ok: true, item });
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudo guardar' });
+  }
+});
+
+// ─── Plazo y frecuencia por proveedor (Igp_Ajustes PK=mia_proveedores) ───────
+
+router.get('/mia/proveedores-config', requirePermission('mia.configurar'), async (req, res) => {
+  const raw = req.query.warehouseId;
+  let wid = null;
+  if (raw != null && String(raw).trim() !== '') {
+    wid = normalizeWarehouseId(raw);
+    if (!wid || wid === '000000') {
+      return res.status(400).json({ error: 'warehouseId inválido' });
+    }
+    if (!(await permiteLecturaAlmacen(req, wid))) return sinAcceso(res);
+  }
+  try {
+    const items = await listProveedoresParaAjustes(wid);
+    return res.json({ warehouseId: wid, items, total: items.length });
+  } catch (err) {
+    req.log?.error?.({ err }, '[mia/proveedores-config] Error listando');
+    return responderError(res, err, { mensaje: 'Error listando proveedores' });
+  }
+});
+
+router.put('/mia/proveedores-config', requirePermission('mia.configurar'), async (req, res) => {
+  try {
+    const item = await upsertProveedorConfig(req.body || {}, req.user);
+    return res.json({ ok: true, item });
   } catch (err) {
     return responderError(res, err, { mensaje: 'No se pudo guardar' });
   }

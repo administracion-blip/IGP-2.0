@@ -19,13 +19,18 @@ import { listConfigByWarehouse } from './configProducto.js';
 import {
   aggregateVentasPorProductoFecha,
   aplicarColchon,
+  calcularMinMax,
   demandaBaseRango,
+  factorColchon,
   mediaPorWeekday,
   parseIsoDate,
   rangoHistorico,
   redondearCantidadCompra,
+  resolverPlazoFrecuencia,
+  semaforoStock,
 } from './demanda.js';
-import { agruparLineasPorProveedor, putInformeCompleto } from './informes.js';
+import { agruparLineasPorProveedor, putInformeCompleto, recalcTotales } from './informes.js';
+import { claveProveedor, mapaProveedoresConfig } from './proveedoresConfig.js';
 import { buildMapaLocalAlmacen } from './localAlmacen.js';
 import { normalizeProductId, normalizeWarehouseId } from './keys.js';
 import { canonicalFamilyId, getGrupoFamilias } from './gruposFamilias.js';
@@ -107,10 +112,35 @@ function mergeExploded(target, source) {
   }
 }
 
+function resolverProveedor(config, ultima) {
+  const configProv = config?.proveedorId != null ? String(config.proveedorId).trim() : '';
+  if (configProv) {
+    return {
+      proveedorId: configProv,
+      proveedorNombre: String(config?.proveedorNombre || '').trim() || configProv,
+    };
+  }
+  const ultProv = ultima?.SupplierId != null ? String(ultima.SupplierId).trim() : '';
+  if (ultProv) {
+    return {
+      proveedorId: ultProv,
+      proveedorNombre: String(ultima?.SupplierName || '').trim() || ultProv,
+    };
+  }
+  return { proveedorId: SIN_PROVEEDOR, proveedorNombre: 'Sin proveedor' };
+}
+
+function redondear3(n) {
+  return Math.round(n * 1000) / 1000;
+}
+
 /**
- * Línea de pedido (directo o escandallo). Null si no hay qty a pedir.
+ * Línea de pedido (directo o escandallo). Con plazo y frecuencia pide hasta el
+ * stock máximo; sin ellos, la demanda del periodo (fórmula clásica).
+ * Las líneas sin nada que pedir también se guardan (semáforo); null solo si el
+ * producto no tiene demanda ni stock.
  */
-function buildLineaPedido({
+export function buildLineaPedido({
   productId,
   config,
   agora,
@@ -118,34 +148,32 @@ function buildLineaPedido({
   warehouseId,
   demandaBaseTotal,
   demandaAjustada,
+  consumoDiario,
+  colchonDias,
+  proveedoresCfg,
   modoDemanda,
   nombreFallback,
 }) {
   const stock = toNum(config?.Quantity, 0);
-  const necesidad = Math.max(0, demandaAjustada - stock);
+  const { proveedorId, proveedorNombre } = resolverProveedor(config, ultima);
+  const { plazoDias, frecuenciaDias } = resolverPlazoFrecuencia(
+    config,
+    proveedoresCfg?.get(claveProveedor(proveedorId)) || null,
+  );
+  const minMax = calcularMinMax({ consumoDiario, plazoDias, frecuenciaDias, colchonDias });
+  // Fase 3 restará aquí los pedidos en camino.
+  const enCamino = 0;
+  const necesidad = minMax
+    ? Math.max(0, minMax.maximo - stock - enCamino)
+    : Math.max(0, demandaAjustada - stock);
   const formato = pickFormatoCompra(config);
   const qty = redondearCantidadCompra(necesidad, formato);
-  if (qty <= 0 && demandaAjustada <= 0) return null;
-  if (qty <= 0) return null;
+  if (qty <= 0 && demandaAjustada <= 0 && stock <= 0) return null;
 
   const costeUnit = pickCostPrice(agora, warehouseId);
   const costeLinea = Math.round(qty * costeUnit * 100) / 100;
-  const configProv = config?.proveedorId != null ? String(config.proveedorId).trim() : '';
-  let proveedorId;
-  let proveedorNombre;
-  if (configProv) {
-    proveedorId = configProv;
-    proveedorNombre = String(config?.proveedorNombre || '').trim() || proveedorId;
-  } else {
-    const ultProv = ultima?.SupplierId != null ? String(ultima.SupplierId).trim() : '';
-    if (ultProv) {
-      proveedorId = ultProv;
-      proveedorNombre = String(ultima?.SupplierName || '').trim() || ultProv;
-    } else {
-      proveedorId = SIN_PROVEEDOR;
-      proveedorNombre = 'Sin proveedor';
-    }
-  }
+  const minimo = minMax ? redondear3(minMax.minimo) : null;
+  const maximo = minMax ? redondear3(minMax.maximo) : null;
 
   return {
     linea: {
@@ -157,6 +185,8 @@ function buildLineaPedido({
       proveedorNombre,
       qty,
       cantidadPedida: qty,
+      /** Lo que propuso MIA; `updateLineas` no lo toca aunque el usuario cambie la cantidad. */
+      qtyCalculada: qty,
       omitida: false,
       unit: unitName(ultima, config, agora),
       formatoCompra: formato,
@@ -167,6 +197,13 @@ function buildLineaPedido({
       demandaBase: Math.round((demandaBaseTotal || 0) * 1000) / 1000,
       demandaAjustada: Math.round(demandaAjustada * 1000) / 1000,
       stock,
+      consumoDiario: Math.round((Number(consumoDiario) || 0) * 10000) / 10000,
+      plazoDias,
+      frecuenciaDias,
+      minimo,
+      maximo,
+      enCamino,
+      semaforo: semaforoStock(stock, minimo, maximo),
       modoDemanda,
     },
     qty,
@@ -405,17 +442,17 @@ export async function calcularPedidoMia(input) {
 
   const ultimaPorProducto = await queryUltimaCompraPorProductos(productIdsFiltrados, { warehouseId });
 
+  const proveedoresCfg = await mapaProveedoresConfig();
+  const fColchon = factorColchon(nDiasRango, colchonDias);
+  /** Demanda diaria del periodo sin colchón (el colchón va en mínimo y máximo). */
+  const consumoDiarioDe = (demandaAjustada) =>
+    nDiasRango > 0 ? demandaAjustada / fColchon / nDiasRango : 0;
+
   const lineas = [];
-  let costeTotal = 0;
-  let unidadesPedidoTotal = 0;
-  let productosConPedido = 0;
 
   const pushLinea = (built) => {
     if (!built) return;
     lineas.push(built.linea);
-    costeTotal += built.costeLinea;
-    unidadesPedidoTotal += built.qty;
-    productosConPedido += 1;
   };
 
   const calcDemandaProducto = (productId) => {
@@ -449,6 +486,9 @@ export async function calcularPedidoMia(input) {
         warehouseId,
         demandaBaseTotal: base.total,
         demandaAjustada,
+        consumoDiario: consumoDiarioDe(demandaAjustada),
+        colchonDias,
+        proveedoresCfg,
         modoDemanda: 'directo',
       }));
     }
@@ -531,6 +571,9 @@ export async function calcularPedidoMia(input) {
         warehouseId,
         demandaBaseTotal: row.base.total,
         demandaAjustada: row.demandaAjustada,
+        consumoDiario: consumoDiarioDe(row.demandaAjustada),
+        colchonDias,
+        proveedoresCfg,
         modoDemanda: 'directo',
       }));
     }
@@ -548,6 +591,9 @@ export async function calcularPedidoMia(input) {
         warehouseId,
         demandaBaseTotal,
         demandaAjustada,
+        consumoDiario: consumoDiarioDe(demandaAjustada),
+        colchonDias,
+        proveedoresCfg,
         modoDemanda: 'escandallo',
         nombreFallback: info.nombre,
       }));
@@ -591,12 +637,7 @@ export async function calcularPedidoMia(input) {
     nDiasRango,
     histDesde,
     histHasta,
-    totales: {
-      lineas: lineas.length,
-      productosConPedido,
-      unidadesPedido: Math.round(unidadesPedidoTotal * 1000) / 1000,
-      costeTotal: Math.round(costeTotal * 100) / 100,
-    },
+    totales: recalcTotales(lineas),
     stockSyncedAt: frescor.stockLastOkAt,
     frescor,
     pedidosPendientesConfirmacion: pedidosGuard.count || 0,

@@ -182,10 +182,13 @@ export async function generarPdfMiaInforme(params: ParamsPdfMiaInforme): Promise
   const doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
   const incluirOmitidas = params.incluirOmitidas === true;
+  // Igual que la aprobación: las líneas con cantidad 0 no van al pedido.
   const grupos = params.grupos
     .map((g) => ({
       ...g,
-      lineas: (g.lineas || []).filter((l) => incluirOmitidas || !l.omitida),
+      lineas: (g.lineas || []).filter(
+        (l) => (incluirOmitidas || !l.omitida) && Number(l.cantidadPedida) > 0,
+      ),
     }))
     .filter((g) => g.lineas.length > 0)
     .sort((a, b) =>

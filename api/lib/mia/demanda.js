@@ -123,17 +123,73 @@ export function aplicarColchon(demandaTotal, nDiasRango, colchonDias) {
   return (Number(demandaTotal) || 0) * ((n + c) / n);
 }
 
+/** Factor que aplica `aplicarColchon`; sirve para quitar el colchón de una demanda que ya lo lleva. */
+export function factorColchon(nDiasRango, colchonDias) {
+  const n = Math.max(0, Number(nDiasRango) || 0);
+  const c = Math.max(0, Number(colchonDias) || 0);
+  return n > 0 ? (n + c) / n : 1;
+}
+
+/** Días ≥ 0 o null si no hay valor válido. */
+export function diasValidos(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Plazo y frecuencia de un producto: cada campo del producto tiene prioridad
+ * sobre el del proveedor. Sin los dos, la línea usa la fórmula clásica.
+ * @param {object|null} config  Igp_MiaConfigProducto
+ * @param {{ plazoDias?: number|null, frecuenciaDias?: number|null }|null} proveedor
+ */
+export function resolverPlazoFrecuencia(config, proveedor) {
+  const plazoDias = diasValidos(config?.plazoProveedorDias) ?? diasValidos(proveedor?.plazoDias);
+  const frecuenciaDias = diasValidos(config?.frecuenciaPedidoDias) ?? diasValidos(proveedor?.frecuenciaDias);
+  return { plazoDias, frecuenciaDias };
+}
+
+/**
+ * Stock mínimo y máximo. El colchón solo entra aquí: `consumoDiario` llega sin él.
+ * @returns {{ minimo: number, maximo: number } | null} null si falta plazo o frecuencia
+ */
+export function calcularMinMax({ consumoDiario, plazoDias, frecuenciaDias, colchonDias }) {
+  const plazo = diasValidos(plazoDias);
+  const frecuencia = diasValidos(frecuenciaDias);
+  if (plazo == null || frecuencia == null) return null;
+  const consumo = Math.max(0, Number(consumoDiario) || 0);
+  const colchon = Math.max(0, Number(colchonDias) || 0);
+  return {
+    minimo: consumo * (plazo + colchon),
+    maximo: consumo * (plazo + frecuencia + colchon),
+  };
+}
+
+/**
+ * rojo: stock < mínimo · verde: mínimo ≤ stock ≤ máximo · azul: stock > máximo.
+ * @returns {'rojo'|'verde'|'azul'|null}
+ */
+export function semaforoStock(stock, minimo, maximo) {
+  if (minimo == null || maximo == null) return null;
+  const s = Number(stock) || 0;
+  if (s < minimo) return 'rojo';
+  if (s > maximo) return 'azul';
+  return 'verde';
+}
+
 /**
  * Redondeo al alza a múltiplos de unidad de compra; si no hay formato, ceil entero.
  * @param {number} qty
  * @param {number|null|undefined} formatoCompra
  */
 export function redondearCantidadCompra(qty, formatoCompra) {
+  // Margen para el ruido de coma flotante (75,00000000000003 no debe subir a 76).
+  const EPS = 1e-9;
   const q = Number(qty);
-  if (!Number.isFinite(q) || q <= 0) return 0;
+  if (!Number.isFinite(q) || q <= EPS) return 0;
   const pack = Number(formatoCompra);
   if (Number.isFinite(pack) && pack > 0) {
-    return Math.ceil(q / pack) * pack;
+    return Math.ceil(q / pack - EPS) * pack;
   }
-  return Math.ceil(q);
+  return Math.ceil(q - EPS);
 }

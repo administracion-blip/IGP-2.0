@@ -153,17 +153,25 @@ function lineKey(proveedorId, productId) {
 }
 
 /**
- * Totales META a partir de líneas (excluye omitidas del pedido).
+ * Totales META a partir de líneas. Igual que la aprobación, las líneas con
+ * cantidad 0 no cuentan (`lineasSinPedido` las cuenta aparte); las omitidas
+ * cuentan en `lineas` pero no en el pedido.
  * @param {Array<object>} lineas
  */
 export function recalcTotales(lineas) {
+  let lineasConCantidad = 0;
+  let lineasSinPedido = 0;
   let productosConPedido = 0;
   let unidadesPedido = 0;
   let costeTotal = 0;
   for (const ln of lineas || []) {
+    const qty = toNum(ln?.cantidadPedida != null ? ln.cantidadPedida : ln?.qty, 0);
+    if (qty <= 0) {
+      lineasSinPedido += 1;
+      continue;
+    }
+    lineasConCantidad += 1;
     if (ln?.omitida === true) continue;
-    const qty = toNum(ln.cantidadPedida != null ? ln.cantidadPedida : ln.qty, 0);
-    if (qty <= 0) continue;
     productosConPedido += 1;
     unidadesPedido += qty;
     const costeUnit = toNum(ln.costeUnitario, 0);
@@ -174,7 +182,8 @@ export function recalcTotales(lineas) {
     costeTotal += costeLinea;
   }
   return {
-    lineas: (lineas || []).length,
+    lineas: lineasConCantidad,
+    lineasSinPedido,
     productosConPedido,
     unidadesPedido: Math.round(unidadesPedido * 1000) / 1000,
     costeTotal: Math.round(costeTotal * 100) / 100,

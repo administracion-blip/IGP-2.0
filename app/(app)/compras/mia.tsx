@@ -23,7 +23,9 @@ import { RangoFechas } from '../../components/RangoFechas';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { MiaCalendarioPedidos } from '../../components/mia/MiaCalendarioPedidos';
 import { MiaGruposFamiliasModal } from '../../components/mia/MiaGruposFamiliasModal';
+import { MiaProveedoresConfigModal } from '../../components/mia/MiaProveedoresConfigModal';
 import { MIN_TOUCH } from '../../constants/layout';
+import { colors, radius, statusColors } from '../../constants/theme';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { generarPdfMiaInforme } from '../../lib/miaInformePdf';
 import { useMiaGruposFamilias } from '../../hooks/useMiaGruposFamilias';
@@ -52,11 +54,20 @@ type MiaLinea = {
   proveedorNombre?: string;
   cantidadPedida: number;
   qty?: number;
+  qtyCalculada?: number;
   omitida?: boolean;
   unit?: string;
   costeUnitario?: number;
   costeLinea?: number;
+  stock?: number;
+  consumoDiario?: number;
+  minimo?: number | null;
+  maximo?: number | null;
+  enCamino?: number;
+  semaforo?: SemaforoStock | null;
 };
+
+type SemaforoStock = 'rojo' | 'verde' | 'azul';
 
 type MiaTotales = {
   lineas?: number;
@@ -111,7 +122,30 @@ type DraftLinea = {
   omitida: boolean;
   unit: string;
   costeUnitario: number;
+  /** Cantidad que calculó MIA: decide qué filas oculta «Ocultar sin pedido». */
+  qtyCalculada: number;
+  stock: number | null;
+  minimo: number | null;
+  maximo: number | null;
+  semaforo: SemaforoStock | null;
 };
+
+const SEMAFORO: Record<SemaforoStock, { bg: string; text: string; label: string }> = {
+  rojo: { ...statusColors.danger, label: 'Bajo mínimo' },
+  verde: { ...statusColors.success, label: 'Entre mínimo y máximo' },
+  azul: { ...statusColors.info, label: 'Sobre máximo' },
+};
+
+function numOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatCantidad(n: number | null): string {
+  if (n == null) return '—';
+  return n.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+}
 
 const AVISO_LABEL: Record<string, string> = {
   stock_sync_error: 'Error o falta de sincronización de stock',
@@ -165,8 +199,20 @@ function toDraft(lineas: MiaLinea[]): DraftLinea[] {
       omitida: ln.omitida === true,
       unit: String(ln.unit || '').trim() || 'ud',
       costeUnitario: Number(ln.costeUnitario) || 0,
+      qtyCalculada: Number(ln.qtyCalculada ?? ln.qty ?? ln.cantidadPedida) || 0,
+      stock: numOrNull(ln.stock),
+      minimo: numOrNull(ln.minimo),
+      maximo: numOrNull(ln.maximo),
+      semaforo: ln.semaforo && ln.semaforo in SEMAFORO ? ln.semaforo : null,
     };
   });
+}
+
+/** Sin pedido: MIA calculó 0 y el usuario no lo ha cambiado. */
+function sinPedido(d: DraftLinea): boolean {
+  if (d.qtyCalculada > 0) return false;
+  const qty = parseQty(d.cantidadPedida);
+  return !Number.isFinite(qty) || qty <= 0;
 }
 
 function parseQty(s: string): number {
@@ -235,6 +281,8 @@ export default function MiaScreen() {
   const [informesRecientes, setInformesRecientes] = useState<InformeListItem[]>([]);
   const [loadingRecientes, setLoadingRecientes] = useState(false);
   const [vista, setVista] = useState<VistaMia>('pedido');
+  const [ocultarSinPedido, setOcultarSinPedido] = useState(true);
+  const [modalProveedoresVisible, setModalProveedoresVisible] = useState(false);
 
   const opcionesAlmacen = useMemo(
     () =>
@@ -299,6 +347,15 @@ export default function MiaScreen() {
       a.proveedorNombre.localeCompare(b.proveedorNombre, 'es'),
     );
   }, [drafts]);
+
+  const lineasSinPedido = useMemo(() => drafts.filter(sinPedido).length, [drafts]);
+
+  const gruposVisibles = useMemo(() => {
+    if (!ocultarSinPedido) return gruposDraft;
+    return gruposDraft
+      .map((g) => ({ ...g, lineas: g.lineas.filter((d) => !sinPedido(d)) }))
+      .filter((g) => g.lineas.length > 0);
+  }, [gruposDraft, ocultarSinPedido]);
 
   const totalesLocales = useMemo(() => {
     let productos = 0;
@@ -879,7 +936,19 @@ export default function MiaScreen() {
 
           <View style={[styles.paramsRow, shouldStackToolbar && styles.paramsCol]}>
             <View style={[styles.fieldGrow, shouldStackToolbar && styles.fieldFull]}>
-              <Text style={styles.fieldLabel}>Almacén</Text>
+              <View style={styles.fieldLabelRow}>
+                <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>Almacén</Text>
+                {puedeConfigurar ? (
+                  <TouchableOpacity
+                    onPress={() => setModalProveedoresVisible(true)}
+                    style={styles.linkGestionar}
+                    disabled={busy}
+                  >
+                    <MaterialIcons name="schedule" size={14} color="#0369a1" />
+                    <Text style={styles.linkGestionarText}>Plazos por proveedor</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
               <SelectorDesplegable
                 placeholder="Selecciona almacén…"
                 icono="warehouse"
@@ -1141,10 +1210,11 @@ export default function MiaScreen() {
                 <TouchableOpacity
                   style={[
                     styles.btnSuccess,
-                    (!puedeAprobar || !puedeAprobarEstado || busy) && styles.btnDisabled,
+                    (!puedeAprobar || !puedeAprobarEstado || busy || totalesLocales.productos === 0) &&
+                      styles.btnDisabled,
                   ]}
                   onPress={aprobar}
-                  disabled={!puedeAprobar || !puedeAprobarEstado || busy}
+                  disabled={!puedeAprobar || !puedeAprobarEstado || busy || totalesLocales.productos === 0}
                 >
                   {aprobando ? (
                     <ActivityIndicator size="small" color="#fff" />
@@ -1204,10 +1274,29 @@ export default function MiaScreen() {
               )}
             </View>
 
-            {gruposDraft.length === 0 ? (
-              <Text style={styles.hintMuted}>Sin líneas de pedido en este informe.</Text>
+            {lineasSinPedido > 0 ? (
+              <View style={styles.filtroRow}>
+                <Switch
+                  value={ocultarSinPedido}
+                  onValueChange={setOcultarSinPedido}
+                  trackColor={{ false: colors.borderStrong, true: colors.accentMuted }}
+                  thumbColor={ocultarSinPedido ? colors.accent : colors.bg}
+                />
+                <Text style={styles.switchHint}>
+                  Ocultar sin pedido ({lineasSinPedido}{' '}
+                  {lineasSinPedido === 1 ? 'producto con stock suficiente' : 'productos con stock suficiente'})
+                </Text>
+              </View>
+            ) : null}
+
+            {gruposVisibles.length === 0 ? (
+              <Text style={styles.hintMuted}>
+                {gruposDraft.length === 0
+                  ? 'Sin líneas de pedido en este informe.'
+                  : 'No hay nada que pedir: todos los productos tienen stock suficiente.'}
+              </Text>
             ) : (
-              gruposDraft.map((g) => {
+              gruposVisibles.map((g) => {
                 const subtotal = g.lineas.reduce((s, d) => s + costeDraft(d), 0);
                 return (
                   <View key={g.proveedorId} style={styles.proveedorBlock}>
@@ -1219,6 +1308,7 @@ export default function MiaScreen() {
 
                     <View style={styles.tableHead}>
                       <Text style={[styles.th, styles.colProducto]}>Producto</Text>
+                      <Text style={[styles.th, styles.colStock]}>Stock</Text>
                       <Text style={[styles.th, styles.colQty]}>Cant.</Text>
                       <Text style={[styles.th, styles.colCoste]}>Coste</Text>
                       <Text style={[styles.th, styles.colOmit]}>Omitir</Text>
@@ -1237,7 +1327,25 @@ export default function MiaScreen() {
                             </Text>
                             <Text style={styles.productoMeta}>
                               {d.unit} · {formatMoneda(d.costeUnitario)}/ud
+                              {d.minimo != null && d.maximo != null
+                                ? ` · Mín ${formatCantidad(d.minimo)} · Máx ${formatCantidad(d.maximo)}`
+                                : ''}
                             </Text>
+                          </View>
+                          <View style={styles.colStock}>
+                            {d.semaforo ? (
+                              <View
+                                style={[styles.stockPill, { backgroundColor: SEMAFORO[d.semaforo].bg }]}
+                                accessibilityLabel={`Stock ${formatCantidad(d.stock)}: ${SEMAFORO[d.semaforo].label}`}
+                              >
+                                <View style={[styles.stockDot, { backgroundColor: SEMAFORO[d.semaforo].text }]} />
+                                <Text style={[styles.stockPillText, { color: SEMAFORO[d.semaforo].text }]}>
+                                  {formatCantidad(d.stock)}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text style={styles.stockSinSemaforo}>{formatCantidad(d.stock)}</Text>
+                            )}
                           </View>
                           <TextInput
                             style={[styles.inputQty, (!editable || busy) && styles.inputDisabled]}
@@ -1288,6 +1396,13 @@ export default function MiaScreen() {
           await cargarGrupos({ todos: true });
           setGrupoFamiliaId((prev) => (prev === id ? null : prev));
         }}
+      />
+
+      <MiaProveedoresConfigModal
+        visible={modalProveedoresVisible}
+        onClose={() => setModalProveedoresVisible(false)}
+        warehouseId={warehouseId}
+        almacenNombre={warehouseId ? almacenNombre : undefined}
       />
     </View>
   );
@@ -1526,6 +1641,19 @@ const styles = StyleSheet.create({
   tableRowOmit: { opacity: 0.55 },
   colProducto: { flex: 1, minWidth: 140 },
   colQty: { width: 72, textAlign: 'right' },
+  colStock: { width: 84, alignItems: 'flex-end', textAlign: 'right' },
+  stockPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+  },
+  stockDot: { width: 6, height: 6, borderRadius: radius.pill },
+  stockPillText: { fontSize: 12, fontWeight: '700' },
+  stockSinSemaforo: { fontSize: 12, color: colors.textSecondary, textAlign: 'right' },
+  filtroRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   colCoste: { width: 88, textAlign: 'right' },
   colOmit: { width: 56, alignItems: 'center' },
   productoNombre: { fontSize: 13, fontWeight: '600', color: '#0f172a' },

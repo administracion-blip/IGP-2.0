@@ -26,7 +26,12 @@ export const CONFIG_PRESERVE_KEYS = [
   'modoDemanda',
   'formatoCompra',
   'notas',
+  'plazoProveedorDias',
+  'frecuenciaPedidoDias',
 ];
+
+/** Días de plazo/frecuencia por producto: vacío o null los quita (se usa el del proveedor). */
+const CAMPOS_DIAS = ['plazoProveedorDias', 'frecuenciaPedidoDias'];
 
 export async function getConfigProducto(warehouseId, productId) {
   const PK = pkWarehouse(warehouseId);
@@ -90,6 +95,20 @@ export async function upsertConfigProducto(input) {
     if (Object.prototype.hasOwnProperty.call(input, key)) {
       Item[key] = input[key];
     }
+  }
+
+  for (const key of CAMPOS_DIAS) {
+    if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
+    const raw = input[key];
+    if (raw === null || raw === undefined || raw === '') {
+      delete Item[key];
+      continue;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) {
+      throw Object.assign(new Error(`${key} debe ser un número de días ≥ 0`), { status: 400 });
+    }
+    Item[key] = n;
   }
 
   if (Item.activo === undefined) Item.activo = existing.activo !== false;
