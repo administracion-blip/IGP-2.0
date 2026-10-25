@@ -1330,18 +1330,29 @@ export default function MiaScreen() {
         {informe && !cargandoInforme ? (
           <View>
             <View style={[styles.cardHeaderRow, shouldStackPanels && styles.paramsCol]}>
-              <View style={{ flex: 1 }}>
+              <View style={styles.revisionIntro}>
                 <Text style={styles.stepTitle}>2. Revisión</Text>
+                <View style={styles.revisionTitleRow}>
+                  <Text style={styles.revisionRango}>
+                    {formatFecha(informe.fechaDesde || '')} – {formatFecha(informe.fechaHasta || '')}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.estadoChip,
+                      { color: COLOR_ESTADO[estadoInforme] || miaColors.textSecondary },
+                    ]}
+                  >
+                    {ESTADOS_INFORME.find((e) => e.id === estadoInforme)?.label || estadoInforme || '—'}
+                  </Text>
+                </View>
                 <Text style={styles.hintMuted}>
-                  Informe {informe.informeId.slice(0, 8)}… · Estado:{' '}
-                  <Text style={styles.estadoChip}>{informe.estado || '—'}</Text>
                   {informe.grupoFamiliaId || informe.grupoFamiliaNombre
-                    ? ` · Agrupación: ${
+                    ? `Agrupación: ${
                         informe.grupoFamiliaNombre ||
                         grupos.find((g) => g.id === String(informe.grupoFamiliaId))?.nombre ||
                         String(informe.grupoFamiliaId)
                       }`
-                    : ''}
+                    : 'Sin agrupación'}
                   {Array.isArray(informe.familiaIds) && informe.familiaIds.length > 0
                     ? ` · Familias: ${informe.familiaIds
                         .slice(0, 5)
@@ -1350,7 +1361,7 @@ export default function MiaScreen() {
                     : ''}
                 </Text>
               </View>
-              <View style={[styles.actionsRow, shouldStackPanels && styles.actionsWrap]}>
+              <View style={[styles.actionsRow, styles.actionsRight, shouldStackPanels && styles.actionsWrap]}>
                 <TouchableOpacity
                   style={[
                     styles.btnSecondary,
@@ -1387,14 +1398,14 @@ export default function MiaScreen() {
                     </>
                   )}
                 </TouchableOpacity>
+                {puedeAprobar && puedeAprobarEstado ? (
                 <TouchableOpacity
                   style={[
                     styles.btnSuccess,
-                    (!puedeAprobar || !puedeAprobarEstado || busy || totalesLocales.productos === 0) &&
-                      styles.btnDisabled,
+                    (busy || totalesLocales.productos === 0) && styles.btnDisabled,
                   ]}
                   onPress={aprobar}
-                  disabled={!puedeAprobar || !puedeAprobarEstado || busy || totalesLocales.productos === 0}
+                  disabled={busy || totalesLocales.productos === 0}
                 >
                   {aprobando ? (
                     <ActivityIndicator size="small" color={miaColors.onAccent} />
@@ -1407,6 +1418,7 @@ export default function MiaScreen() {
                     </>
                   )}
                 </TouchableOpacity>
+                ) : null}
               </View>
             </View>
 
@@ -1416,8 +1428,7 @@ export default function MiaScreen() {
               </Text>
             ) : null}
 
-            {/* Avisos y frescor */}
-            {(avisos.length > 0 || frescor) && (
+            {avisos.length > 0 ? (
               <View style={styles.frescorBox}>
                 {frescor ? (
                   <Text style={styles.frescorText}>
@@ -1434,14 +1445,27 @@ export default function MiaScreen() {
                   </View>
                 ))}
               </View>
-            )}
+            ) : null}
 
-            <View style={styles.totalesBar}>
-              <Text style={styles.totalesText}>
-                {totalesLocales.productos} productos · {totalesLocales.unidades} ud ·{' '}
-                {formatMoneda(totalesLocales.coste)}
-              </Text>
-              {!editable && (
+            <View style={styles.totalesGrid}>
+              <View style={styles.totalBlock}>
+                <Text style={styles.totalBlockLabel}>Productos</Text>
+                <Text style={styles.totalBlockValue}>{totalesLocales.productos}</Text>
+              </View>
+              <View style={styles.totalBlock}>
+                <Text style={styles.totalBlockLabel}>Unidades</Text>
+                <Text style={styles.totalBlockValue}>{formatCantidad(totalesLocales.unidades)}</Text>
+              </View>
+              <View style={styles.totalBlock}>
+                <Text style={styles.totalBlockLabel}>Proveedores</Text>
+                <Text style={styles.totalBlockValue}>{gruposDraft.length}</Text>
+              </View>
+              <View style={styles.totalBlock}>
+                <Text style={styles.totalBlockLabel}>Coste</Text>
+                <Text style={styles.totalBlockValue}>{formatMoneda(totalesLocales.coste)}</Text>
+              </View>
+            </View>
+            {!editable && (
                 <Text style={styles.hintMuted}>
                   {aprobado
                     ? 'Informe aprobado (solo lectura).'
@@ -1451,8 +1475,7 @@ export default function MiaScreen() {
                         ? 'Aprobación en curso…'
                         : 'No editable en este estado.'}
                 </Text>
-              )}
-            </View>
+            )}
 
             {lineasSinPedido > 0 ? (
               <View style={styles.filtroRow}>
@@ -1763,7 +1786,11 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.45 },
   actionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  actionsRight: { justifyContent: 'flex-end', alignSelf: 'flex-start' },
   actionsWrap: { width: '100%' },
+  revisionIntro: { flex: 1, minWidth: 0 },
+  revisionTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  revisionRango: { fontSize: 15, fontWeight: '700', color: miaColors.text },
   hintMuted: { fontSize: 12, color: miaColors.textSecondary, marginTop: 6 },
   warnBox: {
     marginTop: 12,
@@ -1846,18 +1873,31 @@ const styles = StyleSheet.create({
   frescorText: { fontSize: 12, color: miaColors.warning, lineHeight: 18 },
   avisoChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   avisoText: { fontSize: 12, color: miaColors.warning, flex: 1 },
-  totalesBar: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
+  totalesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, marginBottom: 8 },
+  totalBlock: {
+    flexGrow: 1,
+    flexBasis: '22%',
+    minWidth: 88,
+    backgroundColor: miaColors.bg,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: miaColors.border,
     paddingVertical: 8,
-    marginBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: miaColors.border,
+    paddingHorizontal: 10,
   },
-  totalesText: { fontSize: 14, fontWeight: '700', color: miaColors.text },
+  totalBlockLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: miaColors.textSecondary,
+    textTransform: 'uppercase',
+  },
+  totalBlockValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: miaColors.text,
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
   proveedorBlock: { marginBottom: 14 },
   proveedorHeader: {
     flexDirection: 'row',
@@ -1875,8 +1915,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 4,
-    paddingBottom: 4,
+    paddingVertical: 6,
     gap: 6,
+    backgroundColor: miaColors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: miaColors.border,
+    zIndex: 2,
+    position: Platform.OS === 'web' ? ('sticky' as 'relative') : 'relative',
+    top: 0,
   },
   th: { fontSize: 11, fontWeight: '700', color: miaColors.textSecondary, textTransform: 'uppercase' },
   tableRow: {
@@ -1891,7 +1937,7 @@ const styles = StyleSheet.create({
   tableRowStack: { flexWrap: 'wrap' },
   tableRowOmit: { opacity: 0.55 },
   colProducto: { flex: 1, minWidth: 140 },
-  colQty: { width: 72, textAlign: 'right' },
+  colQty: { width: 72, textAlign: 'right', fontVariant: ['tabular-nums'] },
   colStock: { width: 84, alignItems: 'flex-end', textAlign: 'right' },
   stockPill: {
     flexDirection: 'row',
@@ -1902,11 +1948,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   stockDot: { width: 6, height: 6, borderRadius: radius.pill },
-  stockPillText: { fontSize: 12, fontWeight: '700' },
-  stockSinSemaforo: { fontSize: 12, color: miaColors.textSecondary, textAlign: 'right' },
+  stockPillText: { fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  stockSinSemaforo: {
+    fontSize: 12,
+    color: miaColors.textSecondary,
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
   filtroRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  colCoste: { width: 88, textAlign: 'right' },
-  colOmit: { width: 56, alignItems: 'center' },
+  colCoste: { width: 88, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  colOmit: { width: 56, alignItems: 'center', textAlign: 'center' },
   productoTitulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   productoNombre: { fontSize: 13, fontWeight: '600', color: miaColors.text, flexShrink: 1 },
   idBadge: {
@@ -1927,6 +1978,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     fontSize: 13,
     textAlign: 'right',
+    fontVariant: ['tabular-nums'],
     color: miaColors.text,
   },
   inputDisabled: { backgroundColor: miaColors.borderSoft, color: miaColors.textSecondary },
