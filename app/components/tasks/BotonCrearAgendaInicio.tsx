@@ -114,7 +114,7 @@ export function BotonCrearAgendaInicio({
           accessibilityLabel="Crear"
           accessibilityState={{ expanded: opciones.length > 1 ? menuAbierto : undefined }}
         >
-          <MaterialIcons name="add" size={18} color={tasksUi.color.textoInverso} />
+          <MaterialIcons name="add" size={18} color={tasksUi.calendario.hoy} />
           <Text style={styles.crearTexto}>Crear</Text>
         </TouchableOpacity>
 
@@ -235,13 +235,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: tasksUi.color.acento,
+    backgroundColor: 'transparent',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: tasksUi.radius.control,
   },
   crearBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  crearTexto: { ...tasksUi.tipo.dato, fontWeight: '700', color: tasksUi.color.textoInverso },
+  crearTexto: { ...tasksUi.tipo.dato, fontWeight: '600', color: tasksUi.calendario.hoy },
   menu: {
     position: 'absolute',
     top: '100%',

@@ -29,7 +29,9 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Font from 'expo-font';
 import { MIN_TOUCH } from '../constants/layout';
+import { fontFamily } from '../constants/theme';
 import { tasksUi } from '../constants/tasksUiTokens';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { useAccesoTasks } from '../hooks/useAccesoTasks';
@@ -119,9 +121,8 @@ const PAD_BANDA_MES = 2;
 /** Rejilla horaria visible (Google Calendar). */
 const HORA_VISTA_INICIO = 8;
 const HORA_VISTA_FIN = 22;
-const ALTO_HORA = 48;
+const ALTO_HORA = 58;
 const ALTO_BLOQUE_MIN = 22;
-const ALTO_OJO_BLOQUE = 28;
 const MINUTOS_DIA_INICIO = HORA_VISTA_INICIO * 60;
 const MINUTOS_DIA_FIN = HORA_VISTA_FIN * 60;
 const ALTO_REJILLA = (HORA_VISTA_FIN - HORA_VISTA_INICIO) * ALTO_HORA;
@@ -136,21 +137,17 @@ const HORAS_ETIQUETA = Array.from(
 
 export type TipoAgendaInicio = 'tarea' | 'reunion' | 'proyecto';
 
-export const COLOR_AGENDA: Record<TipoAgendaInicio, string> = {
-  tarea: '#ca8a04',
-  reunion: '#7c3aed',
-  proyecto: '#db2777',
-};
+export const COLOR_AGENDA: Record<TipoAgendaInicio, string> = tasksUi.agendaTipo;
 
-const COLOR_TAREA_HECHA = '#94a3b8';
-const FONDO_TAREA_HECHA = '#f1f5f9';
-const TEXTO_TAREA_HECHA = '#64748b';
+const COLOR_AHORA = '#f43f5e';
 
-const FONDO_AGENDA: Record<TipoAgendaInicio, string> = {
-  tarea: '#fefce8',
-  reunion: '#f5f3ff',
-  proyecto: '#fdf2f8',
-};
+const FONDO_AGENDA: Record<TipoAgendaInicio, string> = tasksUi.agendaFondo;
+
+/** Inter solo si el arranque ya la registró; si falló la carga, sigue la fuente del sistema. */
+function fuenteInter(peso: keyof typeof fontFamily): { fontFamily: string } | null {
+  const nombre = fontFamily[peso];
+  return Font.isLoaded(nombre) ? { fontFamily: nombre } : null;
+}
 
 const ETIQUETA_TIPO: Record<TipoAgendaInicio, string> = {
   tarea: 'Tarea',
@@ -236,7 +233,14 @@ function compararPorHoraInicio(a: ItemAgenda, b: ItemAgenda): number {
   return a.titulo.localeCompare(b.titulo, 'es');
 }
 
-function empaquetarBloquesDia(items: ItemAgenda[]): BloqueEmpaquetado[] {
+type MasTramo = {
+  clave: string;
+  top: number;
+  n: number;
+  items: ItemAgenda[];
+};
+
+function empaquetarBloquesDia(items: ItemAgenda[]): { bloques: BloqueEmpaquetado[]; mas: MasTramo[] } {
   const conHora: Array<{ item: ItemAgenda; inicio: number; fin: number }> = [];
   for (const item of items) {
     if (!tieneTramoHorario(item)) continue;
@@ -272,7 +276,9 @@ function empaquetarBloquesDia(items: ItemAgenda[]): BloqueEmpaquetado[] {
   }
 
   // Agrupar solapes para repartir ancho (nCarriles del cluster).
+  // Si coinciden más de 2, se pintan los dos primeros carriles y una pastilla +N.
   const resultados: BloqueEmpaquetado[] = [];
+  const mas: MasTramo[] = [];
   let i = 0;
   while (i < conCarril.length) {
     let clusterFin = conCarril[i].fin;
@@ -283,9 +289,11 @@ function empaquetarBloquesDia(items: ItemAgenda[]): BloqueEmpaquetado[] {
       maxCarril = Math.max(maxCarril, conCarril[j].carril);
       j += 1;
     }
-    const nCarriles = maxCarril + 1;
-    for (let k = i; k < j; k += 1) {
-      const t = conCarril[k];
+    const recortar = maxCarril + 1 > 2;
+    const nCarriles = recortar ? 2 : maxCarril + 1;
+    const grupo = conCarril.slice(i, j);
+    for (const t of grupo) {
+      if (recortar && t.carril >= 2) continue;
       const inicioVis = Math.max(t.inicio, MINUTOS_DIA_INICIO);
       const finVis = Math.min(t.fin, MINUTOS_DIA_FIN);
       const top = ((inicioVis - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA;
@@ -299,10 +307,23 @@ function empaquetarBloquesDia(items: ItemAgenda[]): BloqueEmpaquetado[] {
         nCarriles,
       });
     }
+    if (recortar) {
+      const inicioVis = Math.max(grupo[0].inicio, MINUTOS_DIA_INICIO);
+      const finVis = Math.min(clusterFin, MINUTOS_DIA_FIN);
+      const topCluster = ((inicioVis - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA;
+      const altoCluster = Math.max(18, ((finVis - inicioVis) / 60) * ALTO_HORA);
+      const topPill = Math.max(0, Math.min(topCluster + altoCluster - 18, ALTO_REJILLA - 18));
+      mas.push({
+        clave: `mas-${grupo.map((t) => t.item.clave).join('|')}`,
+        top: topPill,
+        n: grupo.filter((t) => t.carril >= 2).length,
+        items: grupo.map((t) => t.item).sort(compararPorHoraInicio),
+      });
+    }
     i = j;
   }
 
-  return resultados;
+  return { bloques: resultados, mas };
 }
 
 type BarraEmpaquetada = {
@@ -365,7 +386,6 @@ function empaquetarBarras(items: ItemAgenda[], lunes: string): { barras: BarraEm
 }
 
 function colorPuntoDia(item: ItemAgenda): string {
-  if (item.hecho) return COLOR_TAREA_HECHA;
   return COLOR_AGENDA[item.tipo];
 }
 
@@ -508,24 +528,64 @@ function BotonMarcarRealizada({
         accessibilityLabel="Marcar como realizada"
       >
         {disabled ? (
-          <ActivityIndicator size="small" color="#ffffff" />
+          <ActivityIndicator size="small" color={tasksUi.calendario.hoy} />
         ) : (
-          <MaterialIcons name="check-circle" size={18} color="#ffffff" />
+          <MaterialIcons name="check-circle" size={18} color={tasksUi.calendario.hoy} />
         )}
-        <Text style={styles.btnRealizadaTexto}>Marcar como realizada</Text>
+        <Text style={styles.btnRealizadaTexto}>Marcar realizada</Text>
       </TouchableOpacity>
     </Animated.View>
   );
 }
 
+type PuntoFicha = { x: number; y: number; derecha?: number };
+
+function puntoDeTarjeta(nodo: EventTarget | null): PuntoFicha | null {
+  if (!nodo || typeof (nodo as HTMLElement).getBoundingClientRect !== 'function') return null;
+  const r = (nodo as HTMLElement).getBoundingClientRect();
+  return { x: r.left, y: r.bottom, derecha: r.right };
+}
+
+/** En web, `fixed` dentro del scroll de inicio no es la ventana. Se pinta en `document.body`. */
+function portalAlBody(children: ReactNode): ReactNode {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return children;
+  const { createPortal } = require('react-dom') as typeof import('react-dom');
+  return createPortal(children, document.body);
+}
+
+/** Abre hacia la izquierda si la tarjeta está cerca del borde derecho. */
+function anclarEnVentana(punto: PuntoFicha, ancho: number, altoEstimado: number) {
+  const margen = 12;
+  const anchoVentana = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const altoVentana = typeof window !== 'undefined' ? window.innerHeight : 800;
+  let left = punto.x;
+  if (left + ancho > anchoVentana - margen) {
+    left = (punto.derecha ?? punto.x) - ancho;
+  }
+  left = Math.max(margen, Math.min(left, anchoVentana - ancho - margen));
+  const top = Math.max(margen, Math.min(punto.y, altoVentana - altoEstimado));
+  return { left, top };
+}
+
 function PopoverVistaItem({
   item,
+  ancla,
+  flotante,
   onCerrar,
+  onAbrir,
+  onRatonEntrar,
+  onRatonSalir,
   onMarcarCasilla,
   onMarcarRealizada,
 }: {
   item: ItemAgenda;
+  ancla: { x: number; y: number } | null;
+  /** En web, anclada y sin velo. En nativo, hoja inferior. */
+  flotante?: boolean;
   onCerrar: () => void;
+  onAbrir: () => void;
+  onRatonEntrar?: () => void;
+  onRatonSalir?: () => void;
   /** Marca o desmarca una casilla. Solo si la tarea se puede editar. */
   onMarcarCasilla?: (casillaId: string, hecho: boolean) => Promise<void>;
   /** Cierra la tarea. Solo si se puede editar y aún no está hecha. */
@@ -540,6 +600,36 @@ function PopoverVistaItem({
   const etiquetaFecha =
     item.tipo === 'reunion' ? 'Fecha' : item.tipo === 'proyecto' ? 'Fecha' : 'Fecha de vencimiento';
   const casillas = [...(item.checklist ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+  const casillasHechas = casillas.filter((c) => c.hecho).length;
+  const progreso = casillas.length > 0 ? casillasHechas / casillas.length : 0;
+  const colorTipo = COLOR_AGENDA[item.tipo];
+  const cristal =
+    Platform.OS === 'web'
+      ? ({
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          backdropFilter: 'blur(18px)',
+          borderWidth: 1,
+          borderColor: 'rgba(17,17,17,0.12)',
+          ...tasksUi.sombraFlotante,
+        } as object)
+      : {
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderWidth: 1,
+          borderColor: 'rgba(17,17,17,0.12)',
+          ...tasksUi.sombraFlotante,
+        };
+  const hoja = !flotante && (isCompact || Platform.OS !== 'web');
+  const anclado = !hoja && ancla != null;
+  const anchoTarjeta = 340;
+  const anclaje = ancla
+    ? anclarEnVentana(
+        flotante ? ancla : { x: ancla.x + 12, y: ancla.y + 8, derecha: ancla.derecha },
+        anchoTarjeta,
+        320,
+      )
+    : { left: 12, top: 12 };
+  const izquierda = anclaje.left;
+  const arriba = anclaje.top;
   const puedeMarcar = item.tipo === 'tarea' && item.puedeMover && Boolean(onMarcarCasilla);
   const puedeRealizar =
     item.tipo === 'tarea' &&
@@ -572,23 +662,53 @@ function PopoverVistaItem({
     }
   };
 
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
-      <Pressable style={styles.popoverOverlay} onPress={onCerrar} accessibilityLabel="Cerrar vista previa">
-        <Pressable style={styles.popoverCard} onPress={() => {}}>
+  const eventosRaton =
+    Platform.OS === 'web' && flotante
+      ? { onMouseEnter: onRatonEntrar, onMouseLeave: onRatonSalir }
+      : {};
+
+  const tarjeta = (
+        <Pressable
+          style={[
+            styles.popoverCard,
+            cristal,
+            hoja && styles.popoverCardHoja,
+            anclado && !flotante && [styles.popoverCardAncla, { left: izquierda, top: arriba, width: anchoTarjeta }],
+          ]}
+          onPress={() => {}}
+        >
           <View style={styles.popoverHeader}>
-            <Text style={styles.popoverTitulo} numberOfLines={3}>
-              {item.titulo}
-            </Text>
-            <TouchableOpacity
-              onPress={onCerrar}
-              style={styles.popoverCerrar}
-              accessibilityLabel="Cerrar"
-              hitSlop={8}
-            >
-              <MaterialIcons name="close" size={20} color="#64748b" />
-            </TouchableOpacity>
+            <View style={[styles.popoverCuadrado, { backgroundColor: colorTipo }]} />
+            <Text style={styles.popoverTipo}>{ETIQUETA_TIPO[item.tipo]}</Text>
+            <View style={styles.popoverIconos}>
+              {item.puedeMover ? (
+                <TouchableOpacity
+                  onPress={onAbrir}
+                  style={[styles.popoverIcono, isCompact && styles.popoverIconoTactil]}
+                  accessibilityLabel="Editar"
+                >
+                  <MaterialIcons name="edit" size={18} color={tasksUi.calendario.hoy} />
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                onPress={onAbrir}
+                style={[styles.popoverIcono, isCompact && styles.popoverIconoTactil]}
+                accessibilityLabel="Abrir"
+              >
+                <MaterialIcons name="open-in-new" size={18} color={tasksUi.calendario.hoy} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={onCerrar}
+                style={[styles.popoverIcono, isCompact && styles.popoverIconoTactil]}
+                accessibilityLabel="Cerrar"
+              >
+                <MaterialIcons name="close" size={18} color={tasksUi.calendario.hoy} />
+              </TouchableOpacity>
+            </View>
           </View>
+          <Text style={styles.popoverTitulo} numberOfLines={3}>
+            {item.titulo}
+          </Text>
           <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverScrollContent}>
             <Text style={styles.popoverDesc}>
               {item.descripcion?.trim() || 'Sin descripción'}
@@ -609,6 +729,9 @@ function PopoverVistaItem({
                   <Text style={styles.popoverLabel}>Lista de comprobación</Text>
                   <ContadorChecklist checklist={casillas} />
                 </View>
+                <View style={styles.popoverProgreso}>
+                  <View style={[styles.popoverProgresoRelleno, { width: `${Math.round(progreso * 100)}%` }]} />
+                </View>
                 {casillas.map((casilla) => (
                   <TouchableOpacity
                     key={casilla.id}
@@ -618,12 +741,12 @@ function PopoverVistaItem({
                     accessibilityLabel={casilla.hecho ? 'Desmarcar el elemento' : 'Marcar el elemento'}
                   >
                     {casillaEnCurso === casilla.id ? (
-                      <ActivityIndicator size="small" color="#0ea5e9" />
+                      <ActivityIndicator size="small" color={tasksUi.calendario.hoy} />
                     ) : (
                       <MaterialIcons
                         name={casilla.hecho ? 'check-box' : 'check-box-outline-blank'}
                         size={20}
-                        color={casilla.hecho ? '#16a34a' : '#94a3b8'}
+                        color={casilla.hecho ? tasksUi.calendario.hoy : tasksUi.color.textoTerciario}
                       />
                     )}
                     <Text style={[styles.popoverCasillaTexto, casilla.hecho && styles.popoverCasillaHecha]}>
@@ -642,38 +765,47 @@ function PopoverVistaItem({
             </View>
           ) : null}
         </Pressable>
+  );
+
+  if (flotante && Platform.OS === 'web') {
+    return portalAlBody(
+      <View
+        {...eventosRaton}
+        style={[
+          styles.popoverFija,
+          {
+            position: 'fixed' as 'absolute',
+            left: izquierda,
+            top: arriba,
+            width: anchoTarjeta,
+            zIndex: 2000,
+          },
+        ]}
+      >
+        {tarjeta}
+      </View>,
+    );
+  }
+
+  return (
+    <Modal visible transparent animationType={hoja ? 'slide' : 'fade'} onRequestClose={onCerrar}>
+      <Pressable
+        style={[styles.popoverOverlay, hoja && styles.popoverOverlayHoja]}
+        onPress={onCerrar}
+        accessibilityLabel="Cerrar vista previa"
+      >
+        {tarjeta}
       </Pressable>
     </Modal>
-  );
-}
-
-function BotonOjo({
-  compacto,
-  onPress,
-}: {
-  compacto?: boolean;
-  onPress: () => void;
-}) {
-  const lado = compacto ? ALTO_OJO_BLOQUE : MIN_TOUCH;
-  return (
-    <TouchableOpacity
-      onPress={() => {
-        onPress();
-      }}
-      style={[styles.ojoBtn, { width: lado, height: lado, minWidth: lado, minHeight: lado }]}
-      hitSlop={compacto ? 6 : 4}
-      accessibilityLabel="Ver detalle"
-      accessibilityRole="button"
-    >
-      <MaterialIcons name="visibility" size={compacto ? 16 : 18} color="#64748b" />
-    </TouchableOpacity>
   );
 }
 
 function PastillaAgenda({
   item,
   onAbrir,
-  onVistaPrevia,
+  onHoverEntrar,
+  onHoverSalir,
+  onPulsacionLarga,
   arrastrable,
   arrastrando,
   recienSoltada,
@@ -682,7 +814,9 @@ function PastillaAgenda({
 }: {
   item: ItemAgenda;
   onAbrir: () => void;
-  onVistaPrevia: () => void;
+  onHoverEntrar?: (punto: PuntoFicha) => void;
+  onHoverSalir?: () => void;
+  onPulsacionLarga?: () => void;
   arrastrable?: boolean;
   arrastrando?: boolean;
   recienSoltada?: boolean;
@@ -690,14 +824,18 @@ function PastillaAgenda({
   onDragEnd?: () => void;
 }) {
   const hecho = Boolean(item.hecho);
-  const color = hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
-  const fondo = hecho ? FONDO_TAREA_HECHA : FONDO_AGENDA[item.tipo];
+  const color = COLOR_AGENDA[item.tipo];
+  const fondo = FONDO_AGENDA[item.tipo];
   const tramo = etiquetaTramo(item);
+  const ficha = item.tipo === 'tarea' || item.tipo === 'reunion';
+  const toqueLargo =
+    Platform.OS !== 'web' && ficha ? { delayLongPress: 400, onLongPress: onPulsacionLarga } : {};
   const cuerpo = (
     <View
       style={[
         styles.pill,
         { backgroundColor: fondo },
+        hecho && styles.hechoOpaco,
         arrastrando && styles.pillArrastrando,
         recienSoltada && styles.pillRecienSoltada,
       ]}
@@ -707,6 +845,7 @@ function PastillaAgenda({
         onPress={onAbrir}
         activeOpacity={0.75}
         accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}`}
+        {...toqueLargo}
       >
         <View style={[styles.pillFranja, { backgroundColor: color }]} />
         <View style={styles.pillCuerpo}>
@@ -726,19 +865,28 @@ function PastillaAgenda({
           </View>
         </View>
       </TouchableOpacity>
-      {item.tipo === 'tarea' || item.tipo === 'reunion' ? (
-        <BotonOjo onPress={onVistaPrevia} />
-      ) : null}
     </View>
   );
 
-  if (Platform.OS !== 'web' || !arrastrable) return cuerpo;
-  if (item.tipo !== 'tarea' && item.tipo !== 'reunion') return cuerpo;
+  const ratonWeb =
+    Platform.OS === 'web' && ficha
+      ? {
+          onMouseEnter: (e: { currentTarget: EventTarget }) => {
+            const punto = puntoDeTarjeta(e.currentTarget);
+            if (punto) onHoverEntrar?.(punto);
+          },
+          onMouseLeave: () => onHoverSalir?.(),
+        }
+      : null;
+
+  if (Platform.OS !== 'web' || !ficha) return cuerpo;
+  if (!arrastrable) return createElement('div', ratonWeb ?? {}, cuerpo);
 
   const payload: PayloadDragAgenda = { tipo: item.tipo, id: item.id, clave: item.clave };
   return createElement(
     'div',
     {
+      ...ratonWeb,
       draggable: true,
       onDragStart: (e: DragEvent<HTMLDivElement>) => {
         e.stopPropagation();
@@ -770,7 +918,9 @@ function BloqueHorario({
   arrastrando,
   recienSoltada,
   onAbrir,
-  onVistaPrevia,
+  onHoverEntrar,
+  onHoverSalir,
+  onPulsacionLarga,
   onDragStart,
   onDragEnd,
 }: {
@@ -779,14 +929,16 @@ function BloqueHorario({
   arrastrando: boolean;
   recienSoltada: boolean;
   onAbrir: () => void;
-  onVistaPrevia: () => void;
+  onHoverEntrar?: (punto: PuntoFicha) => void;
+  onHoverSalir?: () => void;
+  onPulsacionLarga?: () => void;
   onDragStart?: (payload: PayloadDragAgenda) => void;
   onDragEnd?: () => void;
 }) {
   const { item, top, height, carril, nCarriles } = bloque;
   const hecho = Boolean(item.hecho);
-  const color = hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
-  const fondo = hecho ? FONDO_TAREA_HECHA : FONDO_AGENDA[item.tipo];
+  const color = COLOR_AGENDA[item.tipo];
+  const fondo = FONDO_AGENDA[item.tipo];
   const tramo = etiquetaTramo(item);
   const anchoPct = 100 / nCarriles;
   const compacto = height < 36;
@@ -800,6 +952,9 @@ function BloqueHorario({
     boxSizing: 'border-box' as const,
   };
 
+  const ficha = item.tipo === 'tarea' || item.tipo === 'reunion';
+  const toqueLargo =
+    Platform.OS !== 'web' && ficha ? { delayLongPress: 400, onLongPress: onPulsacionLarga } : {};
   const interior = (
     <>
       <TouchableOpacity
@@ -807,6 +962,7 @@ function BloqueHorario({
         onPress={onAbrir}
         activeOpacity={0.8}
         accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}${tramo ? `, ${tramo}` : ''}`}
+        {...toqueLargo}
       >
         <View style={styles.bloqueTituloFila}>
           <Text
@@ -824,17 +980,27 @@ function BloqueHorario({
           </Text>
         ) : null}
       </TouchableOpacity>
-      <BotonOjo compacto onPress={onVistaPrevia} />
     </>
   );
 
-  if (Platform.OS !== 'web' || !arrastrable || (item.tipo !== 'tarea' && item.tipo !== 'reunion')) {
+  const ratonWeb =
+    Platform.OS === 'web' && ficha
+      ? {
+          onMouseEnter: (e: { currentTarget: EventTarget }) => {
+            const punto = puntoDeTarjeta(e.currentTarget);
+            if (punto) onHoverEntrar?.(punto);
+          },
+          onMouseLeave: () => onHoverSalir?.(),
+        }
+      : null;
+
+  if (Platform.OS !== 'web' || !ficha) {
     return (
       <View
         style={[
           styles.bloque,
           estiloPos,
-          { backgroundColor: fondo, borderLeftColor: color },
+          { backgroundColor: fondo, borderLeftColor: color, opacity: hecho ? 0.5 : 1 },
           arrastrando && styles.pillArrastrando,
           recienSoltada && styles.pillRecienSoltada,
         ]}
@@ -848,7 +1014,8 @@ function BloqueHorario({
   return createElement(
     'div',
     {
-      draggable: true,
+      ...ratonWeb,
+      draggable: arrastrable,
       onDragStart: (e: DragEvent<HTMLDivElement>) => {
         e.stopPropagation();
         const raw = JSON.stringify(payload);
@@ -864,18 +1031,106 @@ function BloqueHorario({
         flexDirection: 'row',
         alignItems: 'flex-start',
         backgroundColor: fondo,
-        borderRadius: 4,
-        border: `1px solid ${tasksUi.color.bordeSutil}`,
+        borderRadius: 6,
+        border: 'none',
         borderLeft: `3px solid ${color}`,
         overflow: 'hidden',
         paddingRight: 2,
         zIndex: 2,
-        cursor: arrastrando ? 'grabbing' : 'grab',
-        opacity: arrastrando ? 0.4 : 1,
+        cursor: arrastrable ? (arrastrando ? 'grabbing' : 'grab') : 'pointer',
+        opacity: arrastrando ? 0.4 : hecho ? 0.5 : 1,
         outline: recienSoltada ? `1px solid ${tasksUi.color.acento}` : undefined,
       },
     },
     interior,
+  );
+}
+
+function FichaTramo({
+  items,
+  punto,
+  onCerrar,
+  onAbrir,
+}: {
+  items: ItemAgenda[];
+  punto: PuntoFicha;
+  onCerrar: () => void;
+  onAbrir: (item: ItemAgenda) => void;
+}) {
+  const ancho = 300;
+  const { left: izquierda, top: arriba } = anclarEnVentana(punto, ancho, 280);
+  const lista = (
+    <View style={styles.fichaTramo}>
+      <Text style={styles.fichaTramoCabecera}>En este tramo</Text>
+      {items.map((item) => {
+        const tramo = etiquetaTramo(item);
+        return (
+          <TouchableOpacity
+            key={item.clave}
+            style={styles.fichaTramoFila}
+            onPress={() => onAbrir(item)}
+            accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}`}
+          >
+            <View style={[styles.popoverCuadrado, { backgroundColor: COLOR_AGENDA[item.tipo] }]} />
+            <Text style={styles.fichaTramoHora}>{tramo ?? 'Sin hora'}</Text>
+            <Text style={[styles.fichaTramoTitulo, item.hecho && styles.pillHecho]} numberOfLines={1}>
+              {item.titulo}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  if (Platform.OS === 'web') {
+    return portalAlBody(
+      <View
+        style={[
+          styles.popoverFija,
+          {
+            position: 'fixed' as 'absolute',
+            left: izquierda,
+            top: arriba,
+            width: ancho,
+            zIndex: 2000,
+          },
+        ]}
+      >
+        {lista}
+      </View>,
+    );
+  }
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onCerrar}>
+      <Pressable style={[styles.popoverOverlay, styles.popoverOverlayHoja]} onPress={onCerrar}>
+        <Pressable onPress={() => {}}>{lista}</Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function PastillaMas({ tramo, onAbrir }: { tramo: MasTramo; onAbrir: (punto: PuntoFicha) => void }) {
+  return (
+    <TouchableOpacity
+      style={[styles.pastillaMas, { top: tramo.top + PAD_REJILLA_TOP }]}
+      onPress={(e) => {
+        const ev = e as { stopPropagation?: () => void; currentTarget?: unknown; nativeEvent: { pageX: number; pageY: number; clientX?: number; clientY?: number } };
+        ev.stopPropagation?.();
+        const punto = puntoDeTarjeta((ev.currentTarget as EventTarget | null) ?? null);
+        const n = ev.nativeEvent;
+        onAbrir(
+          punto ?? {
+            x: typeof n.clientX === 'number' ? n.clientX : n.pageX,
+            y: typeof n.clientY === 'number' ? n.clientY : n.pageY,
+          },
+        );
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`${tramo.n} más en este tramo`}
+    >
+      <Text style={[styles.pastillaMasTexto, fuenteInter('medium')]}>{`+${tramo.n}`}</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -1146,6 +1401,8 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   const [isoDragOver, setIsoDragOver] = useState<string | null>(null);
   const [claveRecienSoltada, setClaveRecienSoltada] = useState<string | null>(null);
   const [vistaPrevia, setVistaPrevia] = useState<ItemAgenda | null>(null);
+  const [anclaVista, setAnclaVista] = useState<{ x: number; y: number } | null>(null);
+  const [tramoMas, setTramoMas] = useState<{ items: ItemAgenda[]; punto: PuntoFicha } | null>(null);
   const [huecoAlta, setHuecoAlta] = useState<HuecoAgenda | null>(null);
   const [minutosAhora, setMinutosAhora] = useState(() => {
     const ahora = new Date();
@@ -1154,6 +1411,8 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   const seqReuniones = useRef(0);
   const seqHechas = useRef(0);
   const arrastro = useRef(false);
+  const timerAbrirFicha = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerCerrarFicha = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoraClickCelda = useRef(false);
   const timerSoltada = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seqMove = useRef(new Map<string, number>());
@@ -1408,9 +1667,84 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
 
   const iniciarArrastre = useCallback((payload: PayloadDragAgenda) => {
     arrastro.current = true;
+    if (timerAbrirFicha.current) clearTimeout(timerAbrirFicha.current);
+    if (timerCerrarFicha.current) clearTimeout(timerCerrarFicha.current);
+    timerAbrirFicha.current = null;
+    timerCerrarFicha.current = null;
     setClaveArrastrando(payload.clave);
     setVistaPrevia(null);
+    setAnclaVista(null);
   }, []);
+
+  const cerrarFicha = useCallback(() => {
+    if (timerAbrirFicha.current) clearTimeout(timerAbrirFicha.current);
+    if (timerCerrarFicha.current) clearTimeout(timerCerrarFicha.current);
+    timerAbrirFicha.current = null;
+    timerCerrarFicha.current = null;
+    setVistaPrevia(null);
+    setAnclaVista(null);
+  }, []);
+
+  const entrarFicha = useCallback(() => {
+    if (timerCerrarFicha.current) {
+      clearTimeout(timerCerrarFicha.current);
+      timerCerrarFicha.current = null;
+    }
+  }, []);
+
+  const programarCierreFicha = useCallback(() => {
+    if (timerAbrirFicha.current) {
+      clearTimeout(timerAbrirFicha.current);
+      timerAbrirFicha.current = null;
+    }
+    if (timerCerrarFicha.current) clearTimeout(timerCerrarFicha.current);
+    timerCerrarFicha.current = setTimeout(() => {
+      timerCerrarFicha.current = null;
+      setVistaPrevia(null);
+      setAnclaVista(null);
+    }, 150);
+  }, []);
+
+  const programarAperturaFicha = useCallback((item: ItemAgenda, punto: PuntoFicha) => {
+    if (arrastro.current) return;
+    if (item.tipo !== 'tarea' && item.tipo !== 'reunion') return;
+    if (timerCerrarFicha.current) {
+      clearTimeout(timerCerrarFicha.current);
+      timerCerrarFicha.current = null;
+    }
+    if (timerAbrirFicha.current) clearTimeout(timerAbrirFicha.current);
+    timerAbrirFicha.current = setTimeout(() => {
+      timerAbrirFicha.current = null;
+      if (arrastro.current) return;
+      setAnclaVista(punto);
+      setVistaPrevia(item);
+    }, 300);
+  }, []);
+
+  const abrirFichaNativa = useCallback((item: ItemAgenda) => {
+    if (item.tipo !== 'tarea' && item.tipo !== 'reunion') return;
+    setAnclaVista(null);
+    setVistaPrevia(item);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || (!vistaPrevia && !tramoMas)) return;
+    const onTecla = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (tramoMas) setTramoMas(null);
+      else cerrarFicha();
+    };
+    window.addEventListener('keydown', onTecla);
+    return () => window.removeEventListener('keydown', onTecla);
+  }, [vistaPrevia, tramoMas, cerrarFicha]);
+
+  useEffect(
+    () => () => {
+      if (timerAbrirFicha.current) clearTimeout(timerAbrirFicha.current);
+      if (timerCerrarFicha.current) clearTimeout(timerCerrarFicha.current);
+    },
+    [],
+  );
 
   const terminarArrastre = useCallback(() => {
     setClaveArrastrando(null);
@@ -1638,13 +1972,9 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
       onDragStart={iniciarArrastre}
       onDragEnd={terminarArrastre}
       onAbrir={() => abrirTrasDrag(item)}
-      onVistaPrevia={() => {
-        ignoraClickCelda.current = true;
-        setTimeout(() => {
-          ignoraClickCelda.current = false;
-        }, 0);
-        setVistaPrevia(item);
-      }}
+      onHoverEntrar={(punto) => programarAperturaFicha(item, punto)}
+      onHoverSalir={programarCierreFicha}
+      onPulsacionLarga={() => abrirFichaNativa(item)}
     />
   );
 
@@ -1667,6 +1997,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
     setTareas((lista) => lista.filter((t) => t.id_tarea !== tareaId));
     setTareasHechas((lista) => [hecha, ...lista.filter((t) => t.id_tarea !== tareaId)]);
     setVistaPrevia(null);
+    setAnclaVista(null);
   }, []);
 
   const marcarCasillaVista = useCallback(async (tareaId: string, casillaId: string, hecho: boolean) => {
@@ -1703,6 +2034,51 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
     setReservaBarra((prev) => (prev === ancho ? prev : ancho));
   }, []);
 
+  const scrollInicialClave = useRef<string | null>(null);
+  const altoRejillaRef = useRef(0);
+  const desplazarRejillaAlCargar = useCallback(() => {
+    if (vista !== 'semana' || cargando) return;
+    const clave = `${lunes}:${conFecha.length}`;
+    if (scrollInicialClave.current === clave) return;
+    if (!rejillaScrollRef.current) return;
+    if (altoRejillaRef.current <= 0) return;
+    let primer: number | null = null;
+    for (const iso of diasDeSemana(lunes)) {
+      for (const b of bloquesPorDia.get(iso)?.bloques ?? []) {
+        const ini = minutosDeHhmm(b.item.horaInicio ?? '');
+        if (ini == null) continue;
+        const vis = Math.min(Math.max(ini, MINUTOS_DIA_INICIO), MINUTOS_DIA_FIN);
+        if (primer == null || vis < primer) primer = vis;
+      }
+    }
+    const hoyEnSemana = diasDeSemana(lunes).includes(hoy);
+    const ahoraEnRango = minutosAhora >= MINUTOS_DIA_INICIO && minutosAhora < MINUTOS_DIA_FIN;
+    const yDe = (minutos: number) =>
+      ((minutos - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA + PAD_REJILLA_TOP;
+    const yEvento = primer != null ? yDe(primer) : null;
+    const yAhora = hoyEnSemana && ahoraEnRango ? yDe(minutosAhora) : null;
+    const altoVista = altoRejillaRef.current || 420;
+    let y = 0;
+    if (yEvento != null && yAhora != null) {
+      const arriba = Math.min(yEvento, yAhora) - 28;
+      const abajo = Math.max(yEvento, yAhora) + 20;
+      y = abajo - Math.max(0, arriba) <= altoVista ? Math.max(0, arriba) : Math.max(0, yAhora - 28);
+    } else if (yEvento != null) {
+      y = Math.max(0, yEvento - 28);
+    } else if (yAhora != null) {
+      y = Math.max(0, yAhora - 28);
+    } else {
+      scrollInicialClave.current = clave;
+      return;
+    }
+    rejillaScrollRef.current.scrollTo({ y, animated: false });
+    scrollInicialClave.current = clave;
+  }, [vista, cargando, lunes, conFecha.length, bloquesPorDia, hoy, minutosAhora]);
+
+  useEffect(() => {
+    desplazarRejillaAlCargar();
+  }, [desplazarRejillaAlCargar]);
+
   useEffect(() => {
     if (Platform.OS !== 'web' || vista !== 'semana') return;
     medirBarraRejilla();
@@ -1721,16 +2097,6 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   if (acceso.permisosCargando) return null;
   if (!puedeTareas && !puedeReuniones) return null;
 
-  const tituloRango = vista === 'semana' ? etiquetaSemana(lunes) : etiquetaMes(ancla);
-  const esPeriodoActual =
-    vista === 'semana'
-      ? lunesDeSemanaIso(ancla) === lunesDeSemanaIso(hoy)
-      : inicioMesIso(ancla) === inicioMesIso(hoy);
-  const tituloBloque = esPeriodoActual
-    ? vista === 'semana'
-      ? 'Esta semana'
-      : 'Este mes'
-    : 'Agenda';
   const semanaMovil = isPhone && isPortrait;
   const diasSemana = diasDeSemana(lunes);
 
@@ -1748,7 +2114,15 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
         <PopoverVistaItem
           key={vistaPrevia.clave}
           item={vistaPrevia}
-          onCerrar={() => setVistaPrevia(null)}
+          ancla={anclaVista}
+          flotante={Platform.OS === 'web'}
+          onRatonEntrar={entrarFicha}
+          onRatonSalir={programarCierreFicha}
+          onAbrir={() => {
+            cerrarFicha();
+            abrir(vistaPrevia);
+          }}
+          onCerrar={cerrarFicha}
           onMarcarCasilla={
             vistaPrevia.tipo === 'tarea' && vistaPrevia.puedeMover
               ? (casillaId, hecho) => marcarCasillaVista(vistaPrevia.id, casillaId, hecho)
@@ -1761,6 +2135,18 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
               ? () => marcarRealizadaVista(vistaPrevia.id)
               : undefined
           }
+        />
+      ) : null}
+
+      {tramoMas ? (
+        <FichaTramo
+          items={tramoMas.items}
+          punto={tramoMas.punto}
+          onCerrar={() => setTramoMas(null)}
+          onAbrir={(item) => {
+            setTramoMas(null);
+            abrir(item);
+          }}
         />
       ) : null}
 
@@ -1778,7 +2164,6 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
       ) : null}
 
       <View style={[styles.toolbar, styles.toolbarSobre, shouldStackToolbar && styles.toolbarWrap]}>
-        <Text style={styles.tituloBloque}>{tituloBloque}</Text>
         <View style={styles.rango}>
           <TouchableOpacity
             style={styles.rangoBtn}
@@ -1787,9 +2172,14 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
           >
             <MaterialIcons name="chevron-left" size={22} color={tasksUi.color.textoPrimario} />
           </TouchableOpacity>
-          <Text style={styles.rangoTexto} numberOfLines={1}>
-            {tituloRango}
+          <Text style={[styles.rangoTexto, fuenteInter('semibold')]} numberOfLines={1}>
+            {etiquetaMes(ancla)}
           </Text>
+          {vista === 'semana' ? (
+            <Text style={styles.rangoPequeno} numberOfLines={1}>
+              {etiquetaSemana(lunes)}
+            </Text>
+          ) : null}
           <TouchableOpacity
             style={styles.rangoBtn}
             onPress={() => ir(1)}
@@ -1817,7 +2207,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                 accessibilityLabel={`Vista ${etiqueta}`}
                 accessibilityState={{ selected: activo }}
               >
-                <MaterialIcons name={icono} size={20} color={activo ? tasksUi.color.acentoTexto : tasksUi.color.textoTerciario} />
+                <MaterialIcons name={icono} size={18} color={activo ? tasksUi.calendario.hoy : tasksUi.color.textoTerciario} />
                 <Text style={[styles.viewModeTexto, activo && styles.viewModeTextoActivo]}>{etiqueta}</Text>
               </TouchableOpacity>
             );
@@ -1871,7 +2261,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
 
       {cargando && conFecha.length === 0 && sinFecha.length === 0 ? (
         <View style={styles.centro}>
-          <ActivityIndicator size="small" color="#0ea5e9" />
+          <ActivityIndicator size="small" color={tasksUi.calendario.hoy} />
           <Text style={styles.centroTexto}>Cargando la agenda…</Text>
         </View>
       ) : vista === 'semana' ? (
@@ -1884,16 +2274,6 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
             embebido && semanaMovil && styles.semanaCuerpoEmbebidaMovil,
           ]}
         >
-          <BandaCarriles
-            barras={empaquetadoSemana.barras}
-            overflow={empaquetadoSemana.overflow}
-            altoCarril={ALTO_CARRIL_SEMANA}
-            columnasFijas={semanaMovil}
-            conGutterHoras
-            onAbrir={abrir}
-          />
-
-          {/* Cabecera de días. El padding derecho reserva el hueco de la barra de la rejilla. */}
           <View
             style={[
               styles.semanaCabecera,
@@ -1905,7 +2285,6 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
             <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
               {diasSemana.map((iso) => {
                 const esHoy = iso === hoy;
-                const delDiaTodos = porDiaCubierto.get(iso) ?? [];
                 return (
                   <View
                     key={`h-${iso}`}
@@ -1913,17 +2292,16 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                   >
                     <Text style={styles.colDow}>{weekdayShortEs(iso).toUpperCase()}</Text>
                     <View style={[styles.colNumWrap, esHoy && styles.colNumHoy]}>
-                      <Text style={[styles.colNum, esHoy && styles.colNumTextoHoy]}>{diaNumero(iso)}</Text>
+                      <Text style={[styles.colNum, fuenteInter('semibold'), esHoy && styles.colNumTextoHoy]}>{diaNumero(iso)}</Text>
                     </View>
                     {esHoy ? <View style={styles.colHoyLinea} /> : <View style={styles.colHoyLineaHueco} />}
-                    {delDiaTodos.length > 0 ? <Text style={styles.colCount}>{delDiaTodos.length}</Text> : null}
                   </View>
                 );
               })}
             </View>
           </View>
 
-          {/* Franja todo el día */}
+          {/* Franja todo el día: proyectos de varios días y citas sin hora */}
           <View
             style={[
               styles.todoElDiaFila,
@@ -1936,7 +2314,15 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                 Todo el día
               </Text>
             </View>
-            <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
+            <View style={[styles.todoElDiaCuerpo, semanaMovil && styles.semanaDiasMovil]}>
+              <BandaCarriles
+                barras={empaquetadoSemana.barras}
+                overflow={empaquetadoSemana.overflow}
+                altoCarril={ALTO_CARRIL_SEMANA}
+                columnasFijas={semanaMovil}
+                onAbrir={abrir}
+              />
+              <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
               {diasSemana.map((iso) => {
                 const items = todoElDiaPorDia.get(iso) ?? [];
                 const sobre = isoDragOver === iso;
@@ -1964,6 +2350,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                 );
               })}
             </View>
+            </View>
           </View>
 
           {/* Rejilla horaria */}
@@ -1972,7 +2359,11 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
             style={[styles.rejillaScroll, embebido ? styles.rejillaScrollEmbebida : styles.rejillaScrollInicio]}
             nestedScrollEnabled
             showsVerticalScrollIndicator
-            onLayout={medirBarraRejilla}
+            onLayout={(e) => {
+              altoRejillaRef.current = e.nativeEvent.layout.height;
+              medirBarraRejilla();
+              desplazarRejillaAlCargar();
+            }}
           >
             <View style={[styles.rejillaFila, semanaMovil && styles.semanaFilaMovil, { minHeight: ALTO_REJILLA_CAJA }]}>
               <View style={[styles.gutterHora, { height: ALTO_REJILLA_CAJA }]}>
@@ -1981,6 +2372,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                     key={h}
                     style={[
                       styles.horaEtiqueta,
+                      fuenteInter('regular'),
                       {
                         top:
                           ((h - HORA_VISTA_INICIO) / (HORA_VISTA_FIN - HORA_VISTA_INICIO)) * ALTO_REJILLA +
@@ -1992,10 +2384,30 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                     {`${String(h).padStart(2, '0')}:00`}
                   </Text>
                 ))}
+                {diasSemana.includes(hoy) &&
+                minutosAhora >= MINUTOS_DIA_INICIO &&
+                minutosAhora < MINUTOS_DIA_FIN ? (
+                  <Text
+                    pointerEvents="none"
+                    style={[
+                      styles.horaAhora,
+                      fuenteInter('medium'),
+                      {
+                        top:
+                          ((minutosAhora - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA +
+                          PAD_REJILLA_TOP -
+                          8,
+                      },
+                    ]}
+                  >
+                    {`${String(Math.floor(minutosAhora / 60)).padStart(2, '0')}:${String(minutosAhora % 60).padStart(2, '0')}`}
+                  </Text>
+                ) : null}
               </View>
               <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil, { height: ALTO_REJILLA_CAJA }]}>
                 {diasSemana.map((iso) => {
-                  const bloques = bloquesPorDia.get(iso) ?? [];
+                  const pack = bloquesPorDia.get(iso) ?? { bloques: [], mas: [] };
+                  const bloques = pack.bloques;
                   const sobre = isoDragOver === iso;
                   return (
                     <ZonaDropDia
@@ -2059,15 +2471,18 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                             arrastrando={claveArrastrando === b.item.clave}
                             recienSoltada={claveRecienSoltada === b.item.clave}
                             onAbrir={() => abrirTrasDrag(b.item)}
-                            onVistaPrevia={() => {
-                              ignoraClickCelda.current = true;
-                              setTimeout(() => {
-                                ignoraClickCelda.current = false;
-                              }, 0);
-                              setVistaPrevia(b.item);
-                            }}
+                            onHoverEntrar={(punto) => programarAperturaFicha(b.item, punto)}
+                            onHoverSalir={programarCierreFicha}
+                            onPulsacionLarga={() => abrirFichaNativa(b.item)}
                             onDragStart={iniciarArrastre}
                             onDragEnd={terminarArrastre}
+                          />
+                        ))}
+                        {pack.mas.map((tramo) => (
+                          <PastillaMas
+                            key={tramo.clave}
+                            tramo={tramo}
+                            onAbrir={(punto) => setTramoMas({ items: tramo.items, punto })}
                           />
                         ))}
                       </Pressable>
@@ -2144,6 +2559,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                             <Text
                               style={[
                                 styles.mesNum,
+                                fuenteInter('semibold'),
                                 esHoy && styles.colNumTextoHoy,
                                 !delMes && !esHoy && styles.celdaNumFuera,
                               ]}
@@ -2153,7 +2569,10 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                           </View>
                           <View style={styles.chipsMes}>
                             {chips.map((item) => (
-                              <View key={item.clave} style={styles.chipMes}>
+                              <View
+                                key={item.clave}
+                                style={[styles.chipMes, { backgroundColor: FONDO_AGENDA[item.tipo] }]}
+                              >
                                 <View style={[styles.chipMesBarra, { backgroundColor: colorPuntoDia(item) }]} />
                                 <Text style={styles.chipMesTexto} numberOfLines={1}>
                                   {item.titulo}
@@ -2260,36 +2679,44 @@ const styles = StyleSheet.create({
   cuerpoAgenda: { position: 'relative', zIndex: 0, gap: 10 },
   cuerpoAgendaEmbebido: { flex: 1, minHeight: 0 },
   tituloBloque: { ...tasksUi.tipo.tituloSeccion },
-  rango: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 200 },
+  rango: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 200 },
   rangoBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
     borderRadius: tasksUi.radius.control,
-    backgroundColor: tasksUi.color.superficie,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rangoTexto: { ...tasksUi.tipo.dato, minWidth: 110, textAlign: 'center' },
+  rangoTexto: {
+    fontSize: 30,
+    fontWeight: '600',
+    letterSpacing: -0.6,
+    lineHeight: 36,
+    color: tasksUi.calendario.hoy,
+    textAlign: 'center',
+    ...tasksUi.tabularNums,
+  },
+  rangoPequeno: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: tasksUi.color.textoSecundario,
+    ...tasksUi.tabularNums,
+  },
   hoyBtn: {
     minHeight: MIN_TOUCH,
     paddingHorizontal: 12,
     borderRadius: tasksUi.radius.control,
-    backgroundColor: tasksUi.color.acentoSuave,
-    borderWidth: 1,
-    borderColor: tasksUi.color.acentoSuave,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hoyTexto: { fontSize: 13, fontWeight: '600', color: tasksUi.color.acentoTexto },
+  hoyTexto: { fontSize: 13, fontWeight: '600', color: tasksUi.calendario.hoy },
   viewModeWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
-    borderRadius: tasksUi.radius.control,
-    overflow: 'hidden',
+    gap: 2,
+    backgroundColor: 'transparent',
   },
   viewModeBtn: {
     flexDirection: 'row',
@@ -2297,12 +2724,13 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.control,
+    backgroundColor: 'transparent',
   },
   viewModeBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  viewModeBtnActive: { backgroundColor: tasksUi.color.acentoSuave },
+  viewModeBtnActive: { backgroundColor: 'rgba(17, 17, 17, 0.06)' },
   viewModeTexto: { fontSize: 13, fontWeight: '500', color: tasksUi.color.textoTerciario },
-  viewModeTextoActivo: { color: tasksUi.color.acentoTexto, fontWeight: '600' },
+  viewModeTextoActivo: { color: tasksUi.calendario.hoy, fontWeight: '600' },
 
   leyenda: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   leyendaItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
@@ -2311,7 +2739,7 @@ const styles = StyleSheet.create({
 
   aviso: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   avisoTexto: { flex: 1, ...tasksUi.tipo.etiqueta, color: tasksUi.color.peligro },
-  avisoAccion: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: tasksUi.color.acento },
+  avisoAccion: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: tasksUi.calendario.hoy },
   centro: { alignItems: 'center', gap: 8, paddingVertical: 20 },
   centroTexto: { fontSize: 13, color: tasksUi.color.textoSecundario },
 
@@ -2344,6 +2772,10 @@ const styles = StyleSheet.create({
     width: '100%',
     minHeight: 44,
   },
+  todoElDiaCuerpo: {
+    flex: 1,
+    minWidth: 0,
+  },
   todoElDiaLabel: {
     ...tasksUi.tipo.micro,
     fontWeight: '600',
@@ -2356,9 +2788,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 4,
-    padding: 4,
-    borderRadius: 10,
-    backgroundColor: '#eef1f6',
+    paddingVertical: 2,
+    backgroundColor: 'transparent',
     minHeight: 32,
   },
   rejillaScroll: {
@@ -2385,8 +2816,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 14,
     ...tasksUi.tipo.micro,
+    ...tasksUi.tabularNums,
     color: tasksUi.color.textoTerciario,
-    fontWeight: '600',
+    fontWeight: '400',
   },
   colHeaderSemana: {
     flex: 1,
@@ -2409,14 +2841,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  colNumHoy: { backgroundColor: '#0ea5e9' },
-  colNum: { fontSize: 22, fontWeight: '700', color: '#0f172a', lineHeight: 26 },
-  colNumTextoHoy: { color: '#ffffff' },
+  colNumHoy: { backgroundColor: tasksUi.calendario.hoy },
+  colNum: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: tasksUi.color.textoPrimario,
+    lineHeight: 26,
+    ...tasksUi.tabularNums,
+  },
+  colNumTextoHoy: { color: tasksUi.calendario.hoyTexto },
   colHoyLinea: {
     width: 36,
     height: 2,
     borderRadius: 1,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: tasksUi.calendario.hoy,
     marginTop: 2,
   },
   colHoyLineaHueco: { width: 36, height: 2, marginTop: 2 },
@@ -2426,36 +2864,50 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
+  horaAhora: {
+    position: 'absolute',
+    right: 8,
+    ...tasksUi.tipo.micro,
+    ...tasksUi.tabularNums,
+    color: '#ffffff',
+    fontWeight: '600',
+    backgroundColor: COLOR_AHORA,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    overflow: 'hidden',
+    zIndex: 5,
+  },
   lineaHora: {
     position: 'absolute',
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: '#e7ebf0',
+    backgroundColor: 'rgba(17, 17, 17, 0.04)',
   },
   lineaAhora: {
     position: 'absolute',
     left: 0,
     right: 0,
-    height: 2,
-    backgroundColor: '#f43f5e',
+    height: 1,
+    backgroundColor: COLOR_AHORA,
     zIndex: 4,
   },
   lineaAhoraPunto: {
     position: 'absolute',
     left: -3,
     top: -3,
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 4,
-    backgroundColor: '#f43f5e',
+    backgroundColor: COLOR_AHORA,
   },
   bloque: {
     position: 'absolute',
     flexDirection: 'row',
     alignItems: 'flex-start',
     borderLeftWidth: 3,
-    borderRadius: 12,
+    borderRadius: 6,
     overflow: 'hidden',
     paddingRight: 2,
     zIndex: 2,
@@ -2484,10 +2936,7 @@ const styles = StyleSheet.create({
   bandaCarriles: {
     position: 'relative',
     width: '100%',
-    backgroundColor: tasksUi.color.superficieHundida,
-    borderRadius: tasksUi.radius.contenedor,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    backgroundColor: 'transparent',
   },
   bandaCarrilesMes: {
     backgroundColor: 'transparent',
@@ -2504,12 +2953,13 @@ const styles = StyleSheet.create({
   barraCuerpo: {
     flex: 1,
     minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'stretch',
     backgroundColor: FONDO_AGENDA.proyecto,
-    borderWidth: 1,
-    borderColor: '#f9a8d4',
-    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: COLOR_AGENDA.proyecto,
+    borderRadius: 4,
     justifyContent: 'center',
-    paddingHorizontal: 6,
     overflow: 'hidden',
   },
   barraContinuaIzq: {
@@ -2522,7 +2972,13 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 0,
     borderRightWidth: 0,
   },
-  barraTitulo: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: COLOR_AGENDA.proyecto },
+  barraTitulo: {
+    ...tasksUi.tipo.etiqueta,
+    fontWeight: '600',
+    color: COLOR_AGENDA.proyecto,
+    paddingHorizontal: 8,
+    alignSelf: 'center',
+  },
   barraTituloMes: { fontSize: 12, lineHeight: 16 },
   masProyectos: {
     position: 'absolute',
@@ -2533,15 +2989,14 @@ const styles = StyleSheet.create({
     color: COLOR_AGENDA.proyecto,
   },
   colMovil: { width: COL_MIN, flex: 0 },
-  colHoy: { borderColor: tasksUi.color.acentoSuave, backgroundColor: tasksUi.color.acentoSuave },
+  colHoy: { borderColor: tasksUi.calendario.hoy, backgroundColor: tasksUi.color.superficie },
   colDragOver: {
     backgroundColor: tasksUi.color.acentoSuave,
     borderColor: tasksUi.color.acento,
   },
   colDia: { ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoSecundario },
-  colDiaHoy: { color: tasksUi.color.acentoTexto },
-  badgeHoy: { ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.acentoTexto },
-  colCount: { marginLeft: 'auto', ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoTerciario },
+  colDiaHoy: { color: tasksUi.calendario.hoy },
+  badgeHoy: { ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.calendario.hoy },
 
   mesWrap: { gap: 8 },
   mesCabecera: { flexDirection: 'row' },
@@ -2563,7 +3018,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#e7ebf0',
+    borderBottomColor: 'rgba(17, 17, 17, 0.04)',
   },
   mesFilaUltima: { borderBottomWidth: 0 },
   celda: {
@@ -2581,7 +3036,7 @@ const styles = StyleSheet.create({
   celdaHoy: {},
   celdaSel: {
     borderWidth: 1,
-    borderColor: '#0ea5e9',
+    borderColor: tasksUi.calendario.hoy,
     borderRadius: 10,
   },
   celdaDragOver: {
@@ -2599,9 +3054,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  mesNum: { fontSize: 16, fontWeight: '700', color: '#0f172a', lineHeight: 20 },
+  mesNum: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: tasksUi.color.textoPrimario,
+    lineHeight: 20,
+    ...tasksUi.tabularNums,
+  },
   celdaNum: { fontSize: 13, fontWeight: '600', color: tasksUi.color.textoPrimario },
-  celdaNumHoy: { color: tasksUi.color.acentoTexto },
+  celdaNumHoy: { color: tasksUi.calendario.hoy },
   celdaNumFuera: { color: tasksUi.color.textoTerciario },
   chipsMes: { alignSelf: 'stretch', gap: 3, minWidth: 0 },
   chipMes: {
@@ -2610,13 +3071,13 @@ const styles = StyleSheet.create({
     gap: 4,
     alignSelf: 'stretch',
     minWidth: 0,
-    backgroundColor: '#f8fafc',
+    backgroundColor: tasksUi.color.superficie,
     borderRadius: 6,
     overflow: 'hidden',
     paddingRight: 4,
   },
   chipMesBarra: { width: 3, alignSelf: 'stretch', minHeight: 16 },
-  chipMesTexto: { flex: 1, minWidth: 0, fontSize: 11, fontWeight: '600', color: '#0f172a' },
+  chipMesTexto: { flex: 1, minWidth: 0, fontSize: 11, fontWeight: '600', color: tasksUi.color.textoPrimario },
   puntos: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 8 },
   punto: { width: 7, height: 7, borderRadius: 4 },
   masPuntos: { fontSize: 11, fontWeight: '600', color: tasksUi.color.textoSecundario },
@@ -2657,54 +3118,144 @@ const styles = StyleSheet.create({
   pillMetaFila: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   pillMeta: { ...tasksUi.tipo.micro, fontWeight: '500' },
   pillMetaTexto: { flexShrink: 1 },
-  pillHecho: { color: TEXTO_TAREA_HECHA, textDecorationLine: 'line-through' },
+  pillHecho: { textDecorationLine: 'line-through' },
+  hechoOpaco: { opacity: 0.5 },
   pillArrastrando: { opacity: 0.4 },
   pillRecienSoltada: { borderColor: tasksUi.color.acento },
 
-  ojoBtn: {
+  pastillaMas: {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(17,17,17,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'center',
+    zIndex: 4,
+  },
+  pastillaMasTexto: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: tasksUi.calendario.hoy,
+  },
+  fichaTramo: {
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(17,17,17,0.12)',
+    paddingVertical: 8,
+    ...tasksUi.sombraFlotante,
+  },
+  fichaTramoCabecera: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: tasksUi.color.textoTerciario,
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+  },
+  fichaTramoFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: MIN_TOUCH,
+  },
+  fichaTramoHora: {
+    fontSize: 12,
+    color: tasksUi.color.textoSecundario,
+    width: 88,
+    ...tasksUi.tabularNums,
+  },
+  fichaTramoTitulo: {
+    flex: 1,
+    fontSize: 13,
+    color: tasksUi.color.textoPrimario,
+  },
+
+  popoverFija: {
+    position: 'fixed' as 'absolute',
+    zIndex: 80,
   },
 
   popoverOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    backgroundColor: 'rgba(17, 17, 17, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
     zIndex: 100,
   },
+  popoverOverlayHoja: {
+    justifyContent: 'flex-end',
+    alignItems: 'stretch',
+    padding: 0,
+  },
   popoverCard: {
     width: '100%',
     maxWidth: 360,
     maxHeight: '80%',
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
-    padding: 14,
+    borderRadius: 16,
+    padding: 16,
     gap: 10,
-    ...(Platform.OS === 'web'
-      ? ({ boxShadow: '0 12px 32px rgba(0,0,0,0.18)' } as object)
-      : { elevation: 16 }),
+  },
+  popoverCardAncla: {
+    position: 'absolute',
+    maxWidth: 340,
+    margin: 0,
+  },
+  popoverCardHoja: {
+    maxWidth: '100%',
+    width: '100%',
+    maxHeight: '88%',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingBottom: 20,
   },
   popoverHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 8,
   },
+  popoverCuadrado: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+  },
+  popoverTipo: {
+    ...tasksUi.tipo.micro,
+    fontWeight: '600',
+    color: tasksUi.color.textoSecundario,
+  },
+  popoverIconos: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  popoverIcono: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  popoverIconoTactil: { width: MIN_TOUCH, height: MIN_TOUCH },
   popoverTitulo: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '700',
-    color: tasksUi.color.textoPrimario,
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: -0.3,
+    color: tasksUi.calendario.hoy,
   },
   popoverAccion: { gap: 6 },
   btnRealizada: {
     minHeight: MIN_TOUCH,
     borderRadius: 10,
-    backgroundColor: '#16a34a',
+    backgroundColor: 'transparent',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2712,17 +3263,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   btnRealizadaTexto: {
-    color: '#ffffff',
+    color: tasksUi.calendario.hoy,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
   },
-  popoverCerrar: {
-    width: MIN_TOUCH,
-    height: MIN_TOUCH,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: -6,
-    marginRight: -6,
+  popoverProgreso: {
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(17, 17, 17, 0.08)',
+    overflow: 'hidden',
+  },
+  popoverProgresoRelleno: {
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: tasksUi.calendario.hoy,
   },
   popoverScroll: { flexGrow: 0, maxHeight: 420 },
   popoverScrollContent: { gap: 10 },
