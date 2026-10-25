@@ -12,6 +12,7 @@ import {
   buildPurchaseOrderPayload,
   importPurchaseOrders,
 } from '../agora/purchaseOrdersImport.js';
+import { exportSuppliers, exportVats, exportWarehouses } from '../agora/client.js';
 import { formatId6 } from '../usuarioLocales.js';
 import { mensajeSeguro } from '../http/responderError.js';
 import {
@@ -75,6 +76,87 @@ export async function resolvePurchaseOrderSerie(warehouseId) {
     }
   }
   return 'MIA';
+}
+
+/** Nombre del almacén en el maestro (Ágora exige Warehouse.Name en el import). */
+async function resolverNombreAlmacen(warehouseId) {
+  try {
+    const r = await docClient.send(
+      new GetCommand({ TableName: tables.almacenes, Key: { Id: normalizeWarehouseId(warehouseId) } }),
+    );
+    return String(r.Item?.Nombre ?? r.Item?.nombre ?? '').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Fichas de almacén, proveedores e impuestos de Ágora (solo lectura).
+ * Almacén y proveedor, si faltan, se completan con el nombre. El impuesto no:
+ * sin VatId del producto y tipos del maestro no se envía la línea.
+ */
+async function cargarMaestrosAgora(warehouseIdNum, supplierIds) {
+  const out = { warehouse: null, suppliers: new Map(), vats: new Map() };
+  try {
+    const [warehouses, suppliers, vats] = await Promise.all([
+      exportWarehouses(),
+      exportSuppliers(),
+      exportVats(),
+    ]);
+    out.warehouse = (warehouses || []).find((w) => Number(w?.Id) === warehouseIdNum) || null;
+    const wanted = new Set(supplierIds);
+    for (const s of suppliers || []) {
+      const sid = Number(s?.Id);
+      if (wanted.has(sid)) out.suppliers.set(sid, s);
+    }
+    for (const v of vats || []) {
+      const id = Number(v?.Id);
+      if (Number.isInteger(id)) out.vats.set(id, v);
+    }
+  } catch (err) {
+    console.warn('[mia/aprobar] No se pudieron leer los maestros de Ágora', err?.message || err);
+  }
+  return out;
+}
+
+/**
+ * VatId del producto en Igp_AgoraProducts y tipos del maestro de impuestos de Ágora.
+ * No inventa cifras: si falta el producto o el tipo, 400 y no se llama a Ágora.
+ */
+async function impuestoDeProducto(productId, vats) {
+  const idNum = Number(String(productId ?? '').trim());
+  if (!Number.isInteger(idNum) || idNum <= 0) {
+    const err = new Error(`El producto ${productId} no tiene impuesto; no se envía el pedido`);
+    err.status = 400;
+    throw err;
+  }
+  let vatId = NaN;
+  try {
+    const r = await docClient.send(
+      new GetCommand({
+        TableName: tables.agoraProducts,
+        Key: { PK: 'GLOBAL', SK: String(idNum) },
+      }),
+    );
+    vatId = Number(r.Item?.VatId);
+  } catch (err) {
+    console.warn('[mia/aprobar] No se pudo leer el impuesto del producto', idNum, err?.message || err);
+  }
+  const vat = vats?.get(vatId);
+  const vatRate = Number(vat?.VatRate);
+  const surchargeRate = Number(vat?.SurchargeRate);
+  if (
+    !Number.isInteger(vatId) || vatId <= 0
+    || !Number.isFinite(vatRate) || vatRate < 0
+    || !Number.isFinite(surchargeRate) || surchargeRate < 0
+  ) {
+    const err = new Error(
+      `El producto ${idNum} no tiene impuesto en el maestro; no se envía el pedido`,
+    );
+    err.status = 400;
+    throw err;
+  }
+  return { vatId, vatRate, surchargeRate };
 }
 
 /**
@@ -325,6 +407,10 @@ export async function aprobarInformeMia(informeId, opts = {}) {
   await claimAprobando(id, { force, estadoPrevio: estado });
 
   const serie = await resolvePurchaseOrderSerie(warehouseId);
+  const warehouseName = await resolverNombreAlmacen(warehouseId);
+  const maestros = proveedorIds.length
+    ? await cargarMaestrosAgora(warehouseIdNum, proveedorIds.map(parseSupplierIdAgora))
+    : { warehouse: null, suppliers: new Map(), vats: new Map() };
   /** @type {Array<object>} */
   const agoraResultadosNuevos = [];
 
@@ -383,21 +469,33 @@ export async function aprobarInformeMia(informeId, opts = {}) {
   for (const proveedorId of proveedorIds) {
     const group = porProveedor[proveedorId];
     const supplierId = parseSupplierIdAgora(proveedorId);
-    const poLines = group.map((ln) => ({
-      productId: ln.productId,
-      orderedQuantity: qtyOf(ln),
-      purchaseUnit: ln.unit || ln.PurchaseUnit || null,
-      // No PurchaseUnitId: qty sigue en unidades base (stock/venta).
-      // Mandar el id de "Caja" con 18 uds haría que Ágora interpretara 18 cajas.
-      price: ln.costeUnitario != null ? toNum(ln.costeUnitario, null) : null,
-    }));
-
+    let poLines;
     let payload;
     try {
+      poLines = [];
+      for (const ln of group) {
+        const imp = await impuestoDeProducto(ln.productId, maestros.vats);
+        poLines.push({
+          productId: ln.productId,
+          productName: ln.nombre,
+          orderedQuantity: qtyOf(ln),
+          // Unidad de compra guardada en la línea (la del producto), no la unidad base.
+          purchaseUnitId: ln.purchaseUnitId,
+          purchaseUnitName: ln.unit,
+          price: ln.costeUnitario != null ? toNum(ln.costeUnitario, null) : null,
+          vatId: imp.vatId,
+          vatRate: imp.vatRate,
+          surchargeRate: imp.surchargeRate,
+        });
+      }
       payload = buildPurchaseOrderPayload({
         serie,
         warehouseId: warehouseIdNum,
+        warehouseName,
+        warehouse: maestros.warehouse,
         supplierId,
+        supplierName: group.map((ln) => String(ln.proveedorNombre || '').trim()).find(Boolean) || null,
+        supplier: maestros.suppliers.get(supplierId) || null,
         status: statusAgora,
         date: new Date().toISOString().slice(0, 10),
         lines: poLines,
@@ -408,7 +506,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
         supplierId,
         ok: false,
         error: mensajeSeguro(err, 'Error construyendo PurchaseOrder'),
-        lineas: poLines.length,
+        lineas: group.length,
       });
       continue;
     }

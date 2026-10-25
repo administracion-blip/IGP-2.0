@@ -29,14 +29,17 @@ export function nextPurchaseOrderNumber() {
  *   serie: string,
  *   number?: number|null,
  *   warehouseId: number|string,
+ *   warehouseName?: string|null,
+ *   warehouse?: object|null,   maestro Ágora (export-master Warehouses)
  *   supplierId: number|string,
+ *   supplierName?: string|null,
+ *   supplier?: object|null,    maestro Ágora (export-master Suppliers)
  *   status?: 'Draft'|'Confirmed',
  *   date?: string,
  *   lines: Array<{
  *     productId: number|string,
+ *     productName: string,
  *     orderedQuantity: number,
- *     purchaseUnit?: string|null,
- *     purchaseUnitId?: number|null,
  *     price?: number|null,
  *   }>,
  * }} input
@@ -87,17 +90,56 @@ export function buildPurchaseOrderPayload(input) {
       throw err;
     }
 
+    // Misma forma que una línea exportada (PCFI 2757): todo plano, sin objeto Product.
+    // Sin ProductName, unidad de compra o impuesto Ágora responde 500. TotalAmount no se envía.
+    const productName = String(ln?.productName ?? '').trim();
+    if (!productName) {
+      const err = new Error(
+        `La línea ${index + 1} (producto ${productId}) no tiene nombre; no se envía el pedido`,
+      );
+      err.status = 400;
+      throw err;
+    }
+    const unidadId = ln?.purchaseUnitId != null && ln.purchaseUnitId !== ''
+      ? Number(ln.purchaseUnitId)
+      : NaN;
+    const unidadNombre = String(ln?.purchaseUnitName ?? '').trim();
+    if (!Number.isInteger(unidadId) || unidadId <= 0 || !unidadNombre) {
+      const err = new Error(
+        `La línea ${index + 1} (producto ${productId}) no tiene unidad de compra; no se envía el pedido`,
+      );
+      err.status = 400;
+      throw err;
+    }
+    const vatId = Number(ln?.vatId);
+    const vatRate = Number(ln?.vatRate);
+    const surchargeRate = Number(ln?.surchargeRate);
+    if (
+      !Number.isInteger(vatId) || vatId <= 0
+      || !Number.isFinite(vatRate) || vatRate < 0
+      || !Number.isFinite(surchargeRate) || surchargeRate < 0
+    ) {
+      const err = new Error(
+        `La línea ${index + 1} (producto ${productId}) no tiene impuesto; no se envía el pedido`,
+      );
+      err.status = 400;
+      throw err;
+    }
     /** @type {Record<string, string|number>} */
     const line = {
+      Index: index,
       ProductId: productId,
+      ProductName: productName,
+      PurchaseUnitId: unidadId,
+      PurchaseUnitName: unidadNombre,
+      VatId: vatId,
+      VatRate: vatRate,
+      SurchargeRate: surchargeRate,
       OrderedQuantity: orderedQuantity,
+      DeliveredQuantity: 0,
+      DiscountRate: 0,
+      CashDiscount: 0,
     };
-
-    const unitName = ln?.purchaseUnit != null ? String(ln.purchaseUnit).trim() : '';
-    if (unitName) line.PurchaseUnit = unitName;
-
-    const unitId = Number(ln?.purchaseUnitId);
-    if (Number.isFinite(unitId) && unitId > 0) line.PurchaseUnitId = unitId;
 
     const price = Number(ln?.price);
     if (Number.isFinite(price) && price >= 0) line.Price = price;
@@ -105,11 +147,38 @@ export function buildPurchaseOrderPayload(input) {
     return line;
   });
 
+  // Ágora rechaza el import (500 «No ha sido posible deserializar la propiedad Warehouse…»)
+  // si Warehouse/Supplier no llegan completos como en el export: todos los textos presentes.
+  const w = input?.warehouse || {};
+  const s = input?.supplier || {};
+  const texto = (v) => (v == null ? '' : String(v).trim());
+  const Warehouse = {
+    Id: warehouseId,
+    Name: texto(w.Name ?? input?.warehouseName) || `Almacén ${warehouseId}`,
+    Street: texto(w.Street),
+    City: texto(w.City),
+    Region: texto(w.Region),
+    ZipCode: texto(w.ZipCode),
+    Cif: texto(w.Cif ?? w.FiscalInfo?.Cif),
+    FiscalName: texto(w.FiscalName ?? w.FiscalInfo?.FiscalName),
+  };
+  const Supplier = {
+    Id: supplierId,
+    FiscalName: texto(s.FiscalName ?? input?.supplierName) || `Proveedor ${supplierId}`,
+    Cif: texto(s.Cif),
+    Street: texto(s.Street),
+    City: texto(s.City),
+    Region: texto(s.Region),
+    ZipCode: texto(s.ZipCode),
+    ApplySurcharge: s.ApplySurcharge === true,
+    AccountCode: texto(s.AccountCode),
+  };
+
   /** @type {Record<string, unknown>} */
   const po = {
     Serie: serie,
-    Warehouse: { Id: warehouseId },
-    Supplier: { Id: supplierId },
+    Warehouse,
+    Supplier,
     Status: status,
     Lines,
   };

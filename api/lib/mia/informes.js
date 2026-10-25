@@ -24,30 +24,35 @@ function tableLineas() {
   return tables.miaInformeLineas;
 }
 
-async function batchPut(table, items) {
-  for (let i = 0; i < items.length; i += 25) {
-    const chunk = items.slice(i, i + 25);
-    let requestItems = {
-      [table]: chunk.map((Item) => ({ PutRequest: { Item } })),
-    };
+async function batchWrite(table, requests) {
+  for (let i = 0; i < requests.length; i += 25) {
+    const chunk = requests.slice(i, i + 25);
+    let pending = chunk;
     let attempts = 0;
-    while (requestItems[table]?.length && attempts < 8) {
-      const r = await docClient.send(new BatchWriteCommand({ RequestItems: requestItems }));
+    while (pending.length && attempts < 8) {
+      const r = await docClient.send(
+        new BatchWriteCommand({ RequestItems: { [table]: pending } }),
+      );
       const unprocessed = r.UnprocessedItems?.[table];
       if (!unprocessed?.length) {
-        requestItems = { [table]: [] };
+        pending = [];
         break;
       }
-      requestItems = { [table]: unprocessed };
+      pending = unprocessed;
       attempts += 1;
       await new Promise((res) => setTimeout(res, 100 * attempts));
     }
-    if (requestItems[table]?.length) {
-      throw new Error(
-        `BatchWrite incompleto en ${table}: ${requestItems[table].length} UnprocessedItems tras reintentos`,
-      );
+    if (pending.length) {
+      throw new Error(`BatchWrite incompleto en ${table}: ${pending.length} UnprocessedItems tras reintentos`);
     }
   }
+}
+
+async function batchPut(table, items) {
+  await batchWrite(
+    table,
+    items.map((Item) => ({ PutRequest: { Item } })),
+  );
 }
 
 /**
@@ -386,4 +391,49 @@ export async function listInformesByWarehouse(warehouseId, opts = {}) {
     items.sort((a, b) => String(b.creadoEn || '').localeCompare(String(a.creadoEn || '')));
     return items.slice(0, limit);
   }
+}
+
+/** Serie y número de los pedidos de Ágora ya asociados al informe. */
+function pedidosAgoraDe(meta) {
+  const raw = meta?.agoraPurchaseOrderIds;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  const out = [];
+  for (const v of Object.values(raw)) {
+    if (!v || typeof v !== 'object') continue;
+    const serie = String(v.serie || '').trim();
+    const number = v.number != null && v.number !== '' ? v.number : null;
+    if (!serie && number == null) continue;
+    out.push({ serie: serie || null, number });
+  }
+  return out;
+}
+
+/**
+ * Borra la cabecera y todas las líneas del informe. No toca el pedido en Ágora.
+ * @param {string} informeId
+ */
+export async function deleteInforme(informeId) {
+  const id = String(informeId || '').trim();
+  if (!id) {
+    const err = new Error('informeId obligatorio');
+    err.status = 400;
+    throw err;
+  }
+  const meta = await getInformeMeta(id);
+  if (!meta) {
+    const err = new Error('Informe no encontrado');
+    err.status = 404;
+    throw err;
+  }
+  const lineas = await listInformeLineas(id);
+  if (lineas.length) {
+    await batchWrite(
+      tableLineas(),
+      lineas.map((ln) => ({ DeleteRequest: { Key: { PK: ln.PK, SK: ln.SK } } })),
+    );
+  }
+  await batchWrite(tableInformes(), [
+    { DeleteRequest: { Key: { PK: pkInforme(id), SK: skInformeMeta() } } },
+  ]);
+  return { informeId: id, pedidosAgora: pedidosAgoraDe(meta) };
 }

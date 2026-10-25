@@ -111,7 +111,16 @@ type InformeListItem = {
   creadoEn?: string;
   CreadoEn?: string;
   totales?: MiaTotales;
+  agoraPurchaseOrderIds?: Record<string, { serie?: string | null; number?: number | string | null }>;
 };
+
+const ESTADOS_INFORME: Array<{ id: string; label: string }> = [
+  { id: 'calculado', label: 'Calculado' },
+  { id: 'revisado', label: 'Revisado' },
+  { id: 'aprobando', label: 'Aprobando' },
+  { id: 'aprobado', label: 'Aprobado' },
+  { id: 'aprobado_parcial', label: 'Aprobado parcial' },
+];
 
 type DraftLinea = {
   productId: string;
@@ -220,6 +229,19 @@ function parseQty(s: string): number {
   return Number.isFinite(n) && n >= 0 ? n : NaN;
 }
 
+function pedidosAgoraDe(it: InformeListItem): string[] {
+  const raw = it.agoraPurchaseOrderIds;
+  if (!raw || typeof raw !== 'object') return [];
+  const partes: string[] = [];
+  for (const v of Object.values(raw)) {
+    const serie = String(v?.serie || '').trim();
+    const number = v?.number != null && String(v.number).trim() !== '' ? String(v.number) : '';
+    const texto = [serie, number].filter(Boolean).join(' ');
+    if (texto) partes.push(texto);
+  }
+  return partes;
+}
+
 function costeDraft(d: DraftLinea): number {
   if (d.omitida) return 0;
   const qty = parseQty(d.cantidadPedida);
@@ -280,6 +302,8 @@ export default function MiaScreen() {
 
   const [informesRecientes, setInformesRecientes] = useState<InformeListItem[]>([]);
   const [loadingRecientes, setLoadingRecientes] = useState(false);
+  const [filtroEstado, setFiltroEstado] = useState('todos');
+  const [borrandoId, setBorrandoId] = useState<string | null>(null);
   const [vista, setVista] = useState<VistaMia>('pedido');
   const [ocultarSinPedido, setOcultarSinPedido] = useState(true);
   const [modalProveedoresVisible, setModalProveedoresVisible] = useState(false);
@@ -442,7 +466,7 @@ export default function MiaScreen() {
     }
     setLoadingRecientes(true);
     try {
-      const r = await apiFetch(`/api/mia/informes?warehouseId=${encodeURIComponent(wid)}&limit=15`);
+      const r = await apiFetch(`/api/mia/informes?warehouseId=${encodeURIComponent(wid)}&limit=100`);
       const data = await r.json();
       if (!r.ok || data.error) {
         setInformesRecientes([]);
@@ -479,6 +503,7 @@ export default function MiaScreen() {
     setAvisos([]);
     setFrescor(null);
     setOkMsg(null);
+    setFiltroEstado('todos');
   }, [warehouseId]);
 
   const aplicarResultado = useCallback(
@@ -604,6 +629,76 @@ export default function MiaScreen() {
       }
     },
     [aplicarResultado],
+  );
+
+  const informesFiltrados = useMemo(() => {
+    if (filtroEstado === 'todos') return informesRecientes;
+    return informesRecientes.filter((it) => String(it.estado || '') === filtroEstado);
+  }, [informesRecientes, filtroEstado]);
+
+  const chipsEstado = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const it of informesRecientes) {
+      const estado = String(it.estado || '').trim();
+      if (!estado) continue;
+      counts.set(estado, (counts.get(estado) || 0) + 1);
+    }
+    const conocidos = new Set(ESTADOS_INFORME.map((e) => e.id));
+    const chips = [
+      { id: 'todos', label: 'Todos', n: informesRecientes.length },
+      ...ESTADOS_INFORME.map((e) => ({ id: e.id, label: e.label, n: counts.get(e.id) || 0 })),
+    ];
+    for (const [id, n] of counts) {
+      if (!conocidos.has(id)) chips.push({ id, label: id, n });
+    }
+    return chips.filter((c) => c.id === 'todos' || c.id === filtroEstado || c.n > 0);
+  }, [informesRecientes, filtroEstado]);
+
+  const borrarInforme = useCallback(
+    async (it: InformeListItem) => {
+      const id = String(it.informeId || '').trim();
+      if (!id || !puedeCalcular || borrandoId) return;
+      const fechas = `${formatFecha(it.fechaDesde || '')} – ${formatFecha(it.fechaHasta || '')}`;
+      const pedidos = pedidosAgoraDe(it);
+      const estado = String(it.estado || '');
+      const avisoAgora =
+        pedidos.length > 0
+          ? ` Tiene pedido en Ágora (${pedidos.join(', ')}). Ese pedido no se anula.`
+          : estado === 'aprobado' || estado === 'aprobado_parcial' || estado === 'aprobando'
+            ? ' Si ya creó un pedido en Ágora, ese pedido no se anula.'
+            : '';
+      const ok = await confirmar(
+        'Borrar informe',
+        `Se borrará el informe ${fechas}.${avisoAgora} Esta acción no se puede deshacer.`,
+        { confirmarLabel: 'Borrar', variant: 'danger' },
+      );
+      if (!ok) return;
+      setBorrandoId(id);
+      setError(null);
+      setOkMsg(null);
+      try {
+        const r = await apiFetch(`/api/mia/informes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || data.error) {
+          setError(data.error || 'No se pudo borrar el informe');
+          return;
+        }
+        setInformesRecientes((prev) => prev.filter((x) => String(x.informeId || '') !== id));
+        if (informe?.informeId === id) {
+          setInforme(null);
+          setDrafts([]);
+          setBaseline([]);
+          setAvisos([]);
+          setFrescor(null);
+        }
+        setOkMsg('Informe borrado.');
+      } catch (e) {
+        setError(errorMessage(e, 'Error borrando informe'));
+      } finally {
+        setBorrandoId(null);
+      }
+    },
+    [puedeCalcular, borrandoId, confirmar, informe?.informeId],
   );
 
   const updateDraft = useCallback((key: string, patch: Partial<DraftLinea>) => {
@@ -1094,34 +1189,78 @@ export default function MiaScreen() {
             {informesRecientes.length === 0 && !loadingRecientes ? (
               <Text style={styles.hintMuted}>No hay informes para este almacén.</Text>
             ) : (
-              informesRecientes.map((it) => {
-                const id = String(it.informeId || '');
-                const activo = informe?.informeId === id;
-                const creado = it.creadoEn || it.CreadoEn || '';
-                return (
-                  <TouchableOpacity
-                    key={id}
-                    style={[styles.recienteRow, activo && styles.recienteActivo, isPhone && { minHeight: MIN_TOUCH }]}
-                    onPress={() => abrirInforme(id)}
-                    disabled={busy || !id}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.recienteTitle}>
-                        {formatFecha(it.fechaDesde || '')} – {formatFecha(it.fechaHasta || '')}
-                        {' · '}
-                        <Text style={styles.estadoChip}>{it.estado || '—'}</Text>
-                      </Text>
-                      <Text style={styles.recienteSub}>
-                        {creado ? new Date(creado).toLocaleString('es-ES') : '—'}
-                        {it.totales?.costeTotal != null
-                          ? ` · ${formatMoneda(it.totales.costeTotal)}`
-                          : ''}
-                      </Text>
-                    </View>
-                    <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
-                  </TouchableOpacity>
-                );
-              })
+              <>
+                <View style={styles.chipsRow}>
+                  {chipsEstado.map((chip) => {
+                    const activo = filtroEstado === chip.id;
+                    return (
+                      <TouchableOpacity
+                        key={chip.id}
+                        style={[styles.chip, activo && styles.chipActivo, isPhone && { minHeight: MIN_TOUCH }]}
+                        onPress={() => setFiltroEstado(chip.id)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: activo }}
+                      >
+                        <Text style={[styles.chipText, activo && styles.chipTextActivo]}>
+                          {chip.label} {chip.n}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {informesFiltrados.length === 0 ? (
+                  <Text style={styles.hintMuted}>No hay informes en este estado.</Text>
+                ) : (
+                  informesFiltrados.map((it) => {
+                    const id = String(it.informeId || '');
+                    const activo = informe?.informeId === id;
+                    const creado = it.creadoEn || it.CreadoEn || '';
+                    const etiqueta =
+                      ESTADOS_INFORME.find((e) => e.id === it.estado)?.label || it.estado || '—';
+                    return (
+                      <View
+                        key={id}
+                        style={[styles.recienteRow, activo && styles.recienteActivo]}
+                      >
+                        <TouchableOpacity
+                          style={[styles.recienteMain, isPhone && { minHeight: MIN_TOUCH }]}
+                          onPress={() => abrirInforme(id)}
+                          disabled={busy || !id}
+                        >
+                          <Text style={styles.recienteTitle}>
+                            {formatFecha(it.fechaDesde || '')} – {formatFecha(it.fechaHasta || '')}
+                            {' · '}
+                            <Text style={styles.estadoChip}>{etiqueta}</Text>
+                          </Text>
+                          <Text style={styles.recienteSub}>
+                            {creado ? new Date(creado).toLocaleString('es-ES') : '—'}
+                            {it.totales?.costeTotal != null
+                              ? ` · ${formatMoneda(it.totales.costeTotal)}`
+                              : ''}
+                          </Text>
+                        </TouchableOpacity>
+                        {puedeCalcular ? (
+                          <TouchableOpacity
+                            style={[styles.btnBorrar, isPhone && { minHeight: MIN_TOUCH, minWidth: MIN_TOUCH }]}
+                            onPress={() => {
+                              void borrarInforme(it);
+                            }}
+                            disabled={busy || borrandoId === id}
+                            accessibilityLabel={`Borrar informe ${etiqueta}`}
+                          >
+                            {borrandoId === id ? (
+                              <ActivityIndicator size="small" color={colors.danger} />
+                            ) : (
+                              <MaterialIcons name="delete-outline" size={20} color={colors.danger} />
+                            )}
+                          </TouchableOpacity>
+                        ) : null}
+                        <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+                      </View>
+                    );
+                  })
+                )}
+              </>
             )}
           </View>
         ) : null}
@@ -1322,9 +1461,19 @@ export default function MiaScreen() {
                           style={[styles.tableRow, d.omitida && styles.tableRowOmit, shouldStackPanels && styles.tableRowStack]}
                         >
                           <View style={styles.colProducto}>
-                            <Text style={styles.productoNombre} numberOfLines={2}>
-                              {d.nombre}
-                            </Text>
+                            <View style={styles.productoTitulo}>
+                              <Text style={styles.productoNombre} numberOfLines={2}>
+                                {d.nombre}
+                              </Text>
+                              {d.productId ? (
+                                <View
+                                  style={styles.idBadge}
+                                  accessibilityLabel={`Id de producto ${d.productId}`}
+                                >
+                                  <Text style={styles.idBadgeText}>{d.productId}</Text>
+                                </View>
+                              ) : null}
+                            </View>
                             <Text style={styles.productoMeta}>
                               {d.unit} · {formatMoneda(d.costeUnitario)}/ud
                               {d.minimo != null && d.maximo != null
@@ -1573,13 +1722,30 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   okText: { flex: 1, fontSize: 13, color: '#166534' },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  chip: {
+    backgroundColor: colors.navActive,
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  chipActivo: { backgroundColor: colors.accent },
+  chipText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+  chipTextActivo: { color: '#ffffff' },
   recienteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 4,
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
-    gap: 8,
+    gap: 4,
+  },
+  recienteMain: { flex: 1, paddingVertical: 6 },
+  btnBorrar: {
+    width: MIN_TOUCH,
+    height: MIN_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   recienteActivo: { backgroundColor: '#f0f9ff', marginHorizontal: -6, paddingHorizontal: 6, borderRadius: 8 },
   recienteTitle: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
@@ -1656,7 +1822,15 @@ const styles = StyleSheet.create({
   filtroRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   colCoste: { width: 88, textAlign: 'right' },
   colOmit: { width: 56, alignItems: 'center' },
-  productoNombre: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
+  productoTitulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  productoNombre: { fontSize: 13, fontWeight: '600', color: colors.textStrong, flexShrink: 1 },
+  idBadge: {
+    backgroundColor: colors.accentMuted,
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  idBadgeText: { fontSize: 11, fontWeight: '700', color: colors.accentPressed },
   productoMeta: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
   inputQty: {
     width: 72,

@@ -28,6 +28,7 @@ import {
   upsertGrupoFamilias,
 } from '../lib/mia/gruposFamilias.js';
 import {
+  deleteInforme,
   getInformeCompleto,
   getInformeMeta,
   listInformesByWarehouse,
@@ -324,6 +325,18 @@ router.get('/mia/informes', requirePermission('mia.ver'), async (req, res) => {
   } catch (err) {
     req.log?.error?.({ err }, '[mia/informes] Error');
     return responderError(res, err, { mensaje: 'Error listando informes' });
+  }
+});
+
+router.delete('/mia/informes/:id', requirePermission('mia.calcular'), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id de informe obligatorio' });
+  if (!(await permiteInforme(req, id))) return sinAcceso(res);
+  try {
+    const result = await deleteInforme(id);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'Error borrando informe', extra: { ok: false } });
   }
 });
 

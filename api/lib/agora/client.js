@@ -250,6 +250,22 @@ export async function exportWarehouses() {
   return data.Warehouses || data.warehouses || [];
 }
 
+/** Exporta maestros de proveedores desde Ágora (export-master filter=Suppliers). Solo lectura. */
+export async function exportSuppliers() {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const url = `${baseUrl}/api/export-master/?filter=Suppliers`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Api-Token': token, Accept: 'application/json' },
+  });
+  if (!res.ok) throw errorAgora(res.status, (await res.text()).slice(0, 200));
+  const data = await res.json();
+  return data.Suppliers || data.suppliers || [];
+}
+
 /**
  * Exporta stocks actuales desde Ágora (export-master filter=Stocks).
  * Guía 8.9.3: where-stock-warehouse-id (opcional), where-product-category-id (opcional).
