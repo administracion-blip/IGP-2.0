@@ -37,7 +37,7 @@ import {
   ComprasToolbarIconBtn,
   ComprasToolbarFiltrosBtn,
   ComprasToolbarSyncBtn,
-} from './comprasProveedorShared';
+} from '../../components/compras/comprasProveedorShared';
 import { apiFetch } from '../../utils/api';
 import { useGruposFamilias } from '../../hooks/useGruposFamilias';
 import { useAuth } from '../../contexts/AuthContext';

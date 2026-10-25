@@ -14,13 +14,13 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../constants/layout';
-import { InputFecha } from '../../components/InputFecha';
-import { InputCantidad } from '../../components/InputCantidad';
-import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { InputFecha } from '../InputFecha';
+import { InputCantidad } from '../InputCantidad';
+import { SelectorDesplegable } from '../SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProductosCache } from '../../contexts/ProductosCache';
-import { BadgeFormato, useMapaFormatosBase } from '../../components/compras/BadgeFormato';
-import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../components/compras/EtiquetaZona';
+import { BadgeFormato, useMapaFormatosBase } from './BadgeFormato';
+import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from './EtiquetaZona';
 import { apiFetch } from '../../utils/api';
 import { valorEnLocal } from '../../utils/valorEnLocal';
 import { formatMoneda } from '../../utils/formatMoneda';

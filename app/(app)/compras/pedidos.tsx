@@ -52,9 +52,11 @@ import {
 import { BadgeFormato, useMapaFormatosBase } from '../../components/compras/BadgeFormato';
 import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../components/compras/EtiquetaZona';
 import { estadoFacturacionPedido } from '../../lib/comprasFacturacion';
-import NuevoPedidoModal from './NuevoPedidoModal';
+import NuevoPedidoModal from '../../components/compras/NuevoPedidoModal';
 
 const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado', COLUMNA_FACTURACION] as const;
+const COLUMNAS_TABLA: string[] = [...COLUMNAS];
+const COLUMNAS_MONEDA = ['TotalAlbaran'];
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
 function parseAlmacenesOrigen(val: string | number | undefined): string[] {
   if (val == null || String(val).trim() === '') return [];
@@ -967,6 +969,27 @@ export default function PedidosScreen() {
 
   const { shouldStackPanels, shouldStackToolbar, shouldUseComfortableTable } = useBreakpoint();
   const insets = useSafeAreaInsets();
+
+  const volverAtras = useCallback(() => router.back(), [router]);
+  const getColumnCellStyleTabla = useCallback(
+    (col: string) => col === 'TotalAlbaran' ? { text: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight } } : undefined,
+    [],
+  );
+  const renderCellTabla = useCallback(
+    (item: Pedido, col: string) =>
+      col === COLUMNA_FACTURACION ? (
+        <CeldaFacturacionPedido pedido={item} comodo={shouldUseComfortableTable} />
+      ) : null,
+    [shouldUseComfortableTable],
+  );
+  const getRowStyleTabla = useCallback(
+    (item: Pedido) => String(valorEnLocal(item, 'Estado') ?? '') === 'Completado' ? { backgroundColor: statusColors.success.bg } : undefined,
+    [],
+  );
+  const getRowKeyTabla = useCallback(
+    (p: Pedido, idx: number) => String(valorEnLocal(p, 'Id') ?? '') || `sin-id-${idx}`,
+    [],
+  );
   // Tabla de líneas estirada cuando hay espacio horizontal (tablet/escritorio horizontal).
   const isWide = !shouldStackPanels;
   // Apilar detalle en móvil vertical y tablet vertical; lado a lado en horizontal.
@@ -1160,10 +1183,12 @@ export default function PedidosScreen() {
               )
             }
             title="Pedidos"
-            onBack={() => router.back()}
-            columnas={[...COLUMNAS]}
+            onBack={volverAtras}
+            columnas={COLUMNAS_TABLA}
             defaultColWidth={76}
             datos={pedidosFiltrados}
+            virtualizada
+            getRowKey={getRowKeyTabla}
             getValorCelda={getValorCelda}
             loading={loading}
             error={error}
@@ -1175,14 +1200,10 @@ export default function PedidosScreen() {
             onCrear={handleCrear}
             onEditar={handleEditar}
             onBorrar={handleBorrar}
-            columnasMoneda={['TotalAlbaran']}
-            getColumnCellStyle={(col) => col === 'TotalAlbaran' ? { text: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight } } : undefined}
-            renderCell={(item, col) =>
-              col === COLUMNA_FACTURACION ? (
-                <CeldaFacturacionPedido pedido={item} comodo={shouldUseComfortableTable} />
-              ) : null
-            }
-            getRowStyle={(item) => String(valorEnLocal(item, 'Estado') ?? '') === 'Completado' ? { backgroundColor: statusColors.success.bg } : undefined}
+            columnasMoneda={COLUMNAS_MONEDA}
+            getColumnCellStyle={getColumnCellStyleTabla}
+            renderCell={renderCellTabla}
+            getRowStyle={getRowStyleTabla}
             emptyMessage="No hay pedidos"
             emptyFilterMessage="Ningún pedido coincide con el filtro"
           />

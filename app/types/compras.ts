@@ -3,7 +3,7 @@
  * y `app/types/acuerdo.ts`).
  *
  * Convención: el código nuevo importa desde aquí; los tipos antes vivían
- * en `app/(app)/compras/comprasProveedorShared.tsx`. Ese archivo sigue
+ * en `app/components/compras/comprasProveedorShared.tsx`. Ese archivo sigue
  * re-exportando para no romper imports existentes, pero la fuente única
  * de verdad pasa a ser este módulo.
  *

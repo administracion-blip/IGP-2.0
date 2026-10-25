@@ -43,7 +43,7 @@ import {
   TOOLBAR_ICON_SIZE,
   ComprasToolbarIconBtn,
   ComprasToolbarFiltrosBtn,
-} from './comprasProveedorShared';
+} from '../../components/compras/comprasProveedorShared';
 import { useGruposFamilias } from '../../hooks/useGruposFamilias';
 import { DIAS_CARGA_ULTIMO, rangoComprasDefault } from '../../lib/comprasProveedorRango';
 

@@ -28,7 +28,7 @@ import {
   styles,
   TOOLBAR_ICON_SIZE,
   ComprasToolbarIconBtn,
-} from './comprasProveedorShared';
+} from '../../components/compras/comprasProveedorShared';
 
 /** Normaliza CIF/NIF para comparar (solo A–Z0–9, mayúsculas). Equivalente al de backend. */
 function normalizeCif(val: unknown): string {

@@ -7,18 +7,20 @@
  * - Los modales de Crear/Editar e Importar quedan en la pantalla que usa el componente.
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   Platform,
   Modal,
   type ViewStyle,
   type TextStyle,
+  type ListRenderItemInfo,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
@@ -45,6 +47,8 @@ const DENSE_COL_WIDTH = 72;
 /** Filas de espera mientras carga. Un solo uso. */
 const FILAS_SKELETON = 6;
 const MIN_COL_WIDTH = ERP_LIST_MIN_COL_WIDTH;
+/** Referencia estable para que las filas memoizadas no se invaliden en cada render. */
+const SIN_COLUMNAS_MONEDA: string[] = [];
 
 /** Variante visual del piloto Proyectos; el resto del ERP usa `default`. */
 export type TablaBasicaVariant = 'default' | 'tasks';
@@ -149,7 +153,107 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
    * hover y fila tasks). `default` usa la piel ERP Home/Planning.
    */
   variant?: TablaBasicaVariant;
+  /**
+   * Cuerpo con `FlatList` (solo renderiza las filas visibles) y filas memoizadas.
+   * Para que la memoización sea efectiva, `columnas`, `getValorCelda`, `renderCell`,
+   * `getRowStyle`, `getColumnCellStyle` y `getRowKey` deben ser referencias estables.
+   */
+  virtualizada?: boolean;
 };
+
+type FilaTablaProps<T> = {
+  item: T;
+  idx: number;
+  seleccionada: boolean;
+  onPressFila: (idx: number) => void;
+  columnas: string[];
+  getValorCelda: (item: T, col: string) => string;
+  columnasMoneda: string[];
+  getColumnCellStyle?: (col: string) => { cell?: ViewStyle; text?: TextStyle } | undefined;
+  renderCell?: (item: T, col: string, defaultText: string) => React.ReactNode | null;
+  getRowStyle?: (item: T, index: number) => ViewStyle | undefined;
+  getColWidth: (col: string) => number;
+  isTasksVariant: boolean;
+  dense: boolean;
+  comodo: boolean;
+};
+
+/** Fila de la ruta virtualizada; el hover vive aquí para no re-renderizar toda la tabla. */
+function FilaTablaBase<T>({
+  item,
+  idx,
+  seleccionada,
+  onPressFila,
+  columnas,
+  getValorCelda,
+  columnasMoneda,
+  getColumnCellStyle,
+  renderCell,
+  getRowStyle,
+  getColWidth,
+  isTasksVariant,
+  dense,
+  comodo,
+}: FilaTablaProps<T>) {
+  const [hovered, setHovered] = useState(false);
+  const onPress = useCallback(() => onPressFila(idx), [onPressFila, idx]);
+  return (
+    <TouchableOpacity
+      style={[
+        erpListTableStyles.row,
+        !isTasksVariant && styles.rowDefaultChrome,
+        dense && styles.rowDense,
+        comodo && styles.rowComodo,
+        isTasksVariant && !dense && !comodo && styles.rowTasks,
+        isTasksVariant && styles.rowTasksBase,
+        !isTasksVariant && !dense && !comodo && styles.rowDefault,
+        !isTasksVariant && styles.rowDefaultBase,
+        !isTasksVariant && seleccionada && styles.rowDefaultSelected,
+        isTasksVariant && seleccionada && styles.rowTasksSelected,
+        !isTasksVariant && Platform.OS === 'web' && hovered && !seleccionada && styles.rowDefaultHover,
+        isTasksVariant && Platform.OS === 'web' && hovered && !seleccionada && styles.rowTasksHover,
+        getRowStyle?.(item, idx),
+      ]}
+      onPress={onPress}
+      activeOpacity={0.8}
+      {...(Platform.OS === 'web'
+        ? ({
+            onMouseEnter: () => setHovered(true),
+            onMouseLeave: () => setHovered(false),
+          } as object)
+        : {})}
+    >
+      {columnas.map((col) => {
+        const text = getValorCelda(item, col);
+        const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
+        const colStyle = getColumnCellStyle?.(col);
+        const custom = renderCell?.(item, col, text) ?? null;
+        return (
+          <View key={col} style={[erpListTableStyles.cell, !isTasksVariant && styles.cellDefault, dense && styles.cellDense, comodo && styles.cellComodo, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
+            {custom !== null ? custom : (
+              <Text
+                style={[
+                  erpListTableStyles.cellText,
+                  !isTasksVariant && !dense && styles.cellTextDefault,
+                  dense && styles.cellTextDense,
+                  comodo && styles.cellTextComodo,
+                  isMoneda && styles.cellTextRight,
+                  isTasksVariant && tasksTabularNums,
+                  !isTasksVariant && isMoneda && tasksTabularNums,
+                  colStyle?.text,
+                ]}
+              >
+                {text}
+              </Text>
+            )}
+          </View>
+        );
+      })}
+    </TouchableOpacity>
+  );
+}
+
+const FilaTabla = React.memo(FilaTablaBase) as typeof FilaTablaBase;
 
 export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps<T>) {
   const {
@@ -181,7 +285,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     emptyFilterMessage = 'Ningún resultado con el filtro',
     emptyActionLabel,
     onEmptyAction,
-    columnasMoneda = [],
+    columnasMoneda = SIN_COLUMNAS_MONEDA,
     hideHeader = false,
     getRowStyle,
     dense = false,
@@ -198,6 +302,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     getRowKey,
     rightPanel,
     variant = 'default',
+    virtualizada = false,
   } = props;
 
   // Modo "cómodo": en teléfono o tablet vertical ampliamos filas, tipografía y
@@ -283,6 +388,78 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
 
   const totalTableWidth = columnas.reduce((sum, col) => sum + getColWidth(col), 0);
 
+  // Refs para que `onPressFila` sea estable y la selección solo re-renderice la fila anterior y la nueva.
+  const selectedRowIndexRef = useRef(selectedRowIndex);
+  const onSelectRowRef = useRef(onSelectRow);
+  useEffect(() => {
+    selectedRowIndexRef.current = selectedRowIndex;
+    onSelectRowRef.current = onSelectRow;
+  });
+  const onPressFila = useCallback((idx: number) => {
+    onSelectRowRef.current(selectedRowIndexRef.current === idx ? null : idx);
+  }, []);
+
+  const keyExtractor = useCallback(
+    (item: T, idx: number) => getRowKey?.(item, idx) ?? String(idx),
+    [getRowKey]
+  );
+
+  const renderItemVirtual = useCallback(
+    ({ item, index: idx }: ListRenderItemInfo<T>) => {
+      if (isBandRow?.(item)) {
+        const bandContent = renderBandRow?.(item, idx);
+        if (bandContent == null) return null;
+        return (
+          <View style={[erpListTableStyles.row, styles.bandRowWrapper, getRowStyle?.(item, idx)]}>
+            <View style={[styles.bandRowInner, { width: totalTableWidth, minWidth: totalTableWidth }]}>
+              {bandContent}
+            </View>
+          </View>
+        );
+      }
+      return (
+        <FilaTabla
+          item={item}
+          idx={idx}
+          seleccionada={selectedRowIndex === idx}
+          onPressFila={onPressFila}
+          columnas={columnas}
+          getValorCelda={getValorCelda}
+          columnasMoneda={columnasMoneda}
+          getColumnCellStyle={getColumnCellStyle}
+          renderCell={renderCell}
+          getRowStyle={getRowStyle}
+          getColWidth={getColWidth}
+          isTasksVariant={isTasksVariant}
+          dense={dense}
+          comodo={comodo}
+        />
+      );
+    },
+    [
+      isBandRow,
+      renderBandRow,
+      getRowStyle,
+      totalTableWidth,
+      selectedRowIndex,
+      onPressFila,
+      columnas,
+      getValorCelda,
+      columnasMoneda,
+      getColumnCellStyle,
+      renderCell,
+      getColWidth,
+      isTasksVariant,
+      dense,
+      comodo,
+    ]
+  );
+
+  const extraDataVirtual = useMemo(
+    () => ({ selectedRowIndex, getColWidth, columnas, totalTableWidth, dense, comodo }),
+    [selectedRowIndex, getColWidth, columnas, totalTableWidth, dense, comodo]
+  );
+
   if (error != null && error !== '' && datos.length === 0 && !isTasksVariant) {
     return (
       <View style={[styles.center, styles.centerDefault]}>
@@ -312,6 +489,52 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
       </View>
     );
   }
+
+  const contenidoVacio = isTasksVariant && loading ? (
+    <View style={styles.tasksSkeletonWrap}>
+      <TasksTableSkeleton />
+    </View>
+  ) : isTasksVariant ? (
+    <View style={styles.tasksEmptyWrap}>
+      {filtroBusqueda.trim() ? (
+        <TasksEmptyState
+          icono="search-off"
+          titulo={emptyFilterMessage}
+        />
+      ) : (
+        <TasksEmptyState
+          icono="inbox"
+          titulo={emptyMessage}
+          actionLabel={emptyActionLabel}
+          onAction={onEmptyAction}
+        />
+      )}
+    </View>
+  ) : loading ? (
+    <View>
+      {Array.from({ length: FILAS_SKELETON }, (_, i) => (
+        <View
+          key={`sk-${i}`}
+          style={[
+            erpListTableStyles.row,
+            styles.rowDefaultChrome,
+            comodo ? styles.rowComodo : styles.rowDefault,
+            styles.skeletonRow,
+          ]}
+        >
+          <Skeleton alto={comodo ? MIN_TOUCH + SPACING.xs : MIN_TOUCH} />
+        </View>
+      ))}
+    </View>
+  ) : (
+    <View style={[erpListTableStyles.row, styles.rowDefaultChrome]}>
+      <View style={erpListTableStyles.cellEmpty}>
+        <Text style={[erpListTableStyles.cellEmptyText, styles.emptyTextDefault]}>
+          {filtroBusqueda.trim() ? emptyFilterMessage : emptyMessage}
+        </Text>
+      </View>
+    </View>
+  );
 
   return (
     <View style={[styles.container, !isTasksVariant && styles.containerDefault]}>
@@ -598,6 +821,28 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                 </View>
               );})}
             </View>
+            {virtualizada ? (
+            <FlatList
+              style={[
+                erpListTableStyles.tableBodyScroll,
+                rightPanel != null && !stackRightPanel && styles.tableBodyScrollSplit,
+              ]}
+              contentContainerStyle={[
+                erpListTableStyles.tableBodyContent,
+                rightPanel != null && !stackRightPanel && styles.tableBodyContentSplit,
+              ]}
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
+              data={datos}
+              keyExtractor={keyExtractor}
+              renderItem={renderItemVirtual}
+              extraData={extraDataVirtual}
+              ListEmptyComponent={contenidoVacio}
+              initialNumToRender={25}
+              maxToRenderPerBatch={20}
+              windowSize={11}
+            />
+            ) : (
             <ScrollView
               style={[
                 erpListTableStyles.tableBodyScroll,
@@ -611,51 +856,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
               nestedScrollEnabled
             >
               {datos.length === 0 ? (
-                isTasksVariant && loading ? (
-                  <View style={styles.tasksSkeletonWrap}>
-                    <TasksTableSkeleton />
-                  </View>
-                ) : isTasksVariant ? (
-                  <View style={styles.tasksEmptyWrap}>
-                    {filtroBusqueda.trim() ? (
-                      <TasksEmptyState
-                        icono="search-off"
-                        titulo={emptyFilterMessage}
-                      />
-                    ) : (
-                      <TasksEmptyState
-                        icono="inbox"
-                        titulo={emptyMessage}
-                        actionLabel={emptyActionLabel}
-                        onAction={onEmptyAction}
-                      />
-                    )}
-                  </View>
-                ) : loading ? (
-                  <View>
-                    {Array.from({ length: FILAS_SKELETON }, (_, i) => (
-                      <View
-                        key={`sk-${i}`}
-                        style={[
-                          erpListTableStyles.row,
-                          styles.rowDefaultChrome,
-                          comodo ? styles.rowComodo : styles.rowDefault,
-                          styles.skeletonRow,
-                        ]}
-                      >
-                        <Skeleton alto={comodo ? MIN_TOUCH + SPACING.xs : MIN_TOUCH} />
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <View style={[erpListTableStyles.row, styles.rowDefaultChrome]}>
-                    <View style={erpListTableStyles.cellEmpty}>
-                      <Text style={[erpListTableStyles.cellEmptyText, styles.emptyTextDefault]}>
-                        {filtroBusqueda.trim() ? emptyFilterMessage : emptyMessage}
-                      </Text>
-                    </View>
-                  </View>
-                )
+                contenidoVacio
               ) : (
                 datos.map((item, idx) => {
                   const rowKey = getRowKey?.(item, idx) ?? String(idx);
@@ -744,6 +945,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                 })
               )}
             </ScrollView>
+            )}
           </View>
         </ScrollView>
           </View>

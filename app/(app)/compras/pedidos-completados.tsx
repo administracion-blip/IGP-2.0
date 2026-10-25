@@ -39,6 +39,11 @@ import {
 import { estadoFacturacionPedido } from '../../lib/comprasFacturacion';
 
 const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado', COLUMNA_FACTURACION] as const;
+const COLUMNAS_TABLA: string[] = [...COLUMNAS];
+const COLUMNAS_MONEDA = ['TotalAlbaran'];
+const getColumnCellStyleTabla = (col: string) =>
+  col === 'TotalAlbaran' ? { text: { fontWeight: '700' as const } } : undefined;
+const getRowStyleTabla = () => ({ backgroundColor: '#dcfce7' });
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
 
 function parseAlmacenesOrigen(val: string | number | undefined): string[] {
@@ -411,6 +416,19 @@ export default function PedidosCompletadosScreen() {
     }
     return v != null ? String(v) : '—';
   }, [nombresPorLocalId, nombresPorAlmacenId]);
+
+  const volverAtras = useCallback(() => router.back(), [router]);
+  const renderCellTabla = useCallback(
+    (item: Pedido, col: string) =>
+      col === COLUMNA_FACTURACION ? (
+        <CeldaFacturacionPedido pedido={item} comodo={shouldUseComfortableTable} />
+      ) : null,
+    [shouldUseComfortableTable],
+  );
+  const getRowKeyTabla = useCallback(
+    (p: Pedido, idx: number) => String(valorEnLocal(p, 'Id') ?? '') || `sin-id-${idx}`,
+    [],
+  );
 
   const idsPedidos = useMemo(
     () => pedidos.map((p) => String(valorEnLocal(p, 'Id') ?? '')),
@@ -814,10 +832,12 @@ export default function PedidosCompletadosScreen() {
         <View style={styles.pedidosSection}>
           <TablaBasica<Pedido>
             title="Pedidos Completados"
-            onBack={() => router.back()}
-            columnas={[...COLUMNAS]}
+            onBack={volverAtras}
+            columnas={COLUMNAS_TABLA}
             defaultColWidth={76}
             datos={pedidosFiltrados}
+            virtualizada
+            getRowKey={getRowKeyTabla}
             getValorCelda={getValorCelda}
             loading={loading}
             error={error}
@@ -916,14 +936,10 @@ export default function PedidosCompletadosScreen() {
             onCrear={handleCrear}
             onEditar={handleEditar}
             onBorrar={handleBorrar}
-            columnasMoneda={['TotalAlbaran']}
-            getColumnCellStyle={(col) => col === 'TotalAlbaran' ? { text: { fontWeight: '700' } } : undefined}
-            renderCell={(item, col) =>
-              col === COLUMNA_FACTURACION ? (
-                <CeldaFacturacionPedido pedido={item} comodo={shouldUseComfortableTable} />
-              ) : null
-            }
-            getRowStyle={() => ({ backgroundColor: '#dcfce7' })}
+            columnasMoneda={COLUMNAS_MONEDA}
+            getColumnCellStyle={getColumnCellStyleTabla}
+            renderCell={renderCellTabla}
+            getRowStyle={getRowStyleTabla}
             hideToolbarActions
             emptyMessage="No hay pedidos completados"
             emptyFilterMessage="Ningún pedido completado coincide con el filtro"

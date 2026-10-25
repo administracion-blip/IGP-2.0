@@ -74,7 +74,7 @@ import {
   TOOLBAR_ICON_SIZE,
   ComprasToolbarIconBtn,
   ComprasToolbarSyncBtn,
-} from './comprasProveedorShared';
+} from '../../components/compras/comprasProveedorShared';
 import { generarPdfsConciliacionDiferenciasPorEmpresa } from '../../lib/conciliacionDiferenciasPdf';
 import {
   type AsignacionesSesion,

@@ -32,7 +32,7 @@ import {
   horaEnvioLocal,
   parseIsoMs,
 } from '../../components/compras/CronometroEsperaPedido';
-import NuevoPedidoModal from './NuevoPedidoModal';
+import NuevoPedidoModal from '../../components/compras/NuevoPedidoModal';
 
 /** Franja interior del card: pedido aún no abierto. El borde del card no se mueve. */
 function FranjaPedidoNuevo() {
