@@ -58,7 +58,7 @@ function tituloJornada(iso: string): string {
 export default function ActivacionesDiaScreen() {
   const router = useRouter();
   const { localPermitido, hasPermiso } = useAuth();
-  const { isTablet } = useBreakpoint();
+  const { isPhone, isTablet } = useBreakpoint();
   const puedeVer = puedeVerActivacionesPlanning(hasPermiso);
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
@@ -67,6 +67,7 @@ export default function ActivacionesDiaScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sesionModal, setSesionModal] = useState<ActivacionSesionDia | null>(null);
+  const [fichaAbierta, setFichaAbierta] = useState(false);
 
   const jornada = fechaJornadaNegocioIso();
 
@@ -156,6 +157,14 @@ export default function ActivacionesDiaScreen() {
     return list;
   }, [sesiones]);
 
+  useEffect(() => {
+    if (!isTablet) return;
+    setSesionModal((actual) => {
+      const fresca = actual ? sesiones.find((s) => s.id_sesion === actual.id_sesion) : undefined;
+      return fresca ?? agrupado[0]?.sesiones[0] ?? null;
+    });
+  }, [isTablet, sesiones, agrupado]);
+
   const resumen = useMemo(() => {
     let programadas = 0;
     let realizadas = 0;
@@ -187,7 +196,7 @@ export default function ActivacionesDiaScreen() {
   }, [sesiones]);
 
   const cajasResumen = (
-    <View style={styles.resumen}>
+    <View style={[styles.resumen, isTablet && styles.resumenEnFila]}>
       <View style={styles.resumenCajas}>
         {([
           ['programada', resumen.programadas],
@@ -265,6 +274,8 @@ export default function ActivacionesDiaScreen() {
         </View>
       ) : null}
 
+      <View style={isTablet ? styles.filaDetalle : styles.listaCol}>
+      <View style={styles.listaCol}>
       {localesPermitidos.length === 0 ? (
         <View style={styles.centerBox}>
           <MaterialIcons name="storefront" size={48} color={colors.borderStrong} />
@@ -300,9 +311,13 @@ export default function ActivacionesDiaScreen() {
                       styles.card,
                       { borderLeftColor: sm.text },
                       cancelada && styles.cardCancelada,
+                      isTablet && sesionModal?.id_sesion === s.id_sesion && styles.cardSel,
                       pressed && styles.cardPressed,
                     ]}
-                    onPress={() => setSesionModal(s)}
+                    onPress={() => {
+                      setSesionModal(s);
+                      if (!isTablet) setFichaAbierta(true);
+                    }}
                   >
                     <View style={styles.horaCol}>
                       <Text style={styles.horaInicio}>{s.hora_inicio || '—'}</Text>
@@ -333,13 +348,38 @@ export default function ActivacionesDiaScreen() {
           ))}
         </ScrollView>
       )}
+      </View>
+      {isTablet ? (
+        <View style={styles.panelCol}>
+          {sesionModal ? (
+            <ActivacionFichaModalDia
+              modo="panel"
+              sesion={sesionModal}
+              visible
+              onClose={() => {}}
+              onSesionActualizada={cargar}
+            />
+          ) : (
+            <View style={styles.centerBox}>
+              <Text style={styles.emptyText}>Selecciona una activación</Text>
+            </View>
+          )}
+        </View>
+      ) : null}
+      </View>
 
-      <ActivacionFichaModalDia
-        sesion={sesionModal}
-        visible={sesionModal != null}
-        onClose={() => setSesionModal(null)}
-        onSesionActualizada={cargar}
-      />
+      {!isTablet ? (
+        <ActivacionFichaModalDia
+          modo={isPhone ? 'hoja' : 'ventana'}
+          sesion={sesionModal}
+          visible={fichaAbierta && sesionModal != null}
+          onClose={() => {
+            setFichaAbierta(false);
+            setSesionModal(null);
+          }}
+          onSesionActualizada={cargar}
+        />
+      ) : null}
         </>
       )}
     </View>
@@ -367,7 +407,8 @@ const styles = StyleSheet.create({
   filaTablet: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.md, marginBottom: SPACING.md },
   selector: { marginBottom: SPACING.md },
   selectorTablet: { flex: 1, minWidth: 0 },
-  resumen: { flex: 1, minWidth: 0, gap: SPACING.sm },
+  resumen: { minWidth: 0, gap: SPACING.sm },
+  resumenEnFila: { flex: 1 },
   resumenCajas: { flexDirection: 'row', gap: SPACING.sm },
   resumenCaja: {
     flex: 1,
@@ -397,6 +438,17 @@ const styles = StyleSheet.create({
   errorText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.danger.text },
   retryBtn: { minHeight: MIN_TOUCH, justifyContent: 'center' },
   retry: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent },
+  filaDetalle: { flex: 1, flexDirection: 'row', gap: SPACING.md, minHeight: 0 },
+  listaCol: { flexGrow: 45, flexShrink: 1, flexBasis: 0, minWidth: 0, minHeight: 0 },
+  panelCol: {
+    flexGrow: 55,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    minHeight: 0,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+  },
   centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, padding: SPACING.xl },
   seccion: { gap: SPACING.sm },
   seccionHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
@@ -418,6 +470,7 @@ const styles = StyleSheet.create({
     paddingLeft: SPACING.md,
   },
   cardCancelada: { opacity: 0.55 },
+  cardSel: { borderColor: colors.accent, backgroundColor: '#f0f9ff' },
   cardPressed: { backgroundColor: colors.bg },
   horaCol: { flexShrink: 0, alignItems: 'flex-start' },
   horaInicio: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, fontVariant: ['tabular-nums'] },

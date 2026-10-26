@@ -20,6 +20,7 @@ import {
   ActivacionEstadoBadge,
   activacionFichaStyles,
 } from './ActivacionFichaReporte';
+import { BotonPrincipal } from './ui/BotonPrincipal';
 import {
   type Activacion,
   type ActivacionAdjunto,
@@ -40,14 +41,24 @@ function confirmar(titulo: string, mensaje: string, onOk: () => void) {
   ]);
 }
 
+type ModoFicha = 'ventana' | 'hoja' | 'panel';
+
 type Props = {
   sesion: ActivacionSesionDia | null;
   visible: boolean;
+  /** ventana: escritorio. hoja: móvil, desde abajo. panel: tablet, sin ventana. */
+  modo?: ModoFicha;
   onClose: () => void;
   onSesionActualizada: () => void;
 };
 
-export function ActivacionFichaModalDia({ sesion, visible, onClose, onSesionActualizada }: Props) {
+export function ActivacionFichaModalDia({
+  sesion,
+  visible,
+  modo = 'ventana',
+  onClose,
+  onSesionActualizada,
+}: Props) {
   const [activacion, setActivacion] = useState<Activacion | null>(null);
   const [sesiones, setSesiones] = useState<ActivacionSesion[]>([]);
   const [adjuntos, setAdjuntos] = useState<ActivacionAdjunto[]>([]);
@@ -195,6 +206,189 @@ export function ActivacionFichaModalDia({ sesion, visible, onClose, onSesionActu
       </View>
     ) : null;
 
+  const fija = modo === 'hoja' || modo === 'panel';
+
+  const barraFija =
+    fija && sesionActual && !loading && !error && activacion ? (
+      <View style={styles.barraFija}>
+        {accionando ? (
+          <ActivityIndicator size="small" color="#0ea5e9" />
+        ) : sesionActual.estado_sesion === 'programada' ? (
+          <>
+            <BotonPrincipal
+              estirar
+              titulo="Marcar como realizada"
+              onPress={() => patchSesion({ estado_sesion: 'realizada' })}
+            />
+            <TouchableOpacity
+              style={styles.btnCancelarFijo}
+              onPress={() =>
+                confirmar('Cancelar activación', '¿Seguro que quieres cancelar esta sesión?', () =>
+                  patchSesion({ estado_sesion: 'cancelada' }),
+                )
+              }
+            >
+              <Text style={styles.btnCancelarText}>Cancelar activación</Text>
+            </TouchableOpacity>
+          </>
+        ) : sesionActual.estado_sesion === 'realizada' ? (
+          <TouchableOpacity
+            style={styles.btnIncidenciaFijo}
+            onPress={() => {
+              setIncidenciaTexto(sesionActual.incidencia ?? '');
+              setIncidenciaVisible(true);
+            }}
+          >
+            <MaterialIcons name="warning-amber" size={16} color="#d97706" />
+            <Text style={styles.btnIncidenciaText}>
+              {sesionActual.incidencia ? 'Editar incidencia' : 'Añadir incidencia'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    ) : null;
+
+  const ficha = loading ? (
+    <View style={styles.centerBox}>
+      <ActivityIndicator size="large" color="#0ea5e9" />
+    </View>
+  ) : error || !activacion ? (
+    <View style={styles.centerBox}>
+      <MaterialIcons name="error-outline" size={36} color="#f87171" />
+      <Text style={styles.errorText}>{error ?? 'No se pudo cargar la ficha.'}</Text>
+      <TouchableOpacity onPress={cargar}>
+        <Text style={styles.retry}>Reintentar</Text>
+      </TouchableOpacity>
+    </View>
+  ) : (
+    <ActivacionFichaReporte
+      activacion={activacion}
+      sesiones={sesiones}
+      adjuntos={adjuntos}
+      sesionDestacadaId={sesion?.id_sesion}
+      topBar={
+        <View style={activacionFichaStyles.topBar}>
+          <View style={activacionFichaStyles.topActions}>
+            <ActivacionEstadoBadge activacion={activacion} />
+            <TouchableOpacity
+              style={[activacionFichaStyles.btnPdf, pdfLoading && activacionFichaStyles.btnDisabled]}
+              onPress={descargarPdf}
+              disabled={pdfLoading}
+            >
+              {pdfLoading ? (
+                <ActivityIndicator size="small" color="#0ea5e9" />
+              ) : (
+                <MaterialIcons name="picture-as-pdf" size={16} color="#0ea5e9" />
+              )}
+              <Text style={activacionFichaStyles.btnPdfText}>
+                {pdfLoading ? 'Generando…' : 'PDF'}
+              </Text>
+            </TouchableOpacity>
+            {sesionActual ? (
+              <View
+                style={[
+                  styles.badgeSesion,
+                  {
+                    backgroundColor:
+                      (ESTADO_SESION_META[sesionActual.estado_sesion] ?? ESTADO_SESION_META.programada).bg,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700',
+                    color:
+                      (ESTADO_SESION_META[sesionActual.estado_sesion] ?? ESTADO_SESION_META.programada).text,
+                  }}
+                >
+                  Sesión:{' '}
+                  {(ESTADO_SESION_META[sesionActual.estado_sesion] ?? ESTADO_SESION_META.programada).label}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      }
+      footer={fija ? undefined : footerAcciones}
+    />
+  );
+
+  const incidencia =
+    incidenciaVisible && sesionActual ? (
+      <View style={styles.incidenciaPanel}>
+        <Text style={styles.incidenciaPanelTitulo}>
+          {sesionActual.incidencia ? 'Editar incidencia' : 'Añadir incidencia'}
+        </Text>
+        <TextInput
+          style={styles.incidenciaInput}
+          value={incidenciaTexto}
+          onChangeText={setIncidenciaTexto}
+          multiline
+          placeholder="Describe qué ha ocurrido durante la activación…"
+          placeholderTextColor="#94a3b8"
+        />
+        <View style={styles.incidenciaBtns}>
+          <TouchableOpacity style={styles.incidenciaCancelar} onPress={() => setIncidenciaVisible(false)}>
+            <Text style={styles.incidenciaCancelarText}>Cancelar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.guardarBtn, guardandoIncidencia && { opacity: 0.6 }]}
+            onPress={guardarIncidencia}
+            disabled={guardandoIncidencia}
+          >
+            {guardandoIncidencia ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <MaterialIcons name="save" size={16} color="#fff" />
+            )}
+            <Text style={styles.guardarBtnText}>Guardar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    ) : null;
+
+  const cuerpo = (
+    <>
+      <ScrollView
+        style={styles.modalScroll}
+        contentContainerStyle={styles.modalScrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {ficha}
+        {fija ? incidencia : null}
+      </ScrollView>
+      {fija ? null : incidencia}
+      {barraFija}
+    </>
+  );
+
+  if (modo === 'panel') {
+    return (
+      <View style={styles.panel}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Ficha de activación</Text>
+        </View>
+        {cuerpo}
+      </View>
+    );
+  }
+
+  if (modo === 'hoja') {
+    return (
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <Pressable style={styles.hojaOverlay} onPress={onClose}>
+          <Pressable style={styles.hoja} onPress={() => {}}>
+            <View style={styles.asaZona}>
+              <View style={styles.asa} />
+            </View>
+            {cuerpo}
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
@@ -205,113 +399,7 @@ export function ActivacionFichaModalDia({ sesion, visible, onClose, onSesionActu
               <MaterialIcons name="close" size={24} color="#64748b" />
             </TouchableOpacity>
           </View>
-
-          <ScrollView
-            style={styles.modalScroll}
-            contentContainerStyle={styles.modalScrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            {loading ? (
-              <View style={styles.centerBox}>
-                <ActivityIndicator size="large" color="#0ea5e9" />
-              </View>
-            ) : error || !activacion ? (
-              <View style={styles.centerBox}>
-                <MaterialIcons name="error-outline" size={36} color="#f87171" />
-                <Text style={styles.errorText}>{error ?? 'No se pudo cargar la ficha.'}</Text>
-                <TouchableOpacity onPress={cargar}>
-                  <Text style={styles.retry}>Reintentar</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <ActivacionFichaReporte
-                activacion={activacion}
-                sesiones={sesiones}
-                adjuntos={adjuntos}
-                sesionDestacadaId={sesion?.id_sesion}
-                topBar={
-                  <View style={activacionFichaStyles.topBar}>
-                    <View style={activacionFichaStyles.topActions}>
-                      <ActivacionEstadoBadge activacion={activacion} />
-                      <TouchableOpacity
-                        style={[activacionFichaStyles.btnPdf, pdfLoading && activacionFichaStyles.btnDisabled]}
-                        onPress={descargarPdf}
-                        disabled={pdfLoading}
-                      >
-                        {pdfLoading ? (
-                          <ActivityIndicator size="small" color="#0ea5e9" />
-                        ) : (
-                          <MaterialIcons name="picture-as-pdf" size={16} color="#0ea5e9" />
-                        )}
-                        <Text style={activacionFichaStyles.btnPdfText}>
-                          {pdfLoading ? 'Generando…' : 'PDF'}
-                        </Text>
-                      </TouchableOpacity>
-                      {sesionActual ? (
-                        <View
-                          style={[
-                            styles.badgeSesion,
-                            {
-                              backgroundColor:
-                                (ESTADO_SESION_META[sesionActual.estado_sesion] ?? ESTADO_SESION_META.programada)
-                                  .bg,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={{
-                              fontSize: 12,
-                              fontWeight: '700',
-                              color:
-                                (ESTADO_SESION_META[sesionActual.estado_sesion] ?? ESTADO_SESION_META.programada)
-                                  .text,
-                            }}
-                          >
-                            Sesión:{' '}
-                            {(ESTADO_SESION_META[sesionActual.estado_sesion] ?? ESTADO_SESION_META.programada).label}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  </View>
-                }
-                footer={footerAcciones}
-              />
-            )}
-          </ScrollView>
-
-          {incidenciaVisible && sesionActual ? (
-            <View style={styles.incidenciaPanel}>
-              <Text style={styles.incidenciaPanelTitulo}>
-                {sesionActual.incidencia ? 'Editar incidencia' : 'Añadir incidencia'}
-              </Text>
-              <TextInput
-                style={styles.incidenciaInput}
-                value={incidenciaTexto}
-                onChangeText={setIncidenciaTexto}
-                multiline
-                placeholder="Describe qué ha ocurrido durante la activación…"
-                placeholderTextColor="#94a3b8"
-              />
-              <View style={styles.incidenciaBtns}>
-                <TouchableOpacity style={styles.incidenciaCancelar} onPress={() => setIncidenciaVisible(false)}>
-                  <Text style={styles.incidenciaCancelarText}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.guardarBtn, guardandoIncidencia && { opacity: 0.6 }]}
-                  onPress={guardarIncidencia}
-                  disabled={guardandoIncidencia}
-                >
-                  {guardandoIncidencia ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <MaterialIcons name="save" size={16} color="#fff" />
-                  )}
-                  <Text style={styles.guardarBtnText}>Guardar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : null}
+          {cuerpo}
         </Pressable>
       </Pressable>
     </Modal>
@@ -325,6 +413,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 12,
+  },
+  hojaOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  hoja: {
+    width: '100%',
+    height: '90%',
+    maxHeight: '90%',
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
+  },
+  asaZona: { alignItems: 'center', paddingTop: 8, paddingBottom: 4, backgroundColor: '#fff' },
+  asa: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1' },
+  panel: { flex: 1, backgroundColor: '#fff', minWidth: 0, minHeight: 0 },
+  barraFija: {
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 14,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  btnCancelarFijo: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#dc2626',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+  btnIncidenciaFijo: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    backgroundColor: '#fffbeb',
+    borderRadius: 10,
+    paddingHorizontal: 12,
   },
   modalShell: {
     width: '100%',

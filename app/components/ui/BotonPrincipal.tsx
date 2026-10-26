@@ -26,21 +26,23 @@ type Props = {
   /** Franja blanca que cruza el botón. Se apaga con «reducir movimiento». */
   brillo?: boolean;
   estado?: EstadoBotonPrincipal;
-  /** `flotante`: botón redondo con anillo de pulso, para «Nuevo pedido». */
+  /** `flotante`: pastilla con anillo de pulso, para «Nuevo pedido». */
   variante?: VarianteBotonPrincipal;
   disabled?: boolean;
+  /** Ocupa todo el ancho del contenedor y sube a 48 px de alto. */
+  estirar?: boolean;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
 };
 
 const ROSA = ['#ec4899', '#f43f5e'] as const;
 const VERDE = ['#22c55e', '#16a34a'] as const;
-const TAM_FAB = 56;
-const RADIO_FAB = TAM_FAB / 2;
+/** Alto de la pastilla flotante: un poco por encima del círculo de 56. */
+const ALTO_FAB = 64;
 
 /**
  * Botón de acción principal (degradado rosa, resplandor, brillo y estados de envío).
- * La variante flotante es el FAB redondo. No cambia datos: solo presentación.
+ * La variante flotante es una pastilla con el título y un anillo de pulso.
  */
 export function BotonPrincipal({
   titulo,
@@ -49,6 +51,7 @@ export function BotonPrincipal({
   estado = 'idle',
   variante = 'principal',
   disabled = false,
+  estirar = false,
   accessibilityLabel,
   style,
 }: Props) {
@@ -133,13 +136,13 @@ export function BotonPrincipal({
 
   const recorrido = brilloX.interpolate({
     inputRange: [0, 1],
-    outputRange: [-(ancho + TAM_FAB), ancho + TAM_FAB],
+    outputRange: [-(ancho + ALTO_FAB), ancho + ALTO_FAB],
   });
   const pulsoEscala = pulso.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] });
   const pulsoOpacidad = pulso.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] });
 
   const colores = estado === 'ok' ? VERDE : ROSA;
-  const radio = flotante ? RADIO_FAB : radius.lg;
+  const radio = flotante ? radius.pill : radius.lg;
   const resplandor =
     Platform.OS === 'ios'
       ? {
@@ -166,17 +169,22 @@ export function BotonPrincipal({
     contenido = (
       <View style={styles.fila}>
         <ActivityIndicator color="#ffffff" />
-        {flotante ? null : <Text style={styles.texto}>Enviando…</Text>}
+        <Text style={flotante ? styles.textoFab : styles.texto}>Enviando…</Text>
       </View>
     );
   } else if (estado === 'ok') {
     contenido = (
       <Animated.View style={{ transform: [{ scale: checkEscala }] }}>
-        <MaterialIcons name="check" size={flotante ? 28 : 22} color="#ffffff" />
+        <MaterialIcons name="check" size={flotante ? 26 : 22} color="#ffffff" />
       </Animated.View>
     );
   } else if (flotante) {
-    contenido = <MaterialIcons name="add" size={28} color="#ffffff" />;
+    contenido = (
+      <View style={styles.fila}>
+        <MaterialIcons name="add" size={22} color="#ffffff" />
+        <Text style={styles.textoFab}>{titulo}</Text>
+      </View>
+    );
   }
 
   return (
@@ -184,6 +192,7 @@ export function BotonPrincipal({
       style={[
         styles.envoltorio,
         flotante && styles.envoltorioFab,
+        estirar && styles.estirado,
         { backgroundColor: estado === 'ok' ? '#16a34a' : '#ec4899' },
         resplandor,
         disabled && estado === 'idle' && styles.off,
@@ -199,8 +208,9 @@ export function BotonPrincipal({
           ]}
         />
       ) : null}
-      <Animated.View style={{ transform: [{ scale: escala }] }}>
+      <Animated.View style={[{ transform: [{ scale: escala }] }, estirar ? styles.estirado : null]}>
         <Pressable
+          style={estirar ? styles.estirado : undefined}
           onPress={onPress}
           onPressIn={bloqueado ? undefined : pulsar}
           onPressOut={bloqueado ? undefined : soltar}
@@ -217,7 +227,12 @@ export function BotonPrincipal({
             colors={colores}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={[styles.cara, flotante ? styles.caraFab : null, { borderRadius: radio }]}
+            style={[
+              styles.cara,
+              flotante ? styles.caraFab : null,
+              estirar ? styles.caraEstirada : null,
+              { borderRadius: radio },
+            ]}
           >
             {mostrarBrillo ? (
               <Animated.View
@@ -242,17 +257,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
   },
   envoltorioFab: {
-    width: TAM_FAB,
-    height: TAM_FAB,
-    borderRadius: RADIO_FAB,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   anillo: {
     position: 'absolute',
-    width: TAM_FAB,
-    height: TAM_FAB,
-    borderRadius: RADIO_FAB,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: radius.pill,
     borderWidth: 2,
     borderColor: '#f43f5e',
     backgroundColor: 'transparent',
@@ -266,11 +281,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   caraFab: {
-    width: TAM_FAB,
-    height: TAM_FAB,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    borderRadius: RADIO_FAB,
+    minHeight: ALTO_FAB,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: radius.pill,
+  },
+  estirado: { alignSelf: 'stretch' },
+  caraEstirada: { minHeight: 48, width: '100%' },
+  textoFab: {
+    color: '#ffffff',
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[16],
+    fontWeight: '600',
   },
   fila: {
     flexDirection: 'row',
