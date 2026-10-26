@@ -43,6 +43,8 @@ import {
 import { apiFetch } from '../../utils/api';
 import { anioEnCurso, urlPedidosPorAnio } from '../../lib/rangoAnioListado';
 import { SelectorAnioListado } from '../../components/SelectorAnioListado';
+import { BotonPrincipal } from '../../components/ui/BotonPrincipal';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatCreadoEn } from '../../utils/formatFecha';
 import {
   CeldaFacturacionPedido,
@@ -57,6 +59,29 @@ const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen'
 const COLUMNAS_TABLA: string[] = [...COLUMNAS];
 const COLUMNAS_MONEDA = ['TotalAlbaran'];
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
+
+const COLOR_ESTADO: Record<string, { fondo: string; texto: string; franja: string }> = {
+  Borrador: { fondo: '#f1f5f9', texto: '#64748b', franja: '#94a3b8' },
+  Pendiente: { fondo: '#fef3c7', texto: '#b45309', franja: '#d97706' },
+  Enviado: { fondo: '#e0f2fe', texto: '#0369a1', franja: '#0284c7' },
+  Exportado: { fondo: '#f3e8ff', texto: '#7e22ce', franja: '#9333ea' },
+  Completado: { fondo: '#dcfce7', texto: '#15803d', franja: '#16a34a' },
+};
+
+function fechaIsoLocal(d: Date): string {
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
+}
+
+function lunesDeSemanaIso(d: Date): string {
+  const copia = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dia = copia.getDay();
+  const retroceso = dia === 0 ? 6 : dia - 1;
+  copia.setDate(copia.getDate() - retroceso);
+  return fechaIsoLocal(copia);
+}
+
 function parseAlmacenesOrigen(val: string | number | undefined): string[] {
   if (val == null || String(val).trim() === '') return [];
   return String(val)
@@ -73,6 +98,13 @@ function valorEnLocal(item: Pedido | Local | Almacen, key: string): string | num
   if (item[key] !== undefined && item[key] !== null) return item[key];
   const found = Object.keys(item).find((k) => k.toLowerCase() === key.toLowerCase());
   return found != null ? item[found] : undefined;
+}
+
+function fechaPedidoIso(p: Pedido): string {
+  const fecha = String(valorEnLocal(p, 'Fecha') ?? '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  if (fecha) return fecha[1];
+  const creado = String(valorEnLocal(p, 'CreadoEn') ?? '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return creado ? creado[1] : '';
 }
 
 function formatFecha(fecha: string | number | undefined): string {
@@ -873,6 +905,9 @@ export default function PedidosScreen() {
 
   const estadoPedidoActual = pedidoParaLineas ? String(valorEnLocal(pedidoParaLineas, 'Estado') ?? '') : '';
   const pedidoEnviado = estadoPedidoActual === 'Enviado';
+  // Enviar solo saca un borrador hacia almacén. En Completado (y el resto) no
+  // debe reaparecer: volver a Enviado borra CompletadoEn.
+  const puedeEnviar = estadoPedidoActual === 'Borrador';
   const puedeEditarEnviado = hasPermiso('pedidos.editar_enviado');
   const puedeBorrarEnviado = hasPermiso('pedidos.borrar_enviado');
   /**
@@ -966,7 +1001,8 @@ export default function PedidosScreen() {
     abrirModalBorrar(item);
   };
 
-  const { shouldStackPanels, shouldStackToolbar, shouldUseComfortableTable } = useBreakpoint();
+  const { shouldStackPanels, shouldStackToolbar, shouldUseComfortableTable, isDesktop } = useBreakpoint();
+  const insets = useSafeAreaInsets();
   const vistaParam = Array.isArray(params.vista) ? params.vista[0] : params.vista;
   const moduloTarjetas = vistaParam === 'tarjetas';
 
@@ -992,8 +1028,9 @@ export default function PedidosScreen() {
   );
   // Tabla de líneas estirada cuando hay espacio horizontal (tablet/escritorio horizontal).
   const isWide = !shouldStackPanels && !moduloTarjetas;
-  // Hacer pedido siempre usa tarjetas. La tabla de Compras solo se apila en vertical.
-  const detalleComoModal = shouldStackPanels || moduloTarjetas;
+  const hacerPedidoEscritorio = moduloTarjetas && isDesktop;
+  // Hacer pedido en escritorio abre el detalle al lado. En móvil y tablet, a pantalla completa.
+  const detalleComoModal = moduloTarjetas ? !isDesktop : shouldStackPanels;
 
   const renderLineasTable = (stretchWide: boolean) => (
     <View style={[styles.lineasTable, stretchWide && styles.lineasTableWide]}>
@@ -1105,49 +1142,140 @@ export default function PedidosScreen() {
       : []),
   ];
 
+  const pedidosRecientes = useMemo(
+    () => [...pedidosFiltrados].map((p, index) => ({ p, index })).reverse(),
+    [pedidosFiltrados],
+  );
+  const gruposHacerPedido = useMemo(() => {
+    const ahora = new Date();
+    const hoy = fechaIsoLocal(ahora);
+    const lunes = lunesDeSemanaIso(ahora);
+    const hoyItems: typeof pedidosRecientes = [];
+    const semanaItems: typeof pedidosRecientes = [];
+    const anteriores: typeof pedidosRecientes = [];
+    for (const item of pedidosRecientes) {
+      const fecha = fechaPedidoIso(item.p);
+      if (fecha === hoy) hoyItems.push(item);
+      else if (fecha > hoy || (fecha !== '' && fecha >= lunes && fecha < hoy)) semanaItems.push(item);
+      else anteriores.push(item);
+    }
+    return [
+      { titulo: 'Hoy', items: hoyItems },
+      { titulo: 'Esta semana', items: semanaItems },
+      { titulo: 'Anteriores', items: anteriores },
+    ].filter((grupo) => grupo.items.length > 0);
+  }, [pedidosRecientes]);
+
+  const nombreAlmacen = useCallback((idRaw: string | number | undefined) => {
+    const id = String(idRaw ?? '').trim();
+    if (!id) return '—';
+    return nombresPorAlmacenId[id] ?? nombresPorAlmacenId[id.replace(/^0+/, '') || '0'] ?? id;
+  }, [nombresPorAlmacenId]);
+
+  const pintarChipEstado = (
+    c: { key: string | null; label: string; count: number; completado?: boolean },
+    coloreados: boolean,
+  ) => {
+    const activo = filtroEstado === c.key;
+    const tono = c.key ? COLOR_ESTADO[c.key] : undefined;
+    const conColor = coloreados && !!tono;
+    return (
+      <TouchableOpacity
+        key={c.key ?? '__todos'}
+        style={[
+          styles.chipEstado,
+          !conColor && c.completado && styles.chipEstadoCompletado,
+          !conColor && activo && (c.completado ? styles.chipEstadoCompletadoActivo : styles.chipEstadoActivo),
+          conColor && tono && {
+            backgroundColor: activo ? tono.franja : tono.fondo,
+            borderColor: tono.franja,
+          },
+        ]}
+        onPress={() => cambiarFiltroEstado(c.key)}
+        activeOpacity={0.7}
+      >
+        <Text
+          style={[
+            styles.chipEstadoText,
+            !conColor && c.completado && styles.chipEstadoTextCompletado,
+            !conColor && activo && styles.chipEstadoTextActivo,
+            conColor && tono && { color: activo ? '#ffffff' : tono.texto },
+          ]}
+        >
+          {c.label}
+        </Text>
+        <View style={[
+          styles.chipEstadoBadge,
+          activo && styles.chipEstadoBadgeActivo,
+          conColor && !activo && tono && { backgroundColor: tono.franja },
+        ]}>
+          <Text style={[
+            styles.chipEstadoBadgeText,
+            (activo || (conColor && !activo)) && styles.chipEstadoBadgeTextActivo,
+          ]}>
+            {c.count}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   const chipsEstado = (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      style={styles.chipsEstadoScroll}
       contentContainerStyle={styles.chipsEstadoRow}
     >
-      {chipsEstadoDef.map((c) => {
-        const activo = filtroEstado === c.key;
-        return (
-          <TouchableOpacity
-            key={c.key ?? '__todos'}
-            style={[
-              styles.chipEstado,
-              c.completado && styles.chipEstadoCompletado,
-              activo && (c.completado ? styles.chipEstadoCompletadoActivo : styles.chipEstadoActivo),
-            ]}
-            onPress={() => cambiarFiltroEstado(c.key)}
-            activeOpacity={0.7}
-          >
-            <Text
-              style={[
-                styles.chipEstadoText,
-                c.completado && styles.chipEstadoTextCompletado,
-                activo && styles.chipEstadoTextActivo,
-              ]}
-              numberOfLines={1}
-            >
-              {c.label}
-            </Text>
-            <View style={[styles.chipEstadoBadge, activo && styles.chipEstadoBadgeActivo]}>
-              <Text style={[styles.chipEstadoBadgeText, activo && styles.chipEstadoBadgeTextActivo]}>
-                {c.count}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        );
-      })}
+      {chipsEstadoDef.map((c) => pintarChipEstado(c, false))}
     </ScrollView>
   );
 
+  const pintarTarjetaPedido = (p: Pedido, index: number) => {
+    const id = String(valorEnLocal(p, 'Id') ?? '');
+    const localId = String(valorEnLocal(p, 'LocalId') ?? '').trim();
+    const local = localId ? (nombresPorLocalId[localId] ?? '—') : '—';
+    const estado = String(valorEnLocal(p, 'Estado') ?? '');
+    const tono = COLOR_ESTADO[estado] ?? COLOR_ESTADO.Borrador;
+    const numLineas = Number(valorEnLocal(p, 'LineasTotal'));
+    const textoLineas = Number.isFinite(numLineas)
+      ? `${numLineas} ${numLineas === 1 ? 'línea' : 'líneas'}`
+      : '—';
+    const seleccionada = selectedRowIndex === index;
+    return (
+      <TouchableOpacity
+        key={id || `sin-id-${index}`}
+        style={[
+          styles.cardPedido,
+          styles.cardPedidoFranja,
+          seleccionada && styles.cardPedidoSel,
+          { borderLeftColor: tono.franja },
+        ]}
+        onPress={() => handleSelectRow(index)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardPedidoTop}>
+          <Text style={styles.cardPedidoId} numberOfLines={1}>{id || '—'}</Text>
+          <View style={[styles.cardEstadoChip, { backgroundColor: tono.fondo }]}>
+            <Text style={[styles.cardEstadoChipText, { color: tono.texto }]}>{estado || '—'}</Text>
+          </View>
+        </View>
+        <Text style={styles.cardPedidoLocal} numberOfLines={1}>{local}</Text>
+        <Text style={styles.cardPedidoRuta} numberOfLines={1}>
+          {nombreAlmacen(valorEnLocal(p, 'AlmacenOrigenId'))} → {nombreAlmacen(valorEnLocal(p, 'AlmacenDestinoId'))}
+        </Text>
+        <Text style={styles.cardPedidoLineas}>{textoLineas}</Text>
+        <View style={styles.cardPedidoPie}>
+          <Text style={styles.cardPedidoFecha}>{formatFecha(valorEnLocal(p, 'Fecha'))}</Text>
+          <Text style={styles.cardPedidoTotal}>{formatMoneda(valorEnLocal(p, 'TotalAlbaran'))}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <View style={[styles.mainRow, !isWide && styles.mainRowColumn]}>
+      <View style={[styles.mainRow, !isWide && !hacerPedidoEscritorio && styles.mainRowColumn]}>
         <View style={styles.pedidosSection}>
           {/* Encima de la tabla: si va debajo, con una lista larga el usuario
               pulsa «Editar», no pasa nada y el motivo queda fuera de pantalla. */}
@@ -1175,7 +1303,82 @@ export default function PedidosScreen() {
               />
             </View>
           ) : null}
-          {moduloTarjetas || shouldStackPanels ? (
+          {moduloTarjetas ? (
+            <View style={styles.listaMovil}>
+              <View style={styles.listaMovilHeader}>
+                <TouchableOpacity onPress={volverAtras} style={styles.listaMovilBack} accessibilityLabel="Volver">
+                  <MaterialIcons name="arrow-back" size={22} color="#334155" />
+                </TouchableOpacity>
+                <View style={styles.listaMovilTituloWrap}>
+                  <Text style={styles.listaMovilTitulo}>Hacer pedido</Text>
+                  <Text style={styles.listaMovilSub}>Crear un pedido y enviarlo al almacén</Text>
+                </View>
+                {hacerPedidoEscritorio ? (
+                  <BotonPrincipal titulo="Nuevo pedido" onPress={handleCrear} />
+                ) : null}
+                <TouchableOpacity onPress={refetch} style={styles.listaMovilBack} accessibilityLabel="Recargar">
+                  <MaterialIcons name="refresh" size={22} color="#0ea5e9" />
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                style={styles.listaMovilBuscar}
+                value={filtroBusqueda}
+                onChangeText={setFiltroBusqueda}
+                placeholder="Buscar pedido, local o estado"
+                placeholderTextColor="#94a3b8"
+              />
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipsEstadoScroll}
+                contentContainerStyle={styles.chipsEstadoRow}
+              >
+                <SelectorAnioListado
+                  label="Año"
+                  valorId={anioListado}
+                  onChange={setAnioListado}
+                  style={styles.anioEnFila}
+                />
+                {chipsEstadoDef.map((c) => pintarChipEstado(c, true))}
+              </ScrollView>
+              {loading ? (
+                <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: SPACING.xl }} />
+              ) : error ? (
+                <View style={styles.listaMovilCentro}>
+                  <Text style={styles.listaMovilVacio}>{error}</Text>
+                  <TouchableOpacity onPress={refetch} style={styles.listaMovilReintentar}>
+                    <Text style={styles.listaMovilReintentarText}>Reintentar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : pedidosRecientes.length === 0 ? (
+                <Text style={styles.listaMovilVacio}>
+                  {filtroBusqueda.trim() || filtroEstado ? 'Ningún pedido coincide con el filtro' : 'No hay pedidos'}
+                </Text>
+              ) : (
+                <ScrollView
+                  contentContainerStyle={[
+                    styles.listaMovilScroll,
+                    !hacerPedidoEscritorio && styles.listaMovilScrollFab,
+                  ]}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {hacerPedidoEscritorio
+                    ? pedidosRecientes.map(({ p, index }) => pintarTarjetaPedido(p, index))
+                    : gruposHacerPedido.map((grupo) => (
+                      <View key={grupo.titulo} style={styles.grupoPedidos}>
+                        <Text style={styles.grupoPedidosTitulo}>{grupo.titulo}</Text>
+                        {grupo.items.map(({ p, index }) => pintarTarjetaPedido(p, index))}
+                      </View>
+                    ))}
+                </ScrollView>
+              )}
+              {hacerPedidoEscritorio ? null : (
+                <View style={[styles.fabWrap, { bottom: Math.max(insets.bottom, SPACING.lg) }]} pointerEvents="box-none">
+                  <BotonPrincipal variante="flotante" titulo="Nuevo pedido" onPress={handleCrear} />
+                </View>
+              )}
+            </View>
+          ) : shouldStackPanels ? (
             <View style={styles.listaMovil}>
               <View style={styles.listaMovilHeader}>
                 <TouchableOpacity onPress={volverAtras} style={styles.listaMovilBack} accessibilityLabel="Volver">
@@ -1194,7 +1397,7 @@ export default function PedidosScreen() {
                 <Text style={styles.listaMovilNuevoText}>Nuevo pedido</Text>
               </TouchableOpacity>
               <SelectorAnioListado label="Año" estirar valorId={anioListado} onChange={setAnioListado} />
-              {chipsEstado}
+              <View style={styles.chipsEstadoEnLista}>{chipsEstado}</View>
               <TextInput
                 style={styles.listaMovilBuscar}
                 value={filtroBusqueda}
@@ -1280,7 +1483,7 @@ export default function PedidosScreen() {
         </View>
         {(() => {
           const contenidoDetalle = (
-          <View style={[styles.lineasSection, !isWide && styles.lineasSectionColumn]}>
+          <View style={[styles.lineasSection, !isWide && !hacerPedidoEscritorio && styles.lineasSectionColumn, hacerPedidoEscritorio && styles.lineasSectionHacer]}>
           <View style={styles.lineasPanelHeader}>
             <Text style={styles.lineasPanelTitle} numberOfLines={1} ellipsizeMode="tail">
               Detalle del pedido
@@ -1320,7 +1523,7 @@ export default function PedidosScreen() {
                     <MaterialIcons name="add" size={14} color={modalLineaFormVisible || bloqueadoEditar ? colors.textMuted : colors.success} />
                     <Text style={[styles.lineasAddBtnText, (modalLineaFormVisible || bloqueadoEditar) && { color: colors.textMuted }]}>Añadir línea</Text>
                   </TouchableOpacity>
-                  {!pedidoEnviado && isWide ? (
+                  {puedeEnviar && isWide ? (
                     <TouchableOpacity style={styles.enviarPedidoBtn} onPress={enviarPedido}>
                       <MaterialIcons name="send" size={14} color="#9a3412" />
                       <Text style={styles.enviarPedidoBtnText}>Enviar pedido</Text>
@@ -1369,7 +1572,7 @@ export default function PedidosScreen() {
                 })
               )}
             </ScrollView>
-            {!isWide && pedidoParaLineas && !pedidoEnviado && !editModeLineas ? (
+            {!isWide && pedidoParaLineas && puedeEnviar && !editModeLineas ? (
               <TouchableOpacity style={styles.enviarFijo} onPress={enviarPedido} activeOpacity={0.8}>
                 <MaterialIcons name="send" size={18} color="#fff" />
                 <Text style={styles.enviarFijoText}>Enviar pedido</Text>
@@ -1836,6 +2039,12 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     minWidth: 0,
   },
+  lineasSectionHacer: {
+    minWidth: 0,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+    borderTopWidth: 0,
+  },
   lineasPanelHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2000,10 +2209,13 @@ const styles = StyleSheet.create({
   pickerChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   pickerChipText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
   pickerChipTextActive: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  chipsEstadoScroll: { width: '100%', minHeight: MIN_TOUCH, flexGrow: 0 },
   chipsEstadoRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 6 },
+  chipsEstadoEnLista: { flexGrow: 0, flexShrink: 0, alignSelf: 'stretch', minHeight: MIN_TOUCH },
   chipEstado: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
     gap: 6,
     minHeight: MIN_TOUCH,
     paddingVertical: 6,
@@ -2138,9 +2350,10 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   lineaFormBtns: { flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.md, justifyContent: 'flex-end' },
-  listaMovil: { flex: 1, backgroundColor: '#e8eef5', padding: 16, gap: 12 },
-  listaMovilHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  listaMovil: { flex: 1, position: 'relative', backgroundColor: '#e8eef5', padding: SPACING.lg, gap: SPACING.md },
+  listaMovilHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   listaMovilBack: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
+  listaMovilTituloWrap: { flex: 1, minWidth: 0 },
   listaMovilTitulo: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
   listaMovilSub: { fontSize: 13, color: '#64748b' },
   listaMovilNuevo: {
@@ -2165,7 +2378,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#334155',
   },
-  listaMovilScroll: { gap: 8, paddingBottom: 24 },
+  listaMovilScroll: { gap: SPACING.sm, paddingBottom: SPACING.xl },
+  listaMovilScrollFab: { paddingBottom: 96 },
+  anioEnFila: { width: 120, minWidth: 0, maxWidth: 120 },
+  fabWrap: { position: 'absolute', right: SPACING.lg },
+  grupoPedidos: { gap: SPACING.sm },
+  grupoPedidosTitulo: {
+    fontSize: fontSizes[13],
+    fontFamily: fontFamily.bold,
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: SPACING.xs,
+  },
   listaMovilCentro: { alignItems: 'center', gap: 10, paddingVertical: 24 },
   listaMovilVacio: { fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 12 },
   listaMovilReintentar: {
@@ -2186,11 +2410,24 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 4,
   },
-  cardPedidoTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  cardPedidoId: { flex: 1, fontSize: 15, fontWeight: '700', color: '#0f172a' },
+  cardPedidoFranja: { borderLeftWidth: 4 },
+  cardPedidoSel: { backgroundColor: '#fdf2f8', borderColor: '#f9a8d4' },
+  cardEstadoChip: {
+    borderRadius: radius.pill,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 2,
+    flexShrink: 0,
+  },
+  cardEstadoChipText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: '700' },
+  cardPedidoTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm },
+  cardPedidoId: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '700', color: '#0f172a' },
   cardPedidoEstado: { fontSize: 12, fontWeight: '700', color: '#b45309' },
   cardPedidoLocal: { fontSize: 15, color: '#334155' },
-  cardPedidoFecha: { fontSize: 13, color: '#64748b' },
+  cardPedidoRuta: { fontSize: fontSizes[13], color: '#64748b' },
+  cardPedidoLineas: { fontSize: fontSizes[13], color: '#64748b' },
+  cardPedidoPie: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: SPACING.sm, marginTop: SPACING.xs },
+  cardPedidoFecha: { fontSize: 13, color: '#64748b', flexShrink: 1 },
+  cardPedidoTotal: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: '700', color: '#0f172a' },
   detallePantalla: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 20,
