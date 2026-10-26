@@ -191,8 +191,9 @@ export function BotonPrincipal({
     );
   } else if (estado === 'ok') {
     contenido = (
-      <Animated.View style={{ transform: [{ scale: checkEscala }] }}>
+      <Animated.View style={[styles.fila, { transform: [{ scale: checkEscala }] }]}>
         <MaterialIcons name="check" size={flotante ? 26 : 22} color="#ffffff" />
+        <Text style={flotante ? styles.textoFab : styles.texto}>{titulo}</Text>
       </Animated.View>
     );
   } else if (flotante) {

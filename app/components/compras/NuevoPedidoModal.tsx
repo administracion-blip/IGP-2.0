@@ -15,6 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
 import { BarraAcciones } from '../ui/BarraAcciones';
+import { BotonPeligro } from '../ui/BotonPeligro';
 import { BotonPlano } from '../ui/BotonPlano';
 import { BotonPrincipal } from '../ui/BotonPrincipal';
 import { SelectorSegmentado } from '../ui/SelectorSegmentado';
@@ -100,16 +101,27 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
   const lineasRef = useRef<Registro[]>([]);
   const deseoCantidad = useRef<Record<string, string>>({});
   const syncEnCurso = useRef<Set<string>>(new Set());
+  const cierreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [enviadoOk, setEnviadoOk] = useState(false);
   lineasRef.current = lineas;
   const [enviando, setEnviando] = useState(false);
+
+  useEffect(() => () => {
+    if (cierreTimer.current) clearTimeout(cierreTimer.current);
+  }, []);
 
   // Carga de datos y reset al abrir.
   useEffect(() => {
     if (!visible) {
       Object.values(cantidadTimer.current).forEach(clearTimeout);
       cantidadTimer.current = {};
+      if (cierreTimer.current) {
+        clearTimeout(cierreTimer.current);
+        cierreTimer.current = null;
+      }
       return;
     }
+    setEnviadoOk(false);
     setFase('cabecera');
     setTipo('Pedido');
     setForm({ LocalId: '', AlmacenOrigenId: '', AlmacenDestinoId: '', Fecha: hoyISO(), Notas: '' });
@@ -542,7 +554,12 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Error al enviar el envío');
       onCreado?.();
-      onClose();
+      setEnviadoOk(true);
+      if (cierreTimer.current) clearTimeout(cierreTimer.current);
+      cierreTimer.current = setTimeout(() => {
+        cierreTimer.current = null;
+        onClose();
+      }, 1200);
     } catch (e) {
       alert((e as Error).message || 'Error al enviar');
     } finally {
@@ -608,6 +625,11 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     origenOtroLocal,
     almacenes,
   ]);
+
+  const nombreDeAlmacen = (idAlm: string) => {
+    const alm = almacenes.find((a) => String(valorEnLocal(a, 'Id') ?? '').trim() === idAlm.trim());
+    return alm ? nombreAlmacen(alm as Record<string, unknown>) || idAlm : idAlm;
+  };
 
   const productosVisibles = useMemo(() => {
     const q = busquedaProducto.trim().toLowerCase();
@@ -688,22 +710,134 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     </View>
   );
 
+  const pintarBusqueda = (enfocar: boolean) => (
+    <View style={styles.pickerProductos}>
+      <View style={styles.buscadorProducto}>
+        <MaterialIcons name="search" size={22} color="#64748b" />
+        <TextInput
+          style={styles.buscadorProductoInput}
+          value={busquedaProducto}
+          onChangeText={setBusquedaProducto}
+          placeholder="Escribe el nombre del producto"
+          placeholderTextColor="#94a3b8"
+          autoFocus={enfocar}
+        />
+      </View>
+      {loadingProductos ? (
+        <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 24 }} />
+      ) : productosVisibles.length === 0 ? (
+        <Text style={styles.lineasVacio}>Ningún producto con ese nombre.</Text>
+      ) : (
+        <ScrollView style={styles.productosScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+          {productosVisibles.map((prod, idx) => {
+            const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim() || `p-${idx}`;
+            const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
+            const coste = Number(valorEnLocal(prod, 'CostPrice') ?? 0) || 0;
+            const precio = aplicarPorcentajeBeneficio(coste, porcentajeBeneficio);
+            const lineaYa = lineas.find((l) => String(valorEnLocal(l, 'ProductId') ?? '').trim() === idProd);
+            const cant = cantidadesPicker[idProd] ?? (lineaYa ? String(lineaYa.Cantidad ?? 0) : '0');
+            const guardandoEste = guardandoLinea === idProd;
+            return (
+              <View key={idProd} style={styles.prodCard}>
+                <View style={styles.prodTexto}>
+                  <View style={styles.lineaArticulo}>
+                    <EtiquetaZona zona={zonas.get(idProd)} />
+                    <Text style={styles.lineaNombre} numberOfLines={2}>{nombre}</Text>
+                  </View>
+                  <View style={styles.lineaArticulo}>
+                    <BadgeFormato nombre={formatos.get(idProd)} />
+                    <Text style={styles.lineaMeta}>{formatMoneda(precio)}</Text>
+                  </View>
+                </View>
+                <InputCantidad
+                  value={cant}
+                  min={0}
+                  onChangeText={(v) => programarCantidadProducto(prod, v)}
+                  disabled={guardandoEste}
+                />
+                {guardandoEste ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
+              </View>
+            );
+          })}
+        </ScrollView>
+      )}
+    </View>
+  );
+
+  const pintarLineas = () => (
+    <View style={styles.lineasListWrap}>
+      <Text style={styles.enPedidoTitulo}>En este pedido{lineas.length > 0 ? ` · ${lineas.length}` : ''}</Text>
+      {loadingLineas ? (
+        <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 16 }} />
+      ) : lineas.length === 0 ? (
+        <Text style={styles.lineasVacio}>Aún no hay productos en este pedido.</Text>
+      ) : (
+        <ScrollView style={styles.lineasScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+          {lineasPorZona.map((l) => {
+            const key = String(l.LineaIndex ?? '');
+            const borrando = borrandoLinea === key;
+            const cant = cantidadesLinea[key] ?? String(l.Cantidad ?? 0);
+            const ivaRaw = Number(l.VatRate ?? 0);
+            const ivaPct = Number.isFinite(ivaRaw) ? (ivaRaw <= 1 ? ivaRaw * 100 : ivaRaw) : 0;
+            const rappel = Number(l.TotalRappel ?? 0);
+            const unitario = Number(l.PrecioUnitario ?? 0);
+            return (
+              <View key={key} style={styles.lineaCard}>
+                <View style={styles.lineaCardCabeza}>
+                  <View style={styles.prodTexto}>
+                    <View style={styles.lineaArticulo}>
+                      <EtiquetaZona zona={zonas.get(String(l.ProductId ?? '').trim())} />
+                      <Text style={styles.lineaNombre} numberOfLines={2}>
+                        {String(l.ProductoNombre || l.ProductId || '—')}
+                      </Text>
+                      <BadgeFormato nombre={formatos.get(String(l.ProductId ?? '').trim())} />
+                    </View>
+                    <Text style={styles.lineaMeta}>{formatMoneda(unitario)}</Text>
+                  </View>
+                  {borrando ? (
+                    <ActivityIndicator size="small" color="#dc2626" />
+                  ) : (
+                    <BotonPeligro onPress={() => handleDeleteLinea(key)} accessibilityLabel="Quitar línea" />
+                  )}
+                </View>
+                <View style={styles.lineaCardPie}>
+                  <InputCantidad
+                    value={cant}
+                    min={1}
+                    onChangeText={(v) => programarCantidadLinea(l, v)}
+                    disabled={borrando || guardandoLinea === key}
+                  />
+                  <Text style={styles.lineaTotal}>{formatMoneda(Number(l.TotalLinea ?? 0))}</Text>
+                </View>
+                <Text style={styles.lineaMeta}>
+                  IVA {ivaPct.toLocaleString('es-ES', { maximumFractionDigits: 2 })} %
+                  {' · '}
+                  {rappel > 0 ? `rappel -${formatMoneda(rappel)}` : `rappel ${formatMoneda(0)}`}
+                </Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+      )}
+    </View>
+  );
+
   const pasoActual = fase === 'cabecera' ? 1 : 2;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       {/* El fondo no cierra el pedido en curso (evita perder datos); se cierra con la X o Cancelar. */}
       <Pressable style={[styles.overlay, isPhone && styles.overlayPantalla]}>
-        <Pressable style={[styles.card, fase === 'lineas' && styles.cardLineas, isPhone && styles.cardPantalla]} onPress={(e) => e.stopPropagation()}>
+        <Pressable style={[styles.card, fase === 'lineas' && styles.cardLineas, fase === 'lineas' && !isPhone && styles.cardLineasAlto, isPhone && styles.cardPantalla]} onPress={(e) => e.stopPropagation()}>
           <View style={styles.header}>
             <Text style={styles.title} numberOfLines={1}>
               {fase === 'cabecera'
                 ? (esDevolucion ? 'Nueva devolución' : 'Nuevo pedido')
-                : eligiendoProductos
+                : isPhone && eligiendoProductos
                   ? 'Productos'
                   : `${esDevolucion ? 'Devolución' : 'Añadir productos'} · ${String(valorEnLocal(pedidoCreado ?? {}, 'Id') ?? '')}`}
             </Text>
-            {eligiendoProductos ? (
+            {isPhone && eligiendoProductos ? (
               <Pressable
                 onPress={() => setEligiendoProductos(false)}
                 style={({ pressed }) => [styles.btnListo, { opacity: pressed ? 0.55 : 1 }]}
@@ -721,7 +855,7 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
             )}
           </View>
 
-          {!loadingDatos && !eligiendoProductos ? (
+          {!loadingDatos && !(isPhone && eligiendoProductos) ? (
             <View style={styles.pasos}>
               <View style={styles.pasoItem}>
                 {pasoActual > 1 ? (
@@ -1009,168 +1143,70 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
               </BarraAcciones>
             </>
           ) : (
-            <>
-              {!eligiendoProductos ? (
-              <View style={[styles.resumenCabecera, esDevolucion && styles.resumenCabeceraDev]}>
-                <MaterialIcons name={esDevolucion ? 'undo' : 'store'} size={16} color={esDevolucion ? '#b45309' : '#0369a1'} />
-                <Text style={[styles.resumenText, esDevolucion && styles.resumenTextDev]} numberOfLines={1}>
-                  {esDevolucion ? 'Devolución · ' : ''}
-                  {origenOtroLocal && localOrigen && !origenEsGeneral ? `${nombreLocal(localOrigen)} → ` : ''}
-                  {localNombre} · {formatFecha(form.Fecha)}
-                </Text>
-              </View>
+            <View style={styles.paso2}>
+              {!(isPhone && eligiendoProductos) ? (
+                <View style={[styles.resumenCabecera, esDevolucion && styles.resumenCabeceraDev]}>
+                  <Text style={[styles.resumenRuta, esDevolucion && styles.resumenTextDev]} numberOfLines={1}>
+                    {nombreDeAlmacen(form.AlmacenOrigenId)} → {nombreDeAlmacen(form.AlmacenDestinoId)}
+                  </Text>
+                  <Text style={[styles.resumenText, esDevolucion && styles.resumenTextDev]} numberOfLines={1}>
+                    {localNombre} · {formatFecha(form.Fecha)}
+                  </Text>
+                </View>
               ) : null}
-              {!eligiendoProductos && avisoEntreLocales?.tono === 'aviso' ? (
+              {!(isPhone && eligiendoProductos) && avisoEntreLocales?.tono === 'aviso' ? (
                 <Text style={[styles.avisoFactura, styles.avisoFacturaLineas]}>{avisoEntreLocales.texto}</Text>
               ) : null}
 
-              {eligiendoProductos ? (
-                <View style={styles.pickerProductos}>
-                  <View style={styles.buscadorProducto}>
-                    <MaterialIcons name="search" size={22} color="#64748b" />
-                    <TextInput
-                      style={styles.buscadorProductoInput}
-                      value={busquedaProducto}
-                      onChangeText={setBusquedaProducto}
-                      placeholder="Escribe el nombre del producto"
-                      placeholderTextColor="#94a3b8"
-                      autoFocus
+              {isPhone ? (
+                eligiendoProductos ? pintarBusqueda(true) : (
+                  <View style={styles.pasoProductos}>
+                    <BotonPlano
+                      titulo="Añadir producto"
+                      icono="add"
+                      discontinuo
+                      onPress={() => setEligiendoProductos(true)}
+                      style={styles.anadirProducto}
                     />
+                    {pintarLineas()}
                   </View>
-                  {loadingProductos ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 24 }} />
-                  ) : productosVisibles.length === 0 ? (
-                    <Text style={styles.lineasVacio}>Ningún producto con ese nombre.</Text>
-                  ) : (
-                    <ScrollView style={styles.productosScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
-                      {productosVisibles.map((prod, idx) => {
-                        const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim() || `p-${idx}`;
-                        const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
-                        const coste = Number(valorEnLocal(prod, 'CostPrice') ?? 0) || 0;
-                        const precio = aplicarPorcentajeBeneficio(coste, porcentajeBeneficio);
-                        const lineaYa = lineas.find((l) => String(valorEnLocal(l, 'ProductId') ?? '').trim() === idProd);
-                        const cant = cantidadesPicker[idProd] ?? (lineaYa ? String(lineaYa.Cantidad ?? 0) : '0');
-                        const guardandoEste = guardandoLinea === idProd;
-                        return (
-                          <View key={idProd} style={styles.prodCard}>
-                            <View style={styles.prodTexto}>
-                              <View style={styles.lineaArticulo}>
-                                <EtiquetaZona zona={zonas.get(idProd)} />
-                                <Text style={styles.lineaNombre} numberOfLines={2}>{nombre}</Text>
-                              </View>
-                              <View style={styles.lineaArticulo}>
-                                <BadgeFormato nombre={formatos.get(idProd)} />
-                                <Text style={styles.lineaMeta}>{formatMoneda(precio)}</Text>
-                              </View>
-                            </View>
-                            <InputCantidad
-                              value={cant}
-                              min={0}
-                              onChangeText={(v) => programarCantidadProducto(prod, v)}
-                              disabled={guardandoEste}
-                            />
-                            {guardandoEste ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
-                          </View>
-                        );
-                      })}
-                    </ScrollView>
-                  )}
-                </View>
+                )
               ) : (
-                <>
-                  <View style={styles.lineasListWrap}>
-                    <Text style={styles.enPedidoTitulo}>En este pedido{lineas.length > 0 ? ` · ${lineas.length}` : ''}</Text>
-                    {loadingLineas ? (
-                      <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 16 }} />
-                    ) : lineas.length === 0 ? (
-                      <Text style={styles.lineasVacio}>Aún no hay productos en este pedido.</Text>
-                    ) : (
-                      <ScrollView style={styles.lineasScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
-                        {lineasPorZona.map((l) => {
-                          const key = String(l.LineaIndex ?? '');
-                          const borrando = borrandoLinea === key;
-                          const cant = cantidadesLinea[key] ?? String(l.Cantidad ?? 0);
-                          const ivaRaw = Number(l.VatRate ?? 0);
-                          const ivaPct = Number.isFinite(ivaRaw) ? (ivaRaw <= 1 ? ivaRaw * 100 : ivaRaw) : 0;
-                          const rappel = Number(l.TotalRappel ?? 0);
-                          return (
-                            <View key={key} style={styles.lineaItem}>
-                              <InputCantidad
-                                value={cant}
-                                min={1}
-                                style={styles.cantidadCuatro}
-                                inputStyle={styles.cantidadCuatroInput}
-                                onChangeText={(v) => programarCantidadLinea(l, v)}
-                                disabled={borrando || guardandoLinea === key}
-                              />
-                              <View style={styles.prodTexto}>
-                                <View style={styles.lineaArticulo}>
-                                  <EtiquetaZona zona={zonas.get(String(l.ProductId ?? '').trim())} />
-                                  <Text style={styles.lineaNombre} numberOfLines={1}>
-                                    {String(l.ProductoNombre || l.ProductId || '—')}
-                                  </Text>
-                                  <BadgeFormato nombre={formatos.get(String(l.ProductId ?? '').trim())} />
-                                </View>
-                                <Text style={styles.lineaMeta}>
-                                  {formatMoneda(Number(l.TotalLinea ?? 0))}
-                                  {' · '}
-                                  IVA {ivaPct.toLocaleString('es-ES', { maximumFractionDigits: 2 })} %
-                                  {' · '}
-                                  {rappel > 0 ? `rappel -${formatMoneda(rappel)}` : `rappel ${formatMoneda(0)}`}
-                                </Text>
-                              </View>
-                              <TouchableOpacity onPress={() => handleDeleteLinea(key)} disabled={borrando} style={styles.lineaBorrar}>
-                                {borrando ? (
-                                  <ActivityIndicator size="small" color="#dc2626" />
-                                ) : (
-                                  <MaterialIcons name="delete-outline" size={22} color="#dc2626" />
-                                )}
-                              </TouchableOpacity>
-                            </View>
-                          );
-                        })}
-                      </ScrollView>
-                    )}
-                  </View>
-                  <TouchableOpacity
-                    style={styles.btnAnadirGrande}
-                    onPress={() => setEligiendoProductos(true)}
-                    activeOpacity={0.85}
-                  >
-                    <MaterialIcons name="add" size={28} color="#0369a1" />
-                    <Text style={styles.btnAnadirGrandeText}>Añadir producto</Text>
-                  </TouchableOpacity>
-                </>
+                <View style={styles.columnas}>
+                  <View style={styles.columna}>{pintarBusqueda(false)}</View>
+                  <View style={styles.columnaDer}>{pintarLineas()}</View>
+                </View>
               )}
 
-              {!eligiendoProductos ? (
-                <>
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Total albarán</Text>
-                    <Text style={styles.totalValor}>{formatMoneda(totalAlbaran)}</Text>
-                  </View>
-                  <View style={styles.footer}>
-                    <TouchableOpacity
-                      style={[styles.btnEnviar, esDevolucion && styles.btnEnviarDev, (enviando || lineas.length === 0) && styles.btnDisabled]}
-                      onPress={onPulsarEnviar}
-                      disabled={enviando || lineas.length === 0}
-                      activeOpacity={0.8}
-                    >
-                      {enviando ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name={esDevolucion ? 'undo' : 'send'} size={18} color="#fff" />}
-                      <Text style={styles.btnEnviarText}>{esDevolucion ? 'Enviar devolución' : 'Enviar pedido'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
+              {!(isPhone && eligiendoProductos) ? (
+                <BarraAcciones
+                  inicio={(
+                    <View>
+                      <Text style={styles.totalLabel}>Total albarán</Text>
+                      <Text style={styles.totalValor}>{formatMoneda(totalAlbaran)}</Text>
+                    </View>
+                  )}
+                >
+                  <BotonPrincipal
+                    estirar
+                    brillo
+                    tono={esDevolucion ? 'ambar' : 'rosa'}
+                    titulo={enviadoOk ? 'Enviado' : esDevolucion ? 'Enviar devolución' : 'Enviar pedido'}
+                    estado={enviadoOk ? 'ok' : enviando ? 'enviando' : 'idle'}
+                    disabled={lineas.length === 0}
+                    onPress={onPulsarEnviar}
+                  />
+                </BarraAcciones>
               ) : null}
-            </>
+            </View>
           )}
         </Pressable>
       </Pressable>
 
       {/* Certificación obligatoria antes de enviar una devolución. */}
-      <Modal visible={certVisible} transparent animationType="fade" onRequestClose={() => setCertVisible(false)}>
-        <Pressable style={styles.overlay} onPress={() => setCertVisible(false)}>
-          <Pressable style={styles.certCard} onPress={(e) => e.stopPropagation()}>
+      <Modal visible={certVisible} transparent animationType={isPhone ? 'slide' : 'fade'} onRequestClose={() => setCertVisible(false)}>
+        <Pressable style={isPhone ? styles.hojaOverlay : styles.overlay} onPress={() => setCertVisible(false)}>
+          <Pressable style={isPhone ? styles.hoja : styles.certCard} onPress={(e) => e.stopPropagation()}>
             <View style={styles.certHeader}>
               <MaterialIcons name="verified-user" size={22} color="#b45309" />
               <Text style={styles.certTitle}>Certificar devolución</Text>
@@ -1187,19 +1223,19 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                 Certifico que las botellas/productos han sido devueltos físicamente al almacén general.
               </Text>
             </Pressable>
-            <View style={styles.certFooter}>
-              <TouchableOpacity style={styles.btnGhost} onPress={() => setCertVisible(false)} activeOpacity={0.8}>
-                <Text style={styles.btnGhostText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.btnEnviar, styles.btnEnviarDev, (!certAceptada || enviando) && styles.btnDisabled]}
-                onPress={confirmarCertificacion}
-                disabled={!certAceptada || enviando}
-                activeOpacity={0.8}
-              >
-                {enviando ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="undo" size={18} color="#fff" />}
-                <Text style={styles.btnEnviarText}>Confirmar y enviar</Text>
-              </TouchableOpacity>
+            <View style={[styles.certFooter, isPhone && styles.certFooterPila]}>
+              <BotonPlano titulo="Cancelar" onPress={() => setCertVisible(false)} style={isPhone ? styles.certCancelar : undefined} />
+              <View style={isPhone ? styles.certConfirmar : styles.certConfirmarFila}>
+                <BotonPrincipal
+                  estirar
+                  brillo
+                  tono="ambar"
+                  titulo="Confirmar y enviar"
+                  estado={enviando ? 'enviando' : 'idle'}
+                  disabled={!certAceptada}
+                  onPress={confirmarCertificacion}
+                />
+              </View>
             </View>
           </Pressable>
         </Pressable>
@@ -1214,6 +1250,13 @@ const styles = StyleSheet.create({
   card: { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden' },
   cardPantalla: { flex: 1, maxWidth: '100%', maxHeight: '100%', height: '100%', borderRadius: 0 },
   cardLineas: { maxWidth: 760 },
+  cardLineasAlto: { height: '90%' },
+  paso2: { flex: 1, minHeight: 0 },
+  pasoProductos: { flex: 1, minHeight: 0 },
+  anadirProducto: { alignSelf: 'stretch', marginHorizontal: SPACING.lg, marginTop: SPACING.md },
+  columnas: { flex: 1, flexDirection: 'row', minHeight: 0 },
+  columna: { flex: 1, minWidth: 0, minHeight: 0 },
+  columnaDer: { flex: 1, minWidth: 0, minHeight: 0, borderLeftWidth: 1, borderLeftColor: '#e2e8f0' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   title: { flex: 1, minWidth: 0, fontSize: 17, fontWeight: '700', color: '#334155' },
   close: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
@@ -1354,7 +1397,8 @@ const styles = StyleSheet.create({
 
   devHint: { fontSize: 12, color: '#b45309', marginTop: 6 },
 
-  resumenCabecera: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#eff6ff', paddingHorizontal: 16, paddingVertical: 8 },
+  resumenCabecera: { gap: 2, backgroundColor: '#eff6ff', paddingHorizontal: 16, paddingVertical: 8 },
+  resumenRuta: { fontSize: 15, fontWeight: '700', color: '#0369a1' },
   resumenCabeceraDev: { backgroundColor: '#fef3c7' },
   resumenText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0369a1' },
   resumenTextDev: { color: '#b45309' },
@@ -1367,8 +1411,21 @@ const styles = StyleSheet.create({
   certCheckbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: '#d97706', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
   certCheckboxOn: { backgroundColor: '#b45309', borderColor: '#b45309' },
   certCheckText: { flex: 1, fontSize: 13, color: '#334155', lineHeight: 18, fontWeight: '500' },
-  certFooter: { flexDirection: 'row', gap: 10 },
-  pickerProductos: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
+  certFooter: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  certFooterPila: { flexDirection: 'column', alignItems: 'stretch' },
+  certCancelar: { alignSelf: 'stretch' },
+  certConfirmar: { alignSelf: 'stretch' },
+  certConfirmarFila: { flex: 1, minWidth: 0 },
+  hojaOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15,23,42,0.45)' },
+  hoja: {
+    width: '100%',
+    maxHeight: '90%',
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 18,
+  },
+  pickerProductos: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
   buscadorProducto: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1382,7 +1439,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   buscadorProductoInput: { flex: 1, fontSize: 16, color: '#0f172a', minHeight: 44, ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) },
-  productosScroll: { maxHeight: 460 },
+  productosScroll: { flex: 1 },
   prodCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1414,8 +1471,20 @@ const styles = StyleSheet.create({
   btnAnadirGrandeText: { fontSize: 18, fontWeight: '800', color: '#0369a1' },
   enPedidoTitulo: { fontSize: 13, fontWeight: '700', color: '#64748b', marginBottom: 8 },
 
-  lineasListWrap: { paddingHorizontal: 16, paddingTop: 12, flexShrink: 1 },
-  lineasScroll: { maxHeight: 280 },
+  lineasListWrap: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 12 },
+  lineasScroll: { flex: 1 },
+  lineaCard: {
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 14,
+    backgroundColor: '#fff',
+  },
+  lineaCardCabeza: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm },
+  lineaCardPie: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm },
+  lineaTotal: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
   lineasVacio: { fontSize: 14, color: '#94a3b8', paddingVertical: 16, textAlign: 'center' },
   lineaItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   lineaArticulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 },
