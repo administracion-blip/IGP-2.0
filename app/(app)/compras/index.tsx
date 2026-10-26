@@ -44,13 +44,13 @@ const PEDIDOS_PROVEEDORES: Opcion[] = [
   { id: 'acuerdos', label: 'Acuerdos', icon: 'handshake', descripcion: 'Acuerdos comerciales con proveedores', permiso: 'acuerdos.ver' },
 ];
 
-/** Qué se cuenta en cada almacén. La revisión y el Excel se añaden aquí. */
+/** Qué se cuenta. La revisión y el Excel se añaden aquí. */
 const INVENTARIO: Opcion[] = [
   {
     id: 'inventario-plantillas',
     label: 'Plantillas de inventario',
     icon: 'inventory',
-    descripcion: 'Familias a contar en cada almacén',
+    descripcion: 'Familias a contar, las mismas en todos los almacenes',
     permiso: 'inventario.gestionar',
   },
   {

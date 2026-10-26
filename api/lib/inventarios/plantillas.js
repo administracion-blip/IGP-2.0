@@ -1,8 +1,16 @@
 /**
- * Plantillas de inventario por almacén: familias o productos, no las dos cosas.
+ * Plantillas de inventario comunes a todos los almacenes: familias o productos,
+ * no las dos cosas. El almacén entra al abrir el conteo, no aquí.
+ *
+ * El índice solo lista por almacén, así que las plantillas comunes comparten la
+ * clave `COMUN`. Las que se guardaron antes, con un almacén real, se siguen
+ * leyendo para no perderlas.
  */
 
 import { randomUUID } from 'crypto';
+import { ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { docClient, tables } from '../db.js';
+import { normalizeWarehouseId } from '../mia/keys.js';
 import {
   claveListadoPlantilla,
   errorInventario,
@@ -12,9 +20,11 @@ import {
   skMeta,
   skProducto,
   texto,
-  almacenId,
 } from './claves.js';
 import { actualizar, borrarClave, borrarPk, poner, queryPk, queryPorAlmacen } from './store.js';
+
+/** Partición del índice para las plantillas que no son de un almacén. */
+export const ALMACEN_PLANTILLAS = 'COMUN';
 
 const MODOS = new Set(['familias', 'productos']);
 
@@ -37,7 +47,6 @@ function normalizarMiembros(modo, raw) {
 function presentar(meta, miembros) {
   const vista = {
     plantillaId: meta.plantillaId,
-    warehouseId: meta.WarehouseId,
     nombre: meta.nombre,
     modo: meta.modo,
     numMiembros: Number.isFinite(Number(meta.numMiembros)) ? Number(meta.numMiembros) : 0,
@@ -67,9 +76,46 @@ export async function obtenerPlantilla(plantillaId) {
   return vista;
 }
 
-export async function listarPlantillas(warehouseId) {
-  const wid = almacenId(warehouseId);
-  const metas = await queryPorAlmacen(wid, 'PLANTILLA#');
+/** Ids de almacén del maestro. Si la tabla no está, la lista común sigue valiendo. */
+async function idsAlmacenes() {
+  try {
+    const ids = [];
+    let lastKey;
+    do {
+      const r = await docClient.send(new ScanCommand({
+        TableName: tables.almacenes,
+        ProjectionExpression: 'Id',
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      for (const it of r.Items || []) {
+        const id = normalizeWarehouseId(it.Id);
+        if (id && id !== '000000') ids.push(id);
+      }
+      lastKey = r.LastEvaluatedKey || null;
+    } while (lastKey);
+    return ids;
+  } catch {
+    return [];
+  }
+}
+
+export async function listarPlantillas() {
+  const origenes = [ALMACEN_PLANTILLAS];
+  const ya = new Set(origenes);
+  for (const id of await idsAlmacenes()) {
+    if (ya.has(id)) continue;
+    ya.add(id);
+    origenes.push(id);
+  }
+  const vistos = new Set();
+  const metas = [];
+  for (const origen of origenes) {
+    for (const meta of await queryPorAlmacen(origen, 'PLANTILLA#')) {
+      if (!meta.plantillaId || vistos.has(meta.plantillaId)) continue;
+      vistos.add(meta.plantillaId);
+      metas.push(meta);
+    }
+  }
   return metas
     .map((meta) => presentar(meta, null))
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
@@ -86,8 +132,7 @@ async function escribirMiembros(pk, modo, miembros) {
   }
 }
 
-export async function crearPlantilla({ warehouseId, nombre, modo, miembros }, usuario) {
-  const wid = almacenId(warehouseId);
+export async function crearPlantilla({ nombre, modo, miembros }, usuario) {
   const nombreLimpio = texto(nombre, 'nombre', { obligatorio: true, max: 120 });
   if (!MODOS.has(modo)) throw errorInventario('modo debe ser familias o productos');
   const lista = normalizarMiembros(modo, miembros ?? []);
@@ -97,7 +142,7 @@ export async function crearPlantilla({ warehouseId, nombre, modo, miembros }, us
   await poner({
     PK: pk,
     SK: skMeta(),
-    WarehouseId: wid,
+    WarehouseId: ALMACEN_PLANTILLAS,
     Clave: claveListadoPlantilla(id),
     plantillaId: id,
     nombre: nombreLimpio,
@@ -131,9 +176,9 @@ export async function actualizarPlantilla(plantillaId, { nombre, modo, miembros 
     await actualizar(
       { PK: pk, SK: skMeta() },
       {
-        expression: 'SET nombre = :nombre, actualizadoEn = :ahora, actualizadoPor = :quien',
+        expression: 'SET nombre = :nombre, WarehouseId = :almacen, actualizadoEn = :ahora, actualizadoPor = :quien',
         condition: 'attribute_exists(PK)',
-        values: { ':nombre': nombreNuevo, ':ahora': ahora, ':quien': quien },
+        values: { ':nombre': nombreNuevo, ':almacen': ALMACEN_PLANTILLAS, ':ahora': ahora, ':quien': quien },
       },
     );
     return obtenerPlantilla(id);
@@ -142,11 +187,12 @@ export async function actualizarPlantilla(plantillaId, { nombre, modo, miembros 
   await actualizar(
     { PK: pk, SK: skMeta() },
     {
-      expression: 'SET nombre = :nombre, modo = :modo, miembrosVersion = :nueva, numMiembros = :num, actualizadoEn = :ahora, actualizadoPor = :quien',
+      expression: 'SET nombre = :nombre, modo = :modo, WarehouseId = :almacen, miembrosVersion = :nueva, numMiembros = :num, actualizadoEn = :ahora, actualizadoPor = :quien',
       condition: 'miembrosVersion = :vieja',
       values: {
         ':nombre': nombreNuevo,
         ':modo': modoNuevo,
+        ':almacen': ALMACEN_PLANTILLAS,
         ':nueva': version + 1,
         ':vieja': version,
         ':num': lista.length,

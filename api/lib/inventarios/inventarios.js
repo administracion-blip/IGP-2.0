@@ -122,7 +122,7 @@ function lineaDesde(raw, { previa, soloContar }) {
       : texto(raw?.familiaNombre, 'familiaNombre', { max: 200 }),
     unidad: raw?.unidad === undefined && previa
       ? (previa.unidad || '')
-      : texto(raw?.unidad, 'unidad', { max: 40 }),
+      : texto(raw?.unidad, 'unidad', { max: 200 }),
     stockTeorico,
     stockReal,
     botellasAbiertas,
@@ -192,9 +192,6 @@ export async function crearInventario(body, usuario) {
   const employeeId = idSegmento(body?.employeeId, 'employeeId');
   const employeeNombre = texto(body?.employeeNombre, 'employeeNombre', { max: 120 });
   const plantilla = await obtenerPlantilla(body?.plantillaId);
-  if (plantilla.warehouseId !== wid) {
-    throw errorInventario('La plantilla no es de este almacén');
-  }
   const lineasRaw = body?.lineas ?? [];
   if (!Array.isArray(lineasRaw)) throw errorInventario('lineas debe ser una lista');
   const id = randomUUID();
@@ -306,13 +303,18 @@ export async function anotarExportacion(inventarioId, usuario, veces) {
   return obtenerInventario(meta.inventarioId);
 }
 
-export async function guardarLinea(inventarioId, productId, body, usuario, { soloContar = false } = {}) {
+export async function guardarLinea(inventarioId, productId, body, usuario, { soloContar = false, crear = false } = {}) {
   const { meta } = await cargar(inventarioId);
   exigirConteo(meta, soloContar);
   const pid = idSegmento(productId, 'productId');
   const pk = pkInventario(meta.inventarioId);
   const items = await queryPk(pk, { consistente: true });
   const previa = items.find((it) => it.SK === skLinea(pid)) || null;
+  if (crear && meta.estado !== 'borrador' && meta.estado !== 'contado') {
+    throw errorInventario('El conteo ya no se puede modificar', 403);
+  }
+  if (previa && crear) throw errorInventario('Este producto ya está en el conteo', 409);
+  if (!previa && !crear) throw errorInventario('La línea no está en el conteo', 404);
   const linea = lineaDesde({ ...body, productId: pid }, { previa, soloContar });
   const ahora = new Date().toISOString();
   const tabla = tablaInventarios();

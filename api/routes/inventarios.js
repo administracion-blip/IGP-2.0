@@ -29,9 +29,10 @@ import {
   obtenerInventario,
   ultimoImportado,
 } from '../lib/inventarios/inventarios.js';
-import { abrirConteo } from '../lib/inventarios/conteo.js';
+import { abrirConteo, anadirProducto } from '../lib/inventarios/conteo.js';
 import { bufferInventario } from '../lib/inventarios/excel.js';
 import { guardarUmbral, leerUmbral } from '../lib/inventarios/umbral.js';
+import { listarProductosInventario } from '../lib/inventarios/productos.js';
 
 const router = Router();
 
@@ -112,12 +113,24 @@ router.get('/inventarios/familias', gestionar, async (req, res) => {
   }
 });
 
+router.get('/inventarios/productos', ver, async (req, res) => {
+  try {
+    const productos = await listarProductosInventario({ todos: true });
+    return res.json({
+      productos: productos.map((p) => ({
+        productId: p.productId,
+        nombre: p.nombre,
+        familiaNombre: p.familiaNombre,
+      })),
+    });
+  } catch (err) {
+    return atrapar(res, err, 'Error listando productos');
+  }
+});
+
 router.get('/inventarios/plantillas', ver, async (req, res) => {
   try {
-    const warehouseId = req.query.warehouseId;
-    if (!warehouseId) return res.status(400).json({ error: 'warehouseId es obligatorio' });
-    if (!(await conAlmacen(req, res, warehouseId))) return;
-    const plantillas = await listarPlantillas(warehouseId);
+    const plantillas = await listarPlantillas();
     return res.json({ plantillas });
   } catch (err) {
     return atrapar(res, err, 'Error listando plantillas');
@@ -126,9 +139,7 @@ router.get('/inventarios/plantillas', ver, async (req, res) => {
 
 router.get('/inventarios/plantillas/:id', ver, async (req, res) => {
   try {
-    const plantilla = await obtenerPlantilla(req.params.id);
-    if (!(await conAlmacen(req, res, plantilla.warehouseId))) return;
-    return res.json(plantilla);
+    return res.json(await obtenerPlantilla(req.params.id));
   } catch (err) {
     return atrapar(res, err, 'Error leyendo la plantilla');
   }
@@ -136,7 +147,6 @@ router.get('/inventarios/plantillas/:id', ver, async (req, res) => {
 
 router.post('/inventarios/plantillas', gestionar, async (req, res) => {
   try {
-    if (!(await conAlmacen(req, res, req.body?.warehouseId))) return;
     const plantilla = await crearPlantilla(req.body || {}, quien(req));
     return res.status(201).json(plantilla);
   } catch (err) {
@@ -146,8 +156,6 @@ router.post('/inventarios/plantillas', gestionar, async (req, res) => {
 
 router.put('/inventarios/plantillas/:id', gestionar, async (req, res) => {
   try {
-    const actual = await obtenerPlantilla(req.params.id);
-    if (!(await conAlmacen(req, res, actual.warehouseId))) return;
     const plantilla = await actualizarPlantilla(req.params.id, req.body || {}, quien(req));
     return res.json(plantilla);
   } catch (err) {
@@ -157,8 +165,6 @@ router.put('/inventarios/plantillas/:id', gestionar, async (req, res) => {
 
 router.delete('/inventarios/plantillas/:id', gestionar, async (req, res) => {
   try {
-    const actual = await obtenerPlantilla(req.params.id);
-    if (!(await conAlmacen(req, res, actual.warehouseId))) return;
     return res.json(await borrarPlantilla(req.params.id));
   } catch (err) {
     return atrapar(res, err, 'Error borrando la plantilla');
@@ -268,6 +274,22 @@ router.patch('/inventarios/:id/estado', ver, async (req, res) => {
     return responderConteo(req, res, inventario);
   } catch (err) {
     return atrapar(res, err, 'Error cambiando el estado');
+  }
+});
+
+router.post('/inventarios/:id/lineas', ver, async (req, res) => {
+  try {
+    const actual = await obtenerInventario(req.params.id);
+    if (!(await conAlmacen(req, res, actual.warehouseId))) return;
+    const linea = await anadirProducto(
+      req.params.id,
+      req.body?.productId,
+      quien(req),
+      { soloContar: !(await puedeGestionar(req)), exportStocks },
+    );
+    return responderConteo(req, res, linea, 201);
+  } catch (err) {
+    return atrapar(res, err, 'Error añadiendo el producto');
   }
 });
 

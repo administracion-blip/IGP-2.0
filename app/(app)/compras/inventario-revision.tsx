@@ -767,7 +767,7 @@ export default function InventarioRevisionScreen() {
           ) : null}
         </View>
       </ScrollView>
-      <ConfirmarView />
+      {ConfirmarView}
     </View>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * Plantillas de inventario por almacén, armadas con familias de producto.
+ * Plantillas de inventario comunes a todos los almacenes, armadas con familias.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -16,7 +16,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { apiFetch } from '../../utils/api';
-import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import {
   colors,
   fontFamily,
@@ -28,7 +27,6 @@ import {
   SPACING,
 } from '../../constants/theme';
 
-type Almacen = { Id?: string | number; Nombre?: string };
 type Familia = { id: string; nombre: string };
 type PlantillaLista = {
   plantillaId: string;
@@ -56,8 +54,6 @@ export default function PlantillasInventarioScreen() {
   const { shouldStackPanels } = useBreakpoint();
   const { confirmar, ConfirmarView } = useConfirmar();
 
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
-  const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [familias, setFamilias] = useState<Familia[]>([]);
   const [plantillas, setPlantillas] = useState<PlantillaLista[]>([]);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -68,18 +64,6 @@ export default function PlantillasInventarioScreen() {
   const [error, setError] = useState<string | null>(null);
   const [avisoFamilias, setAvisoFamilias] = useState<string | null>(null);
   const listaTicket = useRef(0);
-
-  const opcionesAlmacen = useMemo(
-    () =>
-      almacenes
-        .map((a) => ({
-          id: String(a.Id ?? '').trim(),
-          titulo: String(a.Nombre || a.Id || '').trim() || 'Almacén',
-        }))
-        .filter((a) => a.id)
-        .sort((a, b) => a.titulo.localeCompare(b.titulo, 'es')),
-    [almacenes],
-  );
 
   const familiasVisibles = useMemo(() => {
     const q = filtro.trim().toLocaleLowerCase('es');
@@ -97,12 +81,12 @@ export default function PlantillasInventarioScreen() {
     return editor.miembros.filter((m) => !conocidas.has(m.id));
   }, [editor, familias]);
 
-  const cargarPlantillas = useCallback(async (wid: string) => {
+  const cargarPlantillas = useCallback(async () => {
     const ticket = ++listaTicket.current;
     setCargandoLista(true);
     setError(null);
     try {
-      const res = await apiFetch(`/api/inventarios/plantillas?warehouseId=${encodeURIComponent(wid)}`);
+      const res = await apiFetch('/api/inventarios/plantillas');
       const body = await leerJson(res);
       if (ticket !== listaTicket.current) return;
       if (!res.ok) {
@@ -128,14 +112,9 @@ export default function PlantillasInventarioScreen() {
     let vivo = true;
     (async () => {
       try {
-        const [resAlm, resFam] = await Promise.all([
-          apiFetch('/api/almacenes'),
-          apiFetch('/api/inventarios/familias'),
-        ]);
-        const alm = await leerJson(resAlm);
+        const resFam = await apiFetch('/api/inventarios/familias');
         const fam = await leerJson(resFam);
         if (!vivo) return;
-        setAlmacenes(Array.isArray(alm.almacenes) ? (alm.almacenes as Almacen[]) : []);
         if (!resFam.ok) {
           setAvisoFamilias(mensajeDe(fam, 'No se han podido cargar las familias'));
           setFamilias([]);
@@ -156,21 +135,12 @@ export default function PlantillasInventarioScreen() {
       } finally {
         if (vivo) setCargando(false);
       }
+      if (vivo) void cargarPlantillas();
     })();
     return () => {
       vivo = false;
     };
-  }, [puede]);
-
-  useEffect(() => {
-    if (!warehouseId) {
-      setPlantillas([]);
-      return;
-    }
-    setEditor(null);
-    setFiltro('');
-    void cargarPlantillas(warehouseId);
-  }, [warehouseId, cargarPlantillas]);
+  }, [puede, cargarPlantillas]);
 
   function nueva() {
     setError(null);
@@ -218,7 +188,7 @@ export default function PlantillasInventarioScreen() {
   }
 
   async function guardar() {
-    if (!editor || !warehouseId || guardando) return;
+    if (!editor || guardando) return;
     const nombre = editor.nombre.trim();
     if (!nombre) {
       setError('El nombre es obligatorio');
@@ -237,7 +207,7 @@ export default function PlantillasInventarioScreen() {
         : await apiFetch('/api/inventarios/plantillas', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ warehouseId, nombre, modo: 'familias', miembros }),
+            body: JSON.stringify({ nombre, modo: 'familias', miembros }),
           });
       const body = await leerJson(res);
       if (!res.ok) {
@@ -246,7 +216,7 @@ export default function PlantillasInventarioScreen() {
       }
       setEditor(null);
       setFiltro('');
-      await cargarPlantillas(warehouseId);
+      await cargarPlantillas();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
     } finally {
@@ -271,7 +241,7 @@ export default function PlantillasInventarioScreen() {
         return;
       }
       if (editor?.plantillaId === plantilla.plantillaId) setEditor(null);
-      if (warehouseId) await cargarPlantillas(warehouseId);
+      await cargarPlantillas();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
     }
@@ -291,26 +261,11 @@ export default function PlantillasInventarioScreen() {
   return (
     <View style={styles.pagina}>
       <Text style={styles.titulo}>Plantillas de inventario</Text>
-      <Text style={styles.subtitulo}>Elige el almacén y las familias que se contarán.</Text>
+      <Text style={styles.subtitulo}>Las familias que se contarán. Valen para todos los almacenes.</Text>
 
       <View style={[styles.toolbar, shouldStackPanels && styles.toolbarCol]}>
-        <View style={styles.selector}>
-          <SelectorDesplegable
-            label="Almacén"
-            placeholder="Elige un almacén"
-            icono="warehouse"
-            opciones={opcionesAlmacen}
-            valorId={warehouseId}
-            onSeleccionar={setWarehouseId}
-            tituloLista="Almacén"
-            loading={cargando}
-            buscador
-            buscadorPlaceholder="Buscar almacén"
-          />
-        </View>
         <Pressable
-          style={[styles.boton, !warehouseId && styles.botonOff]}
-          disabled={!warehouseId}
+          style={styles.boton}
           onPress={nueva}
           accessibilityRole="button"
           accessibilityLabel="Nueva plantilla"
@@ -329,12 +284,10 @@ export default function PlantillasInventarioScreen() {
         <View style={[styles.cuerpo, shouldStackPanels && styles.cuerpoCol]}>
           {mostrarLista ? (
             <View style={styles.panel}>
-              {!warehouseId ? (
-                <Text style={styles.vacio}>Elige un almacén para ver sus plantillas.</Text>
-              ) : cargandoLista ? (
+              {cargandoLista ? (
                 <ActivityIndicator color={colors.accent} style={styles.carga} />
               ) : plantillas.length === 0 ? (
-                <Text style={styles.vacio}>Este almacén no tiene plantillas.</Text>
+                <Text style={styles.vacio}>No hay plantillas.</Text>
               ) : (
                 <ScrollView contentContainerStyle={styles.lista}>
                   {plantillas.map((p) => {
@@ -478,7 +431,7 @@ export default function PlantillasInventarioScreen() {
           ) : null}
         </View>
       )}
-      <ConfirmarView />
+      {ConfirmarView}
     </View>
   );
 }
@@ -495,7 +448,6 @@ const styles = StyleSheet.create({
   },
   toolbar: { flexDirection: 'row', alignItems: 'flex-end', gap: SPACING.md, marginBottom: SPACING.md },
   toolbarCol: { flexDirection: 'column', alignItems: 'stretch' },
-  selector: { flex: 1, minWidth: 220 },
   cuerpo: { flex: 1, flexDirection: 'row', gap: SPACING.md },
   cuerpoCol: { flexDirection: 'column' },
   panel: {

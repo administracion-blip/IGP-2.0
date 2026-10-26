@@ -39,6 +39,8 @@ export type OpcionDesplegable = {
   badgeColor?: string;
   /** Icono por opción (alternativa al badge). */
   icono?: IconName;
+  /** Cabecera de grupo. Se pinta cuando cambia respecto a la opción anterior. */
+  grupo?: string;
 };
 
 type Props = {
@@ -149,7 +151,7 @@ export function SelectorDesplegable({
     let filtradas = opciones;
     if (buscador && qLower) {
       filtradas = opciones.filter((o) =>
-        `${o.titulo} ${o.subtitulo ?? ''}`.toLowerCase().includes(qLower),
+        `${o.titulo} ${o.subtitulo ?? ''} ${o.badge ?? ''} ${o.grupo ?? ''}`.toLowerCase().includes(qLower),
       );
     }
 
@@ -308,34 +310,41 @@ export function SelectorDesplegable({
                       {`Escribe al menos ${minCharsBusqueda} caracteres para buscar más…`}
                     </Text>
                   ) : null}
-                  {opcionesVisibles.map((o) => {
+                  {opcionesVisibles.map((o, indice) => {
                     const sel = o.id === valorId;
+                    const mostrarGrupo = Boolean(o.grupo) && o.grupo !== opcionesVisibles[indice - 1]?.grupo;
                     return (
-                      <TouchableOpacity
-                        key={o.id}
-                        style={[styles.row, sel && styles.rowSelected]}
-                        onPress={() => { onSeleccionar(o.id); cerrar(); }}
-                        activeOpacity={0.7}
-                      >
-                        {o.badge !== undefined ? (
-                          <View style={[styles.badge, o.badgeColor ? { backgroundColor: o.badgeColor } : sel && styles.badgeSelected]}>
-                            <Text style={[styles.badgeText, (o.badgeColor || sel) && styles.badgeTextSelected]}>{o.badge}</Text>
-                          </View>
-                        ) : o.icono ? (
-                          <View style={[styles.iconBox, sel && styles.iconBoxSelected]}>
-                            <MaterialIcons name={o.icono} size={16} color={sel ? colors.accent : colors.textMuted} />
+                      <View key={`${o.grupo ?? ''}-${o.id}-${indice}`}>
+                        {mostrarGrupo ? (
+                          <View style={styles.grupo}>
+                            <Text style={styles.grupoTexto}>{o.grupo}</Text>
                           </View>
                         ) : null}
-                        <View style={styles.rowTextWrap}>
-                          <Text style={[styles.rowTitle, sel && styles.rowTitleSelected]} numberOfLines={1}>
-                            {o.titulo}
-                          </Text>
-                          {o.subtitulo ? (
-                            <Text style={styles.rowSub} numberOfLines={1}>{o.subtitulo}</Text>
+                        <TouchableOpacity
+                          style={[styles.row, sel && styles.rowSelected]}
+                          onPress={() => { onSeleccionar(o.id); cerrar(); }}
+                          activeOpacity={0.7}
+                        >
+                          {o.badge !== undefined ? (
+                            <View style={[styles.badge, o.badgeColor ? { backgroundColor: o.badgeColor } : sel && styles.badgeSelected]}>
+                              <Text style={[styles.badgeText, (o.badgeColor || sel) && styles.badgeTextSelected]}>{o.badge}</Text>
+                            </View>
+                          ) : o.icono ? (
+                            <View style={[styles.iconBox, sel && styles.iconBoxSelected]}>
+                              <MaterialIcons name={o.icono} size={16} color={sel ? colors.accent : colors.textMuted} />
+                            </View>
                           ) : null}
-                        </View>
-                        {sel ? <MaterialIcons name="check-circle" size={18} color={colors.accent} /> : null}
-                      </TouchableOpacity>
+                          <View style={styles.rowTextWrap}>
+                            <Text style={[styles.rowTitle, sel && styles.rowTitleSelected]} numberOfLines={1}>
+                              {o.titulo}
+                            </Text>
+                            {o.subtitulo ? (
+                              <Text style={styles.rowSub} numberOfLines={1}>{o.subtitulo}</Text>
+                            ) : null}
+                          </View>
+                          {sel ? <MaterialIcons name="check-circle" size={18} color={colors.accent} /> : null}
+                        </TouchableOpacity>
+                      </View>
                     );
                   })}
                   {mensajePie ? (
@@ -477,6 +486,18 @@ const styles = StyleSheet.create({
     fontSize: fontSizes[12],
     fontWeight: typography.titulo.fontWeight,
     color: colors.textPrimary,
+  },
+  grupo: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#fce7f3',
+  },
+  grupoTexto: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[12],
+    color: '#9d174d',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   searchWrap: {
     flexDirection: 'row',

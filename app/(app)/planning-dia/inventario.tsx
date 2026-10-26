@@ -23,6 +23,7 @@ import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import {
   colors,
+  statusColors,
   fontFamily,
   fontSizes,
   inputCursorProps,
@@ -92,6 +93,24 @@ function parseCantidad(raw: string): number | null | 'mal' {
   return n;
 }
 
+const GRUPO_SIN_LOCAL = 'Sin local';
+
+function normalizarNombreAlmacen(val: string): string {
+  return val
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function nombresAlmacenOrigen(raw: unknown): string[] {
+  return String(raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function mismaBotella(a: number, b: number): boolean {
   return Math.abs(a - b) < 1e-9;
 }
@@ -126,6 +145,7 @@ export default function InventarioConteoScreen() {
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [plantillaId, setPlantillaId] = useState<string | null>(null);
   const [almacenes, setAlmacenes] = useState<Array<{ id: string; titulo: string }>>([]);
+  const [origenLocal, setOrigenLocal] = useState<Array<{ nombre: string; almacenes: string[] }>>([]);
   const [empleados, setEmpleados] = useState<Array<{ id: string; titulo: string }>>([]);
   const [plantillas, setPlantillas] = useState<PlantillaOpcion[]>([]);
   const [abiertos, setAbiertos] = useState<Abierto[]>([]);
@@ -136,6 +156,9 @@ export default function InventarioConteoScreen() {
   const [abriendo, setAbriendo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
+  const [anadiendo, setAnadiendo] = useState(false);
+  const [cargandoCatalogo, setCargandoCatalogo] = useState(false);
+  const [catalogo, setCatalogo] = useState<Array<{ id: string; titulo: string; subtitulo?: string; badge?: string }> | null>(null);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const lineasVisibles = useMemo(() => {
@@ -147,13 +170,76 @@ export default function InventarioConteoScreen() {
     );
   }, [inventario, filtro]);
 
+  const opcionesAnadir = useMemo(() => {
+    const ya = new Set((inventario?.lineas || []).map((l) => l.productId));
+    return (catalogo || []).filter((p) => !ya.has(p.id));
+  }, [catalogo, inventario]);
+
+  const opcionesAlmacen = useMemo(() => {
+    const porNombre = new Map<string, string[]>();
+    for (const loc of origenLocal) {
+      for (const nom of loc.almacenes) {
+        const key = normalizarNombreAlmacen(nom);
+        if (!key) continue;
+        const actuales = porNombre.get(key) ?? [];
+        if (!actuales.includes(loc.nombre)) actuales.push(loc.nombre);
+        porNombre.set(key, actuales);
+      }
+    }
+    const agrupar = porNombre.size > 0;
+    if (!agrupar) {
+      return [...almacenes].sort((a, b) => a.titulo.localeCompare(b.titulo, 'es'));
+    }
+    const filas: Array<{ id: string; titulo: string; grupo: string }> = [];
+    for (const a of almacenes) {
+      const locales = (porNombre.get(normalizarNombreAlmacen(a.titulo)) ?? [])
+        .slice()
+        .sort((x, y) => x.localeCompare(y, 'es'));
+      if (locales.length === 0) {
+        filas.push({ ...a, grupo: GRUPO_SIN_LOCAL });
+        continue;
+      }
+      for (const nombre of locales) {
+        filas.push({ id: a.id, titulo: a.titulo, grupo: nombre });
+      }
+    }
+    filas.sort((a, b) => {
+      const aSin = a.grupo === GRUPO_SIN_LOCAL ? 1 : 0;
+      const bSin = b.grupo === GRUPO_SIN_LOCAL ? 1 : 0;
+      if (aSin !== bSin) return aSin - bSin;
+      const porGrupo = a.grupo.localeCompare(b.grupo, 'es');
+      if (porGrupo !== 0) return porGrupo;
+      return a.titulo.localeCompare(b.titulo, 'es');
+    });
+    return filas;
+  }, [almacenes, origenLocal]);
+
   const cargarBase = useCallback(async () => {
-    const [resAlm, resEmp] = await Promise.all([
+    const [resAlm, resEmp, resLoc] = await Promise.all([
       apiFetch('/api/almacenes'),
       apiFetch('/api/personal/employees'),
+      apiFetch('/api/locales'),
     ]);
     const alm = await leerJson(resAlm);
     const emp = await leerJson(resEmp);
+    if (resLoc.ok) {
+      const loc = await leerJson(resLoc);
+      const listaLoc = Array.isArray(loc.locales) ? loc.locales : [];
+      setOrigenLocal(
+        listaLoc
+          .map((l) => {
+            const fila = l as Record<string, unknown>;
+            const nombre = String(fila.nombre ?? fila.Nombre ?? '').trim();
+            return {
+              nombre,
+              almacenes: nombresAlmacenOrigen(fila['almacen origen'] ?? fila['Almacen origen']),
+            };
+          })
+          .filter((l) => l.nombre),
+      );
+    } else {
+      setOrigenLocal([]);
+    }
     const listaAlm = Array.isArray(alm.almacenes) ? alm.almacenes : [];
     setAlmacenes(
       listaAlm
@@ -178,8 +264,8 @@ export default function InventarioConteoScreen() {
     );
   }, []);
 
-  const cargarPlantillas = useCallback(async (wid: string) => {
-    const res = await apiFetch(`/api/inventarios/plantillas?warehouseId=${encodeURIComponent(wid)}`);
+  const cargarPlantillas = useCallback(async () => {
+    const res = await apiFetch('/api/inventarios/plantillas');
     const body = await leerJson(res);
     if (!res.ok) {
       setPlantillas([]);
@@ -223,6 +309,7 @@ export default function InventarioConteoScreen() {
       return;
     }
     let vivo = true;
+    void cargarPlantillas().catch((e) => vivo && setError(e instanceof Error ? e.message : 'Error de conexión'));
     cargarBase()
       .catch((e) => vivo && setError(e instanceof Error ? e.message : 'Error de conexión'))
       .finally(() => vivo && setCargando(false));
@@ -230,19 +317,15 @@ export default function InventarioConteoScreen() {
       vivo = false;
       for (const t of Object.values(timers.current)) clearTimeout(t);
     };
-  }, [puede, cargarBase]);
+  }, [puede, cargarBase, cargarPlantillas]);
 
   useEffect(() => {
     if (!warehouseId) {
-      setPlantillas([]);
       setAbiertos([]);
-      setPlantillaId(null);
       return;
     }
-    setPlantillaId(null);
-    void cargarPlantillas(warehouseId);
     void cargarAbiertos(warehouseId);
-  }, [warehouseId, cargarPlantillas, cargarAbiertos]);
+  }, [warehouseId, cargarAbiertos]);
 
   function entrar(inv: Inventario) {
     const lineas = (inv.lineas || []).map((l) => ({
@@ -258,6 +341,83 @@ export default function InventarioConteoScreen() {
     setTextos(mapa);
     setFiltro('');
     setError(null);
+    setAnadiendo(false);
+  }
+
+  async function prepararAnadir() {
+    setAnadiendo(true);
+    setError(null);
+    if (catalogo) return;
+    setCargandoCatalogo(true);
+    try {
+      const res = await apiFetch('/api/inventarios/productos');
+      const body = await leerJson(res);
+      if (!res.ok) {
+        setCatalogo([]);
+        setError(mensajeDe(body, 'No se han podido cargar los productos'));
+        return;
+      }
+      const lista = Array.isArray(body.productos) ? body.productos : [];
+      setCatalogo(
+        lista
+          .map((p) => {
+            const fila = p as { productId?: unknown; nombre?: unknown; familiaNombre?: unknown };
+            const id = String(fila.productId ?? '').trim();
+            return {
+              id,
+              titulo: String(fila.nombre || id),
+              subtitulo: String(fila.familiaNombre || '').trim() || undefined,
+              badge: id,
+            };
+          })
+          .filter((p) => p.id),
+      );
+    } catch (e) {
+      setCatalogo([]);
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setCargandoCatalogo(false);
+    }
+  }
+
+  async function anadirReferencia(productId: string) {
+    if (!inventario) return;
+    if (guardandoId) {
+      setError('Espera a que se guarde la línea anterior.');
+      return;
+    }
+    setGuardandoId(productId);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/inventarios/${encodeURIComponent(inventario.inventarioId)}/lineas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId }),
+      });
+      const body = await leerJson(res);
+      if (!res.ok) {
+        setError(mensajeDe(body, 'No se ha podido añadir el producto'));
+        return;
+      }
+      const linea: Linea = {
+        productId: String(body.productId ?? productId),
+        nombre: String(body.nombre || productId),
+        unidad: String(body.unidad || ''),
+        stockReal: null,
+        botellasAbiertas: Number(body.botellasAbiertas ?? 0),
+      };
+      setTextos((t) => ({ ...t, [linea.productId]: '' }));
+      setInventario((actual) => {
+        if (!actual) return actual;
+        const lineas = [...(actual.lineas || []).filter((l) => l.productId !== linea.productId), linea];
+        lineas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es') || a.productId.localeCompare(b.productId, 'es'));
+        return { ...actual, lineas };
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setGuardandoId((id) => (id === productId ? null : id));
+    }
   }
 
   async function abrirExistente(id: string) {
@@ -412,7 +572,7 @@ export default function InventarioConteoScreen() {
           <View style={styles.cabecera}>
             <Pressable
               style={styles.iconoBtn}
-              onPress={() => setInventario(null)}
+              onPress={() => { setInventario(null); setAnadiendo(false); }}
               accessibilityRole="button"
               accessibilityLabel="Volver"
             >
@@ -435,11 +595,45 @@ export default function InventarioConteoScreen() {
             style={[styles.input, inputCursorStyle]}
             {...inputCursorProps}
           />
+          {editable ? (
+            anadiendo ? (
+              <SelectorDesplegable
+                label="Añadir producto"
+                placeholder="Elige un producto"
+                icono="add"
+                opciones={opcionesAnadir}
+                valorId={null}
+                onSeleccionar={(id) => void anadirReferencia(id)}
+                tituloLista="Producto"
+                buscador
+                buscadorPlaceholder="Buscar producto"
+                minCharsBusqueda={2}
+                limiteResultados={40}
+                loading={cargandoCatalogo}
+                vacioTexto="No hay más productos"
+              />
+            ) : (
+              <Pressable
+                style={styles.botonAnadir}
+                onPress={() => void prepararAnadir()}
+                accessibilityRole="button"
+                accessibilityLabel="Añadir producto"
+              >
+                <MaterialIcons name="add" size={20} color={colors.accent} />
+                <Text style={styles.botonAnadirTexto}>Añadir producto</Text>
+              </Pressable>
+            )
+          ) : null}
           <ScrollView style={styles.flex} contentContainerStyle={styles.lista} keyboardShouldPersistTaps="handled">
             {lineasVisibles.map((linea) => (
               <View key={linea.productId} style={styles.tarjeta}>
                 <View style={styles.tarjetaCab}>
-                  <Text style={styles.producto}>{linea.nombre}</Text>
+                  <View style={styles.productoFila}>
+                    <View style={styles.badgeId}>
+                      <Text style={styles.badgeIdTexto}>{linea.productId}</Text>
+                    </View>
+                    <Text style={styles.producto}>{linea.nombre}</Text>
+                  </View>
                   {guardandoId === linea.productId ? <ActivityIndicator color={colors.accent} /> : null}
                 </View>
                 {linea.unidad ? <Text style={styles.unidad}>{linea.unidad}</Text> : null}
@@ -553,7 +747,7 @@ export default function InventarioConteoScreen() {
               label="Almacén"
               placeholder="Elige un almacén"
               icono="warehouse"
-              opciones={almacenes}
+              opciones={opcionesAlmacen}
               valorId={warehouseId}
               onSeleccionar={setWarehouseId}
               tituloLista="Almacén"
@@ -569,8 +763,7 @@ export default function InventarioConteoScreen() {
                 valorId={plantillaId}
                 onSeleccionar={setPlantillaId}
                 tituloLista="Plantilla"
-                disabled={!warehouseId}
-                vacioTexto="Este almacén no tiene plantillas de familias"
+                vacioTexto="No hay plantillas de familias"
               />
               {resumenVisible ? <Text style={styles.resumen}>{resumenVisible}</Text> : null}
             </View>
@@ -720,6 +913,19 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
   },
   tarjetaCab: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm },
+  productoFila: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, minWidth: 0 },
+  badgeId: {
+    flexShrink: 0,
+    backgroundColor: statusColors.info.bg,
+    borderRadius: radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  badgeIdTexto: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[12],
+    color: statusColors.info.text,
+  },
   producto: { flex: 1, fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.textStrong },
   unidad: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textSecondary, marginBottom: SPACING.xs },
   input: {
@@ -761,6 +967,21 @@ const styles = StyleSheet.create({
   },
   botonOff: { opacity: 0.5 },
   botonTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.surface },
+  botonAnadir: {
+    minHeight: MIN_TOUCH,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    backgroundColor: colors.accentMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.lg,
+  },
+  botonAnadirTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.accentPressed },
   abiertos: { width: '100%', maxWidth: 560, marginTop: SPACING.lg, gap: SPACING.sm },
   abierto: {
     minHeight: MIN_TOUCH,

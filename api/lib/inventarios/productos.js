@@ -12,14 +12,16 @@ function activo(item) {
 }
 
 /**
- * @param {{ familiaIds?: string[], productIds?: string[] }} filtro
+ * @param {{ familiaIds?: string[], productIds?: string[], todos?: boolean }} filtro
  * @returns {Promise<Array<{ productId: string, nombre: string, familiaNombre: string, unidad: string }>>}
  */
-export async function listarProductosInventario({ familiaIds, productIds } = {}) {
-  const familias = new Set((familiaIds || []).map(canonicalFamilyId).filter(Boolean));
-  const ids = new Set((productIds || []).map((id) => String(id).trim()).filter(Boolean));
+export async function listarProductosInventario(filtro = {}) {
+  const familias = new Set((filtro.familiaIds || []).map(canonicalFamilyId).filter(Boolean));
+  const ids = new Set((filtro.productIds || []).map((id) => String(id).trim()).filter(Boolean));
   const porFamilia = familias.size > 0;
   const porId = ids.size > 0;
+  const todos = filtro.todos === true;
+  if (!todos && !porFamilia && !porId) return [];
   const out = [];
   let lastKey = null;
   do {
@@ -35,9 +37,8 @@ export async function listarProductosInventario({ familiaIds, productIds } = {})
       if (String(it.SK ?? '') === '__meta__') continue;
       const productId = String(it.Id ?? it.SK ?? '').trim();
       if (!productId || !activo(it)) continue;
-      if (porFamilia && !familias.has(canonicalFamilyId(it.FamilyId))) continue;
-      if (porId && !ids.has(productId)) continue;
-      if (!porFamilia && !porId) continue;
+      if (!todos && porFamilia && !familias.has(canonicalFamilyId(it.FamilyId))) continue;
+      if (!todos && porId && !ids.has(productId)) continue;
       out.push({
         productId,
         nombre: String(it.Name ?? '').trim() || productId,

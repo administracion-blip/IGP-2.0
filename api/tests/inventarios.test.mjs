@@ -75,7 +75,10 @@ beforeEach(() => {
 });
 
 function sinScan() {
-  assert.equal(db.operaciones.some((op) => op.tipo === 'ScanCommand'), false);
+  assert.equal(
+    db.operaciones.some((op) => op.tipo === 'ScanCommand' && op.tabla === tables.inventarios),
+    false,
+  );
 }
 
 test('la tabla nueva es Igp_Inventarios, con PK/SK y el índice de almacén', () => {
@@ -111,26 +114,25 @@ test('sin permiso no se crea una plantilla; quien cuenta tampoco', async () => {
   assert.equal(familias.status, 403);
 });
 
-test('plantilla por almacén: familias, listado y borrado', async () => {
+test('plantilla común: vale para cualquier almacén', async () => {
   const creada = await api('POST', '/api/inventarios/plantillas', {
-    warehouseId: '1',
     nombre: 'Botellas',
     modo: 'familias',
     miembros: [{ id: '12', nombre: 'BOT WHISKYS' }],
   });
   assert.equal(creada.status, 201);
-  assert.equal(creada.body.warehouseId, '000001');
+  assert.equal(creada.body.warehouseId, undefined);
   assert.equal(creada.body.numMiembros, 1);
   assert.deepEqual(creada.body.miembros, [{ id: '12', nombre: 'BOT WHISKYS' }]);
 
   const otra = await api('POST', '/api/inventarios/plantillas', {
-    warehouseId: '2', nombre: 'Otra', modo: 'productos', miembros: [{ id: '1367', nombre: 'Whisky' }],
+    nombre: 'Otra', modo: 'productos', miembros: [{ id: '1367', nombre: 'Whisky' }],
   });
   assert.equal(otra.status, 201);
 
-  const lista = await api('GET', '/api/inventarios/plantillas?warehouseId=1');
+  const lista = await api('GET', '/api/inventarios/plantillas');
   assert.equal(lista.status, 200);
-  assert.deepEqual(lista.body.plantillas.map((p) => p.nombre), ['Botellas']);
+  assert.deepEqual(lista.body.plantillas.map((p) => p.nombre), ['Botellas', 'Otra']);
   assert.equal(lista.body.plantillas[0].miembros, undefined);
   assert.equal(lista.body.plantillas[0].numMiembros, 1);
 
@@ -149,11 +151,40 @@ test('plantilla por almacén: familias, listado y borrado', async () => {
   assert.equal(editada.body.numMiembros, 2);
   assert.deepEqual(editada.body.miembros.map((m) => m.id), ['12', '13']);
 
+  const enOtro = await api('POST', '/api/inventarios', {
+    warehouseId: '2',
+    fecha: '2026-10-25',
+    employeeId: '42',
+    employeeNombre: 'Ana',
+    plantillaId: creada.body.plantillaId,
+    lineas: [{ productId: '1367', nombre: 'Whisky', stockTeorico: 1, stockReal: 1 }],
+  });
+  assert.equal(enOtro.status, 201);
+  assert.equal(enOtro.body.warehouseId, '000002');
+
   const borrada = await api('DELETE', `/api/inventarios/plantillas/${creada.body.plantillaId}`);
   assert.equal(borrada.status, 200);
   const yaNo = await api('GET', `/api/inventarios/plantillas/${creada.body.plantillaId}`);
   assert.equal(yaNo.status, 404);
   sinScan();
+});
+
+test('una plantilla guardada por almacén sigue en la lista común', async () => {
+  db.crearTabla(tables.almacenes, { hashKey: 'Id' });
+  db.sembrar(tables.almacenes, { Id: '000001', Nombre: 'Neptuno' });
+  db.sembrar(tables.inventarios, {
+    PK: 'PLANTILLA#vieja',
+    SK: 'META',
+    WarehouseId: '000001',
+    Clave: 'PLANTILLA#vieja',
+    plantillaId: 'vieja',
+    nombre: 'Antigua',
+    modo: 'familias',
+    numMiembros: 1,
+  });
+  const lista = await api('GET', '/api/inventarios/plantillas');
+  assert.equal(lista.status, 200);
+  assert.deepEqual(lista.body.plantillas.map((p) => p.nombre), ['Antigua']);
 });
 
 test('el stock real se guarda con decimales y el conteo no cambia el teórico', async () => {
