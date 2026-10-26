@@ -19,6 +19,7 @@ import { fontFamily, fontSizes, radius } from '../../constants/theme';
 
 export type EstadoBotonPrincipal = 'idle' | 'enviando' | 'ok';
 export type VarianteBotonPrincipal = 'principal' | 'flotante';
+export type TonoBotonPrincipal = 'rosa' | 'ambar';
 
 type Props = {
   titulo: string;
@@ -28,6 +29,8 @@ type Props = {
   estado?: EstadoBotonPrincipal;
   /** `flotante`: pastilla con anillo de pulso, para «Nuevo pedido». */
   variante?: VarianteBotonPrincipal;
+  /** `ambar`: degradado ámbar, para devoluciones. El rosa no cambia. */
+  tono?: TonoBotonPrincipal;
   disabled?: boolean;
   /** Ocupa todo el ancho del contenedor y sube a 48 px de alto. */
   estirar?: boolean;
@@ -36,12 +39,13 @@ type Props = {
 };
 
 const ROSA = ['#ec4899', '#f43f5e'] as const;
+const AMBAR = ['#f59e0b', '#d97706'] as const;
 const VERDE = ['#22c55e', '#16a34a'] as const;
 /** Alto de la pastilla flotante: un poco por encima del círculo de 56. */
 const ALTO_FAB = 64;
 
 /**
- * Botón de acción principal (degradado rosa, resplandor, brillo y estados de envío).
+ * Botón de acción principal (degradado rosa o ámbar, resplandor, brillo y estados de envío).
  * La variante flotante es una pastilla con el título y un anillo de pulso.
  */
 export function BotonPrincipal({
@@ -50,6 +54,7 @@ export function BotonPrincipal({
   brillo = false,
   estado = 'idle',
   variante = 'principal',
+  tono = 'rosa',
   disabled = false,
   estirar = false,
   accessibilityLabel,
@@ -141,22 +146,34 @@ export function BotonPrincipal({
   const pulsoEscala = pulso.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] });
   const pulsoOpacidad = pulso.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] });
 
-  const colores = estado === 'ok' ? VERDE : ROSA;
+  const esAmbar = tono === 'ambar' && estado !== 'ok';
+  const colores = estado === 'ok' ? VERDE : esAmbar ? AMBAR : ROSA;
   const radio = flotante ? radius.pill : radius.lg;
+  const sombra =
+    estado === 'ok'
+      ? { color: '#16a34a', caja: '0 6px 18px rgba(22,163,74,.35)' }
+      : esAmbar
+        ? { color: '#d97706', caja: '0 6px 18px rgba(217,119,6,.35)' }
+        : { color: '#f43f5e', caja: '0 6px 18px rgba(244,63,94,.35)' };
   const resplandor =
     Platform.OS === 'ios'
       ? {
-          shadowColor: '#f43f5e',
+          shadowColor: sombra.color,
           shadowOffset: { width: 0, height: 6 },
           shadowOpacity: 0.35,
           shadowRadius: 18,
         }
-      : ({ boxShadow: '0 6px 18px rgba(244,63,94,.35)' } as object);
+      : ({ boxShadow: sombra.caja } as object);
 
   const pulsar = () => {
+    if (reducir) return;
     Animated.spring(escala, { toValue: 0.94, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
   };
   const soltar = () => {
+    if (reducir) {
+      escala.setValue(1);
+      return;
+    }
     Animated.spring(escala, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 6 }).start();
   };
 
@@ -188,15 +205,16 @@ export function BotonPrincipal({
   }
 
   return (
-    <View
+    <Animated.View
       style={[
         styles.envoltorio,
         flotante && styles.envoltorioFab,
         estirar && styles.estirado,
-        { backgroundColor: estado === 'ok' ? '#16a34a' : '#ec4899' },
+        { backgroundColor: estado === 'ok' ? '#16a34a' : esAmbar ? '#f59e0b' : '#ec4899' },
         resplandor,
         disabled && estado === 'idle' && styles.off,
         style,
+        { transform: [{ scale: escala }] },
       ]}
     >
       {mostrarPulso ? (
@@ -208,7 +226,7 @@ export function BotonPrincipal({
           ]}
         />
       ) : null}
-      <Animated.View style={[{ transform: [{ scale: escala }] }, estirar ? styles.estirado : null]}>
+      <View style={estirar ? styles.estirado : undefined}>
         <Pressable
           style={estirar ? styles.estirado : undefined}
           onPress={onPress}
@@ -246,8 +264,8 @@ export function BotonPrincipal({
             {contenido}
           </LinearGradient>
         </Pressable>
-      </Animated.View>
-    </View>
+      </View>
+    </Animated.View>
   );
 }
 
