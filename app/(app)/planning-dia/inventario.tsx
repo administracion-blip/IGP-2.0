@@ -11,9 +11,11 @@ import {
   TextInput,
   Pressable,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
@@ -26,6 +28,7 @@ import {
   inputCursorProps,
   inputCursorStyle,
   radius,
+  typography,
   MIN_TOUCH,
   SPACING,
 } from '../../constants/theme';
@@ -53,6 +56,12 @@ type Inventario = {
   plantillaNombre?: string;
   estado: string;
   lineas?: Linea[];
+};
+type PlantillaOpcion = {
+  id: string;
+  titulo: string;
+  modo: string;
+  numMiembros: number | null;
 };
 type Abierto = {
   inventarioId: string;
@@ -87,9 +96,29 @@ function mismaBotella(a: number, b: number): boolean {
   return Math.abs(a - b) < 1e-9;
 }
 
+function fechaVisible(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return '';
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+/** El listado trae cuántos miembros hay, no cuántos productos salen de cada familia. */
+function textoResumen(plantilla: PlantillaOpcion): string | null {
+  if (plantilla.numMiembros == null) return null;
+  const n = plantilla.numMiembros;
+  if (plantilla.modo === 'productos') {
+    return `${n} ${n === 1 ? 'producto' : 'productos'}`;
+  }
+  if (plantilla.modo === 'familias') {
+    return `${n} ${n === 1 ? 'familia' : 'familias'}`;
+  }
+  return null;
+}
+
 export default function InventarioConteoScreen() {
   const { hasPermiso } = useAuth();
   const puede = hasPermiso('inventario.contar') || hasPermiso('inventario.gestionar');
+  const { isPhone } = useBreakpoint();
   const { confirmar, ConfirmarView } = useConfirmar();
 
   const [fecha, setFecha] = useState(fechaJornadaNegocioIso);
@@ -98,7 +127,7 @@ export default function InventarioConteoScreen() {
   const [plantillaId, setPlantillaId] = useState<string | null>(null);
   const [almacenes, setAlmacenes] = useState<Array<{ id: string; titulo: string }>>([]);
   const [empleados, setEmpleados] = useState<Array<{ id: string; titulo: string }>>([]);
-  const [plantillas, setPlantillas] = useState<Array<{ id: string; titulo: string }>>([]);
+  const [plantillas, setPlantillas] = useState<PlantillaOpcion[]>([]);
   const [abiertos, setAbiertos] = useState<Abierto[]>([]);
   const [inventario, setInventario] = useState<Inventario | null>(null);
   const [textos, setTextos] = useState<Record<string, string>>({});
@@ -162,8 +191,14 @@ export default function InventarioConteoScreen() {
       lista
         .filter((p) => (p as { modo?: string }).modo === 'familias')
         .map((p) => {
-          const fila = p as { plantillaId?: unknown; nombre?: unknown };
-          return { id: String(fila.plantillaId ?? ''), titulo: String(fila.nombre || 'Plantilla') };
+          const fila = p as { plantillaId?: unknown; nombre?: unknown; modo?: unknown; numMiembros?: unknown };
+          const n = fila.numMiembros;
+          return {
+            id: String(fila.plantillaId ?? ''),
+            titulo: String(fila.nombre || 'Plantilla'),
+            modo: String(fila.modo || ''),
+            numMiembros: typeof n === 'number' && Number.isFinite(n) ? n : null,
+          };
         })
         .filter((p) => p.id),
     );
@@ -448,83 +483,120 @@ export default function InventarioConteoScreen() {
             <Text style={styles.aviso}>Estado: {inventario.estado}. El conteo sigue guardado.</Text>
           )}
         </View>
-        <ConfirmarView />
+        {ConfirmarView}
       </View>
     );
   }
 
+  const datosListos = Boolean(warehouseId && employeeId && plantillaId);
+  const elegida = plantillas.find((p) => p.id === plantillaId) ?? null;
+  const resumenVisible = elegida ? textoResumen(elegida) : null;
+
+  const botonEmpezar = (
+    <Pressable
+      style={[styles.botonEmpezar, !datosListos && styles.botonEmpezarOff, !isPhone && styles.botonEmpezarEnTarjeta]}
+      disabled={!datosListos || abriendo}
+      onPress={() => void empezar()}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !datosListos || abriendo }}
+      accessibilityLabel={datosListos ? 'Empezar conteo' : 'Faltan datos'}
+    >
+      {abriendo ? (
+        <ActivityIndicator color={colors.surface} />
+      ) : (
+        <View style={styles.botonEmpezarFila}>
+          <Text style={[styles.botonEmpezarTexto, !datosListos && styles.botonEmpezarTextoOff]}>
+            {datosListos ? 'Empezar conteo' : 'Faltan datos'}
+          </Text>
+          {datosListos ? <MaterialIcons name="arrow-forward" size={20} color={colors.surface} /> : null}
+        </View>
+      )}
+    </Pressable>
+  );
+
   return (
     <View style={styles.pagina}>
-      <ScrollView contentContainerStyle={styles.formulario} keyboardShouldPersistTaps="handled">
-        <View style={styles.columna}>
+      <ScrollView
+        style={styles.formularioScroll}
+        contentContainerStyle={[styles.formulario, isPhone && styles.formularioMovil]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.tarjetaInicio}>
           <Text style={styles.titulo}>Inventario</Text>
           <Text style={styles.subtitulo}>Elige fecha, persona, almacén y plantilla. El conteo es a ciegas.</Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {cargando ? <ActivityIndicator color={colors.accent} /> : null}
-          <Text style={styles.etiqueta}>Fecha</Text>
-          <InputFecha valueIso={fecha} onChangeIso={setFecha} />
-          <SelectorDesplegable
-            label="Persona"
-            placeholder="Elige a la persona"
-            icono="person"
-            opciones={empleados}
-            valorId={employeeId}
-            onSeleccionar={setEmployeeId}
-            tituloLista="Persona"
-            buscador
-            buscadorPlaceholder="Buscar persona"
-          />
-          <SelectorDesplegable
-            label="Almacén"
-            placeholder="Elige un almacén"
-            icono="warehouse"
-            opciones={almacenes}
-            valorId={warehouseId}
-            onSeleccionar={setWarehouseId}
-            tituloLista="Almacén"
-            buscador
-            buscadorPlaceholder="Buscar almacén"
-          />
-          <SelectorDesplegable
-            label="Plantilla"
-            placeholder="Elige una plantilla"
-            icono="inventory"
-            opciones={plantillas}
-            valorId={plantillaId}
-            onSeleccionar={setPlantillaId}
-            tituloLista="Plantilla"
-            disabled={!warehouseId}
-            vacioTexto="Este almacén no tiene plantillas de familias"
-          />
-          <Pressable
-            style={[styles.boton, (!warehouseId || !employeeId || !plantillaId || abriendo) && styles.botonOff]}
-            disabled={!warehouseId || !employeeId || !plantillaId || abriendo}
-            onPress={() => void empezar()}
-            accessibilityRole="button"
-            accessibilityLabel="Empezar conteo"
-          >
-            {abriendo ? <ActivityIndicator color={colors.surface} /> : <Text style={styles.botonTexto}>Empezar conteo</Text>}
-          </Pressable>
-          {abiertos.length > 0 ? (
-            <View style={styles.abiertos}>
-              <Text style={styles.etiqueta}>Conteos abiertos</Text>
-              {abiertos.map((a) => (
-                <Pressable
-                  key={a.inventarioId}
-                  style={styles.abierto}
-                  onPress={() => void abrirExistente(a.inventarioId)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Continuar conteo ${a.fecha}`}
-                >
-                  <Text style={styles.producto}>{a.fecha} · {a.employeeNombre || 'Sin persona'}</Text>
-                  <Text style={styles.unidad}>{a.plantillaNombre || a.estado}</Text>
-                </Pressable>
-              ))}
+          <View style={styles.campos}>
+            <View>
+              <Text style={styles.etiquetaCampo}>Fecha</Text>
+              <View style={styles.fechaCaja}>
+                <MaterialIcons name="calendar-today" size={16} color={colors.accent} />
+                <Text style={styles.fechaValor} numberOfLines={1}>{fechaVisible(fecha) || 'dd/mm/aaaa'}</Text>
+                <MaterialIcons name="arrow-drop-down" size={22} color={colors.textMuted} />
+                <View style={styles.fechaCapa}>
+                  <InputFecha valueIso={fecha} onChangeIso={setFecha} style={styles.fechaInputCapa} />
+                </View>
+              </View>
             </View>
-          ) : null}
+            <SelectorDesplegable
+              label="Persona"
+              placeholder="Elige a la persona"
+              icono="person"
+              opciones={empleados}
+              valorId={employeeId}
+              onSeleccionar={setEmployeeId}
+              tituloLista="Persona"
+              buscador
+              buscadorPlaceholder="Buscar persona"
+            />
+            <SelectorDesplegable
+              label="Almacén"
+              placeholder="Elige un almacén"
+              icono="warehouse"
+              opciones={almacenes}
+              valorId={warehouseId}
+              onSeleccionar={setWarehouseId}
+              tituloLista="Almacén"
+              buscador
+              buscadorPlaceholder="Buscar almacén"
+            />
+            <View>
+              <SelectorDesplegable
+                label="Plantilla"
+                placeholder="Elige una plantilla"
+                icono="inventory"
+                opciones={plantillas}
+                valorId={plantillaId}
+                onSeleccionar={setPlantillaId}
+                tituloLista="Plantilla"
+                disabled={!warehouseId}
+                vacioTexto="Este almacén no tiene plantillas de familias"
+              />
+              {resumenVisible ? <Text style={styles.resumen}>{resumenVisible}</Text> : null}
+            </View>
+          </View>
+          {isPhone ? null : botonEmpezar}
         </View>
+        {abiertos.length > 0 ? (
+          <View style={styles.abiertos}>
+            <Text style={styles.etiqueta}>Conteos abiertos</Text>
+            {abiertos.map((a) => (
+              <Pressable
+                key={a.inventarioId}
+                style={styles.abierto}
+                onPress={() => void abrirExistente(a.inventarioId)}
+                accessibilityRole="button"
+                accessibilityLabel={`Continuar conteo ${a.fecha}`}
+              >
+                <Text style={styles.producto}>{a.fecha} · {a.employeeNombre || 'Sin persona'}</Text>
+                <Text style={styles.unidad}>{a.plantillaNombre || a.estado}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
-      <ConfirmarView />
+      {isPhone ? <View style={styles.botonFijo}>{botonEmpezar}</View> : null}
+      {ConfirmarView}
     </View>
   );
 }
@@ -532,7 +604,88 @@ export default function InventarioConteoScreen() {
 const styles = StyleSheet.create({
   pagina: { flex: 1, backgroundColor: colors.bg },
   columna: { flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center', padding: SPACING.lg },
-  formulario: { paddingBottom: SPACING.xl },
+  formularioScroll: { flex: 1, width: '100%' },
+  formulario: {
+    flexGrow: 1,
+    alignItems: 'center',
+    paddingVertical: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING.xl,
+  },
+  formularioMovil: { paddingBottom: MIN_TOUCH + SPACING.xl },
+  tarjetaInicio: {
+    width: '100%',
+    maxWidth: 560,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: SPACING.xl,
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' } as object)
+      : {
+          shadowColor: '#0f172a',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.08,
+          shadowRadius: 16,
+          elevation: 4,
+        }),
+  },
+  campos: { gap: SPACING.lg },
+  etiquetaCampo: {
+    ...typography.etiqueta,
+    marginBottom: SPACING.xs,
+  },
+  fechaCaja: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    backgroundColor: colors.bg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 10,
+    minHeight: 46,
+  },
+  fechaValor: {
+    flex: 1,
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[13],
+    color: colors.textStrong,
+  },
+  fechaCapa: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0,
+  },
+  fechaInputCapa: {
+    minHeight: 46,
+    height: 46,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+  },
+  resumen: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    color: colors.textSecondary,
+    marginTop: SPACING.xs,
+  },
+  botonEmpezar: {
+    minHeight: MIN_TOUCH,
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.lg,
+  },
+  botonEmpezarEnTarjeta: { marginTop: SPACING.lg },
+  botonEmpezarOff: { backgroundColor: colors.borderStrong },
+  botonEmpezarFila: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  botonEmpezarTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.surface },
+  botonEmpezarTextoOff: { color: colors.textSecondary },
+  botonFijo: {
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.lg,
+    backgroundColor: colors.bg,
+  },
   flex: { flex: 1 },
   titulo: { fontFamily: fontFamily.bold, fontSize: fontSizes[20], color: colors.textStrong },
   subtitulo: {
@@ -608,7 +761,7 @@ const styles = StyleSheet.create({
   },
   botonOff: { opacity: 0.5 },
   botonTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.surface },
-  abiertos: { marginTop: SPACING.lg, gap: SPACING.sm },
+  abiertos: { width: '100%', maxWidth: 560, marginTop: SPACING.lg, gap: SPACING.sm },
   abierto: {
     minHeight: MIN_TOUCH,
     justifyContent: 'center',
