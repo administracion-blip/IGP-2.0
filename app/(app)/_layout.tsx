@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
+import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import {
   View,
   Text,
@@ -21,7 +21,8 @@ import { ComprasProveedorCacheProvider } from '../contexts/ComprasProveedorCache
 import { LocalesProvider } from '../contexts/LocalesContext';
 import { fetchImagenApp } from '../lib/personalizacion';
 import { MODULOS as MENU_ITEMS, moduloDeRuta } from '../constants/modulos';
-import { colors, iconSize, radius, shadowCard, sidebar, SPACING, typography } from '../constants/theme';
+import { SPACING } from '../constants/layout';
+import { colors, iconSize, radius, shadowCard, sidebar, typography } from '../constants/theme';
 import { SidebarNavItem } from '../components/ui/SidebarNavItem';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { SidebarApiStatus } from '../components/ui/SidebarApiStatus';
@@ -58,19 +59,59 @@ function rutaMenuActiva(pathname: string, itemRoute: string): boolean {
   return false;
 }
 
+function MenuLateral({
+  abierto,
+  pathname,
+  items,
+  onIr,
+}: {
+  abierto: boolean;
+  pathname: string;
+  items: Array<(typeof MENU_ITEMS)[number]>;
+  onIr: (route: string) => void;
+}) {
+  return (
+    <>
+      <ScrollView
+        style={styles.sidebarScroll}
+        contentContainerStyle={styles.sidebarScrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <SidebarNavItem
+          label="Favoritos"
+          icon="star-border"
+          collapsed={!abierto}
+          active={rutaMenuActiva(pathname, '/favoritos')}
+          onPress={() => onIr('/favoritos')}
+          accentFavoritos
+        />
+        <View style={styles.sidebarDivider} />
+        {abierto ? <Text style={styles.sidebarSectionLabel}>Módulos</Text> : null}
+        {items.map((item) => (
+          <SidebarNavItem
+            key={item.route}
+            label={item.label}
+            icon={item.icon as ComponentProps<typeof MaterialIcons>['name']}
+            collapsed={!abierto}
+            active={rutaMenuActiva(pathname, item.route)}
+            onPress={() => onIr(item.route)}
+          />
+        ))}
+      </ScrollView>
+      <View style={styles.sidebarDivider} />
+      <SidebarApiStatus collapsed={!abierto} />
+    </>
+  );
+}
+
 function AppLayoutContent() {
   const router = useRouter();
   const pathname = usePathname();
-  const { width, isPhone } = useBreakpoint();
+  const { width, isPhone, isDesktop } = useBreakpoint();
   const insets = useSafeAreaInsets();
   const { user, loading, hasPermiso, logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(Platform.OS === 'web');
-  const didInitTabletSidebar = useRef(false);
-  useEffect(() => {
-    if (Platform.OS === 'web' || didInitTabletSidebar.current || isPhone) return;
-    didInitTabletSidebar.current = true;
-    setSidebarOpen(true);
-  }, [isPhone]);
+  const [sidebarOpen, setSidebarOpen] = useState(isDesktop);
   const [configOpen, setConfigOpen] = useState(false);
   const [configLabelVisible, setConfigLabelVisible] = useState(false);
   const [imagenApp, setImagenApp] = useState<string | null>(null);
@@ -99,7 +140,10 @@ function AppLayoutContent() {
     return !item.permiso || hasPermiso(item.permiso);
   });
 
-  const irMenu = useCallback((route: string) => router.push(route as never), [router]);
+  const irMenu = useCallback((route: string) => {
+    if (isPhone) setSidebarOpen(false);
+    router.push(route as never);
+  }, [router, isPhone]);
 
   if (loading) {
     return (
@@ -222,39 +266,16 @@ function AppLayoutContent() {
       </View>
 
       <View style={styles.body}>
-        <View style={[styles.sidebar, sidebarOpen ? styles.sidebarExpanded : styles.sidebarCollapsed]}>
-          <ScrollView
-            style={styles.sidebarScroll}
-            contentContainerStyle={styles.sidebarScrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            <SidebarNavItem
-              label="Favoritos"
-              icon="star-border"
-              collapsed={!sidebarOpen}
-              active={rutaMenuActiva(pathname, '/favoritos')}
-              onPress={() => irMenu('/favoritos')}
-              accentFavoritos
+        {isPhone ? null : (
+          <View style={[styles.sidebar, sidebarOpen ? styles.sidebarExpanded : styles.sidebarCollapsed]}>
+            <MenuLateral
+              abierto={sidebarOpen}
+              pathname={pathname}
+              items={menuItemsVisibles}
+              onIr={irMenu}
             />
-            <View style={styles.sidebarDivider} />
-            {sidebarOpen ? (
-              <Text style={styles.sidebarSectionLabel}>Módulos</Text>
-            ) : null}
-            {menuItemsVisibles.map((item) => (
-              <SidebarNavItem
-                key={item.route}
-                label={item.label}
-                icon={item.icon as ComponentProps<typeof MaterialIcons>['name']}
-                collapsed={!sidebarOpen}
-                active={rutaMenuActiva(pathname, item.route)}
-                onPress={() => irMenu(item.route)}
-              />
-            ))}
-          </ScrollView>
-          <View style={styles.sidebarDivider} />
-          <SidebarApiStatus collapsed={!sidebarOpen} />
-        </View>
+          </View>
+        )}
 
         {/* Contenido */}
         <View style={styles.content}>
@@ -297,6 +318,23 @@ function AppLayoutContent() {
             <Stack.Screen name="favoritos" />
           </Stack>
         </View>
+        {isPhone && sidebarOpen ? (
+          <Pressable
+            style={styles.sidebarOverlay}
+            onPress={() => setSidebarOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar menú"
+          >
+            <Pressable style={styles.sidebarDrawer} onPress={() => {}}>
+              <MenuLateral
+                abierto
+                pathname={pathname}
+                items={menuItemsVisibles}
+                onIr={irMenu}
+              />
+            </Pressable>
+          </Pressable>
+        ) : null}
       </View>
 
       {/* Footer */}
@@ -343,7 +381,8 @@ const styles = StyleSheet.create({
   },
   headerLogo: {
     height: 36,
-    maxWidth: 140,
+    maxWidth: 120,
+    flexShrink: 1,
     marginRight: SPACING.sm,
   },
   headerSpacer: {
@@ -400,7 +439,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    minWidth: 160,
+    minWidth: 120,
     paddingVertical: SPACING.xs,
     ...shadowCard(),
   },
@@ -421,9 +460,10 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   headerUserBlock: {
+    flexShrink: 1,
+    minWidth: 0,
     alignItems: 'flex-end',
     marginRight: SPACING.sm,
-    maxWidth: 180,
   },
   headerNombre: {
     fontSize: 12,
@@ -438,6 +478,21 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     flexDirection: 'row',
+  },
+  sidebarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+    zIndex: 20,
+  },
+  sidebarDrawer: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: sidebar.widthExpanded,
+    backgroundColor: colors.surface,
+    borderRightWidth: 1,
+    borderRightColor: SHELL_BORDER,
   },
   sidebar: {
     flexDirection: 'column',
