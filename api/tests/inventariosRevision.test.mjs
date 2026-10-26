@@ -82,6 +82,8 @@ test('el semáforo usa el porcentaje guardado y el teórico de la línea', () =>
   const justo = clasificarLinea({ stockTeorico: 203, stockReal: 10.5 }, 5);
   assert.equal(justo.semaforo, 'fuera');
   assert.equal(justo.diferencia, 10.5 - 203);
+  const conAbierta = clasificarLinea({ stockTeorico: 3, stockReal: 3, botellasAbiertas: 0.5 }, 10);
+  assert.equal(conAbierta.diferencia, 0.5);
 });
 
 test('corregir una línea no toca el teórico y el umbral no tiene valor por defecto', async () => {

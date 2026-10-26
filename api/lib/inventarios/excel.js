@@ -1,10 +1,11 @@
 /**
  * Excel de inventario con el formato de docs/agora/plantilla_inv.xlsx.
  * Hoja «Inventario», columnas A–H. Ubicación y código de barras se dejan vacíos.
- * El stock real se escribe tal cual, sin redondear. No llama a Ágora.
+ * La columna de stock real es las enteras más la botella abierta. No llama a Ágora.
  */
 
 import ExcelJS from 'exceljs';
+import { stockContado } from './diferencia.js';
 
 const CABECERAS = [
   'Id',
@@ -34,13 +35,6 @@ function numeroCelda(raw) {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Vacío si aún no se ha contado. El 0 contado se escribe como 0. */
-function realCelda(raw) {
-  if (raw == null || raw === '') return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
-}
-
 export async function bufferInventario(inventario) {
   const wb = new ExcelJS.Workbook();
   const hoja = wb.addWorksheet('Inventario');
@@ -54,7 +48,7 @@ export async function bufferInventario(inventario) {
       null,
       linea.unidad || '',
       numeroCelda(linea.stockTeorico),
-      realCelda(linea.stockReal),
+      stockContado(linea),
     ]);
   }
   ANCHOS.forEach((ancho, i) => {

@@ -1,18 +1,32 @@
 /**
  * Misma regla que api/lib/inventarios/diferencia.js.
- * El teórico es el copiado al abrir el conteo. Sin porcentaje guardado, no hay color.
+ * El contado es las enteras más la botella abierta. Sin porcentaje guardado, no hay color.
  */
 
 export type Semaforo = 'sin-umbral' | 'sin-contar' | 'ok' | 'fuera';
 
+/** Enteras más botella abierta. `null` si no se ha contado nada. */
+export function stockContado(linea: {
+  stockReal: number | null;
+  botellasAbiertas?: number;
+}): number | null {
+  const abiertaRaw = Number(linea?.botellasAbiertas);
+  const abierta = Number.isFinite(abiertaRaw) ? abiertaRaw : 0;
+  const raw = linea?.stockReal;
+  const hayEnteras = raw != null && Number.isFinite(Number(raw));
+  if (!hayEnteras && abierta === 0) return null;
+  const enteras = hayEnteras ? Number(raw) : 0;
+  return Math.round((enteras + abierta) * 10000) / 10000;
+}
+
 export function clasificarLinea(
-  linea: { stockTeorico: number; stockReal: number | null },
+  linea: { stockTeorico: number; stockReal: number | null; botellasAbiertas?: number },
   porcentaje: number | null,
 ): { semaforo: Semaforo; diferencia: number | null; porcentaje: number | null } {
   const teorico = Number(linea?.stockTeorico);
-  const real = linea?.stockReal;
-  const contado = real != null && Number.isFinite(Number(real));
-  const diferencia = contado ? Number(real) - teorico : null;
+  const real = stockContado(linea);
+  const contado = real != null;
+  const diferencia = contado ? real - teorico : null;
   let pct: number | null = null;
   if (diferencia != null && teorico !== 0) {
     pct = (Math.abs(diferencia) / teorico) * 100;

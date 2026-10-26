@@ -88,6 +88,24 @@ test('el Excel tiene las columnas de la plantilla y no redondea el stock real', 
         stockTeorico: 0,
         stockReal: null,
       },
+      {
+        productId: '88',
+        familiaNombre: 'BOT WHISKYS',
+        nombre: 'Con botella abierta',
+        unidad: 'Unidad',
+        stockTeorico: 4,
+        stockReal: 3,
+        botellasAbiertas: 0.5,
+      },
+      {
+        productId: '89',
+        familiaNombre: 'BOT WHISKYS',
+        nombre: 'Solo abierta',
+        unidad: 'Unidad',
+        stockTeorico: 1,
+        stockReal: null,
+        botellasAbiertas: 0.5,
+      },
     ],
   });
   const hoja = await hojaDe(buffer);
@@ -105,6 +123,8 @@ test('el Excel tiene las columnas de la plantilla y no redondea el stock real', 
   assert.equal(hoja.getCell('G2').value, 203.5);
   assert.equal(hoja.getCell('H2').value, 8.75);
   assert.equal(hoja.getCell('H3').value, null);
+  assert.equal(hoja.getCell('H4').value, 3.5);
+  assert.equal(hoja.getCell('H5').value, 0.5);
   assert.equal(hoja.getCell('I2').value, null);
 });
 

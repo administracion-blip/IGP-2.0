@@ -21,7 +21,7 @@ import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { apiFetch } from '../../utils/api';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
-import { clasificarLinea, type Semaforo } from '../../lib/inventarioDiferencia';
+import { clasificarLinea, stockContado, type Semaforo } from '../../lib/inventarioDiferencia';
 import {
   colors,
   fontFamily,
@@ -107,6 +107,23 @@ function parsePorcentaje(raw: string): number | null | 'mal' {
   const n = Number(s);
   if (!Number.isFinite(n) || n < 0) return 'mal';
   return n;
+}
+
+function totalEscrito(texto: string, botellas: number): number | null {
+  const parsed = parseCantidad(texto);
+  if (parsed === 'mal') return null;
+  return stockContado({ stockReal: parsed, botellasAbiertas: botellas });
+}
+
+function TotalContado({ texto, botellas, nombre }: { texto: string; botellas: number; nombre: string }) {
+  const total = totalEscrito(texto, botellas);
+  const visible = total == null ? '—' : textoCantidad(total);
+  return (
+    <View style={styles.totalCaja} accessibilityLabel={`Total de ${nombre}: ${visible}`}>
+      <Text style={styles.totalEtiqueta}>Total</Text>
+      <Text style={styles.totalValor}>{visible}</Text>
+    </View>
+  );
 }
 
 function mismaBotella(a: number, b: number): boolean {
@@ -681,34 +698,41 @@ export default function InventarioRevisionScreen() {
                     <Text style={styles.numeros}>
                       Teórico {formato(linea.stockTeorico)} · Diferencia {diffTexto}
                     </Text>
-                    <TextInput
-                      value={textos[linea.productId] ?? ''}
-                      onChangeText={(raw) => editable && programar(linea.productId, raw, linea.botellasAbiertas)}
-                      editable={editable}
-                      keyboardType="decimal-pad"
-                      placeholder="Stock real"
-                      placeholderTextColor={colors.textMuted}
-                      style={[styles.input, inputCursorStyle]}
-                      accessibilityLabel={`Stock real de ${linea.nombre}`}
-                      {...inputCursorProps}
-                    />
-                    <View style={styles.botellas}>
-                      {BOTELLAS.map((b) => {
-                        const activa = mismaBotella(linea.botellasAbiertas, b.valor);
-                        return (
-                          <Pressable
-                            key={b.etiqueta}
-                            style={[styles.botella, activa && styles.botellaActiva]}
-                            disabled={!editable}
-                            onPress={() => elegirBotella(linea, b.valor)}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: activa }}
-                            accessibilityLabel={`Botella abierta ${b.etiqueta}`}
-                          >
-                            <Text style={[styles.botellaTexto, activa && styles.botellaTextoActiva]}>{b.etiqueta}</Text>
-                          </Pressable>
-                        );
-                      })}
+                    <View style={styles.conteoFila}>
+                      <TextInput
+                        value={textos[linea.productId] ?? ''}
+                        onChangeText={(raw) => editable && programar(linea.productId, raw, linea.botellasAbiertas)}
+                        editable={editable}
+                        keyboardType="decimal-pad"
+                        placeholder="Enteras"
+                        placeholderTextColor={colors.textMuted}
+                        style={[styles.input, styles.inputEnteras, inputCursorStyle]}
+                        accessibilityLabel={`Botellas enteras de ${linea.nombre}`}
+                        {...inputCursorProps}
+                      />
+                      <View style={styles.botellas}>
+                        {BOTELLAS.map((b) => {
+                          const activa = mismaBotella(linea.botellasAbiertas, b.valor);
+                          return (
+                            <Pressable
+                              key={b.etiqueta}
+                              style={[styles.botella, activa && styles.botellaActiva]}
+                              disabled={!editable}
+                              onPress={() => elegirBotella(linea, b.valor)}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected: activa }}
+                              accessibilityLabel={`Botella abierta ${b.etiqueta}`}
+                            >
+                              <Text style={[styles.botellaTexto, activa && styles.botellaTextoActiva]}>{b.etiqueta}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      <TotalContado
+                        texto={textos[linea.productId] ?? ''}
+                        botellas={linea.botellasAbiertas}
+                        nombre={linea.nombre}
+                      />
                     </View>
                     {editable ? (
                       <Pressable
@@ -841,7 +865,22 @@ const styles = StyleSheet.create({
   numeros: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary },
   pill: { borderRadius: radius.pill, paddingHorizontal: SPACING.sm, paddingVertical: 4 },
   pillTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[12] },
-  botellas: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+  conteoFila: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm },
+  inputEnteras: { width: 88 },
+  totalCaja: {
+    minHeight: MIN_TOUCH,
+    minWidth: 72,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  totalEtiqueta: { fontFamily: fontFamily.medium, fontSize: fontSizes[12], color: colors.textSecondary },
+  totalValor: { fontFamily: fontFamily.bold, fontSize: fontSizes[16], color: colors.textStrong },
+  botellas: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, flexGrow: 1 },
   botella: {
     minWidth: 64,
     minHeight: MIN_TOUCH,
