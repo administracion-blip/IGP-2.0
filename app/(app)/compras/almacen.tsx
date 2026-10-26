@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
-  Modal,
   Platform,
   Animated,
   Easing,
@@ -714,9 +713,9 @@ export default function PedidosAlmacenScreen() {
       <View style={styles.container}>
         {renderToolbar()}
         {renderListaContenido()}
-        <Modal visible={pedidoSel != null} animationType="slide" onRequestClose={cerrarPedido}>
-          <View style={styles.modalContainer}>{renderDetalle()}</View>
-        </Modal>
+        {pedidoSel != null ? (
+          <View style={styles.detallePantalla}>{renderDetalle()}</View>
+        ) : null}
         <NuevoPedidoModal visible={nuevoPedidoVisible} onClose={() => setNuevoPedidoVisible(false)} onCreado={refetch} />
       </View>
     );
@@ -735,8 +734,13 @@ export default function PedidosAlmacenScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e8eef5', padding: 16 },
-  modalContainer: { flex: 1, backgroundColor: '#e8eef5', padding: 16 },
+  container: { flex: 1, backgroundColor: '#e8eef5', padding: 16, position: 'relative' },
+  detallePantalla: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    backgroundColor: '#e8eef5',
+    padding: 16,
+  },
   centro: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 40 },
   toolbar: { flexShrink: 0, marginBottom: 16, gap: 12 },
   splitRow: { flex: 1, flexDirection: 'row', gap: 16, minHeight: 0 },
