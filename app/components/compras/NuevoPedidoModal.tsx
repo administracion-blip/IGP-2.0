@@ -13,7 +13,11 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
-import { MIN_TOUCH } from '../../constants/layout';
+import { MIN_TOUCH, SPACING } from '../../constants/layout';
+import { BarraAcciones } from '../ui/BarraAcciones';
+import { BotonPlano } from '../ui/BotonPlano';
+import { BotonPrincipal } from '../ui/BotonPrincipal';
+import { SelectorSegmentado } from '../ui/SelectorSegmentado';
 import { InputFecha } from '../InputFecha';
 import { InputCantidad } from '../InputCantidad';
 import { SelectorDesplegable } from '../SelectorDesplegable';
@@ -49,7 +53,7 @@ type Props = {
 
 export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) {
   const { localPermitido, hasPermiso } = useAuth();
-  const { isCompact } = useBreakpoint();
+  const { isPhone } = useBreakpoint();
   const {
     productos,
     productosIgp: productosIgpCache,
@@ -200,6 +204,16 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
         return na.localeCompare(nb, 'es', { sensitivity: 'base' });
       }),
     [locales],
+  );
+
+  const opcionesLocalForm = useMemo(
+    () =>
+      localesOrdenados.map((loc, idx) => {
+        const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
+        const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
+        return { id: idLoc || `loc-${idx}`, titulo: nombre || idLoc || '—', icono: 'store' as const };
+      }),
+    [localesOrdenados],
   );
 
   /** Local que recibe la mercancía (en devolución, el que la devuelve). */
@@ -595,9 +609,6 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     almacenes,
   ]);
 
-  // Zona táctil cómoda para los chips en móvil y tablet.
-  const chipTouch = isCompact ? styles.pickerChipTouch : null;
-
   const productosVisibles = useMemo(() => {
     const q = busquedaProducto.trim().toLowerCase();
     return productosIgp.filter((prod) => {
@@ -608,11 +619,82 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     });
   }, [productosIgp, busquedaProducto]);
 
+  const cambiarLocal = (
+    placeholder: string,
+    tituloLista: string,
+    valorId: string,
+    opciones: { id: string; titulo: string; icono: 'store' }[],
+    onSeleccionar: (id: string) => void,
+    vacioTexto?: string,
+  ) => (
+    <View style={styles.cambiarWrap}>
+      <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+        <BotonPlano titulo="Cambiar" variante="azul" onPress={() => {}} />
+      </View>
+      <View style={styles.cambiarTapa}>
+        <SelectorDesplegable
+          placeholder={placeholder}
+          icono="store"
+          tituloLista={tituloLista}
+          iconoLista="store"
+          buscador
+          valorId={valorId || null}
+          opciones={opciones}
+          vacioTexto={vacioTexto}
+          onSeleccionar={onSeleccionar}
+          style={styles.selectorLleno}
+          triggerStyle={styles.triggerFantasma}
+          sinIconoTrigger
+        />
+      </View>
+    </View>
+  );
+
+  const radiosAlmacen = (
+    lista: Registro[],
+    elegidoId: string,
+    alElegir: (idAlm: string, yaSeleccionado: boolean) => void,
+  ) => (
+    <View style={styles.rejilla}>
+      {lista.map((alm) => {
+        const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
+        const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
+        const sel = idAlm !== '' && elegidoId === idAlm;
+        return (
+          <Pressable
+            key={idAlm || nombre}
+            onPress={() => alElegir(idAlm, sel)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: sel }}
+            style={({ pressed }) => [
+              styles.tarjetaRadio,
+              isPhone && styles.tarjetaRadioAncha,
+              sel && (esDevolucion ? styles.tarjetaRadioOnDev : styles.tarjetaRadioOn),
+              { opacity: pressed ? 0.55 : 1 },
+            ]}
+          >
+            <View style={[styles.radioCirculo, sel && (esDevolucion ? styles.radioCirculoDev : styles.radioCirculoOn)]}>
+              {sel ? <View style={[styles.radioPunto, esDevolucion ? styles.radioPuntoDev : styles.radioPuntoOn]} /> : null}
+            </View>
+            <Text
+              style={[styles.tarjetaRadioTexto, sel && (esDevolucion ? styles.tarjetaRadioTextoDev : styles.tarjetaRadioTextoOn)]}
+              numberOfLines={2}
+            >
+              {nombre || idAlm || '—'}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
+  const pasoActual = fase === 'cabecera' ? 1 : 2;
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       {/* El fondo no cierra el pedido en curso (evita perder datos); se cierra con la X o Cancelar. */}
-      <Pressable style={[styles.overlay, isCompact && styles.overlayPantalla]}>
-        <Pressable style={[styles.card, fase === 'lineas' && styles.cardLineas, isCompact && styles.cardPantalla]} onPress={(e) => e.stopPropagation()}>
+      <Pressable style={[styles.overlay, isPhone && styles.overlayPantalla]}>
+        <Pressable style={[styles.card, fase === 'lineas' && styles.cardLineas, isPhone && styles.cardPantalla]} onPress={(e) => e.stopPropagation()}>
           <View style={styles.header}>
             <Text style={styles.title} numberOfLines={1}>
               {fase === 'cabecera'
@@ -622,15 +704,40 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                   : `${esDevolucion ? 'Devolución' : 'Añadir productos'} · ${String(valorEnLocal(pedidoCreado ?? {}, 'Id') ?? '')}`}
             </Text>
             {eligiendoProductos ? (
-              <TouchableOpacity onPress={() => setEligiendoProductos(false)} style={styles.btnListo} activeOpacity={0.8}>
+              <Pressable
+                onPress={() => setEligiendoProductos(false)}
+                style={({ pressed }) => [styles.btnListo, { opacity: pressed ? 0.55 : 1 }]}
+              >
                 <Text style={styles.btnListoText}>Listo</Text>
-              </TouchableOpacity>
+              </Pressable>
             ) : (
-              <TouchableOpacity onPress={onClose} style={styles.close}>
+              <Pressable
+                onPress={onClose}
+                accessibilityLabel="Cerrar"
+                style={({ pressed }) => [styles.close, { opacity: pressed ? 0.55 : 1 }]}
+              >
                 <MaterialIcons name="close" size={22} color="#64748b" />
-              </TouchableOpacity>
+              </Pressable>
             )}
           </View>
+
+          {!loadingDatos && !eligiendoProductos ? (
+            <View style={styles.pasos}>
+              <View style={styles.pasoItem}>
+                {pasoActual > 1 ? (
+                  <MaterialIcons name="check" size={16} color="#0ea5e9" />
+                ) : (
+                  <Text style={styles.pasoActual}>1</Text>
+                )}
+                <Text style={pasoActual > 1 ? styles.pasoHecho : styles.pasoActual}>Datos</Text>
+              </View>
+              <Text style={styles.pasoSep}>·</Text>
+              <View style={styles.pasoItem}>
+                <Text style={pasoActual === 2 ? styles.pasoActual : styles.pasoPendiente}>2</Text>
+                <Text style={pasoActual === 2 ? styles.pasoActual : styles.pasoPendiente}>Productos</Text>
+              </View>
+            </View>
+          ) : null}
 
           {loadingDatos ? (
             <View style={styles.loadingWrap}>
@@ -638,27 +745,19 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
             </View>
           ) : fase === 'cabecera' ? (
             <>
-              <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
+              <ScrollView style={[styles.body, isPhone && styles.bodyPantalla]} keyboardShouldPersistTaps="handled">
                 <View style={styles.group}>
                   <Text style={styles.label}>Tipo de movimiento</Text>
-                  <View style={styles.segmented}>
-                    <TouchableOpacity
-                      style={[styles.segmentBtn, !esDevolucion && styles.segmentBtnActive]}
-                      onPress={() => cambiarTipo('Pedido')}
-                      activeOpacity={0.8}
-                    >
-                      <MaterialIcons name="local-shipping" size={16} color={!esDevolucion ? '#fff' : '#475569'} />
-                      <Text style={[styles.segmentText, !esDevolucion && styles.segmentTextActive]}>Pedido</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.segmentBtn, esDevolucion && styles.segmentBtnActiveDev]}
-                      onPress={() => cambiarTipo('Devolucion')}
-                      activeOpacity={0.8}
-                    >
-                      <MaterialIcons name="undo" size={16} color={esDevolucion ? '#fff' : '#475569'} />
-                      <Text style={[styles.segmentText, esDevolucion && styles.segmentTextActive]}>Devolución</Text>
-                    </TouchableOpacity>
-                  </View>
+                  <SelectorSegmentado
+                    accessibilityLabel="Tipo de movimiento"
+                    tono={esDevolucion ? 'ambar' : 'rosa'}
+                    valorId={tipo}
+                    onCambiar={(id) => cambiarTipo(id === 'Devolucion' ? 'Devolucion' : 'Pedido')}
+                    opciones={[
+                      { id: 'Pedido', titulo: 'Pedido', icono: 'local-shipping' },
+                      { id: 'Devolucion', titulo: 'Devolución', icono: 'undo' },
+                    ]}
+                  />
                   {esDevolucion ? (
                     <Text style={styles.devHint}>El local devuelve al almacén general. Sin rappel ni abono.</Text>
                   ) : null}
@@ -667,101 +766,67 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                 {esDevolucion ? (
                   <View style={styles.bloqueSeccion}>
                     <Text style={styles.bloqueSeccionTitulo}>Origen</Text>
-                    <View style={styles.group}>
-                      <Text style={styles.label}>Local *</Text>
-                      <SelectorDesplegable
-                        placeholder="— Seleccionar local —"
-                        icono="store"
-                        tituloLista="Selecciona un local"
-                        iconoLista="store"
-                        buscador
-                        valorId={form.LocalId || null}
-                        opciones={localesOrdenados.map((loc, idx) => {
-                          const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
-                          const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
-                          return { id: idLoc || `loc-${idx}`, titulo: nombre || idLoc || '—', icono: 'store' as const };
-                        })}
-                        onSeleccionar={(id) => {
+                    <View style={styles.tarjetaLocal}>
+                      <View style={styles.tarjetaLocalTexto}>
+                        <Text style={styles.label}>Local *</Text>
+                        <Text style={[styles.tarjetaLocalValor, !localNombre && styles.tarjetaLocalVacio]} numberOfLines={1}>
+                          {localNombre || '— Seleccionar local —'}
+                        </Text>
+                      </View>
+                      {cambiarLocal(
+                        '— Seleccionar local —',
+                        'Selecciona un local',
+                        form.LocalId,
+                        opcionesLocalForm,
+                        (id) => {
                           setForm((f) => ({ ...f, LocalId: id, AlmacenDestinoId: '', AlmacenOrigenId: '' }));
-                        }}
-                      />
+                        },
+                      )}
                     </View>
                     <View style={[styles.group, styles.groupUltimo]}>
                       <Text style={styles.label}>Almacén origen *</Text>
                       {localSinAlmacenes ? (
                         <Text style={styles.hintWarn}>Este local no tiene almacenes configurados.</Text>
                       ) : (
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
-                          {opcionesOrigen.map((alm) => {
-                            const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
-                            const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
-                            const sel = idAlm !== '' && form.AlmacenOrigenId === idAlm;
-                            return (
-                              <TouchableOpacity
-                                key={idAlm || nombre}
-                                style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
-                                onPress={() => setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }))}
-                              >
-                                <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
-                                  {nombre || idAlm || '—'}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </ScrollView>
+                        radiosAlmacen(opcionesOrigen, form.AlmacenOrigenId, (idAlm, sel) => {
+                          setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }));
+                        })
                       )}
                     </View>
                   </View>
                 ) : (
                   <View style={styles.bloqueSeccion}>
                     <Text style={styles.bloqueSeccionTitulo}>Destino</Text>
-                    <View style={styles.group}>
-                      <Text style={styles.label}>Local *</Text>
-                      <SelectorDesplegable
-                        placeholder="— Seleccionar local —"
-                        icono="store"
-                        tituloLista="Selecciona un local"
-                        iconoLista="store"
-                        buscador
-                        valorId={form.LocalId || null}
-                        opciones={localesOrdenados.map((loc, idx) => {
-                          const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
-                          const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
-                          return { id: idLoc || `loc-${idx}`, titulo: nombre || idLoc || '—', icono: 'store' as const };
-                        })}
-                        onSeleccionar={(id) => {
+                    <View style={styles.tarjetaLocal}>
+                      <View style={styles.tarjetaLocalTexto}>
+                        <Text style={styles.label}>Local *</Text>
+                        <Text style={[styles.tarjetaLocalValor, !localNombre && styles.tarjetaLocalVacio]} numberOfLines={1}>
+                          {localNombre || '— Seleccionar local —'}
+                        </Text>
+                      </View>
+                      {cambiarLocal(
+                        '— Seleccionar local —',
+                        'Selecciona un local',
+                        form.LocalId,
+                        opcionesLocalForm,
+                        (id) => {
                           if (origenOtroLocal && id === localOrigenId) {
                             setLocalOrigenId('');
                             setForm((f) => ({ ...f, LocalId: id, AlmacenDestinoId: '', AlmacenOrigenId: '' }));
                             return;
                           }
                           setForm((f) => ({ ...f, LocalId: id, AlmacenDestinoId: '' }));
-                        }}
-                      />
+                        },
+                      )}
                     </View>
                     <View style={[styles.group, styles.groupUltimo]}>
                       <Text style={styles.label}>Almacén destino *</Text>
                       {localSinAlmacenes ? (
                         <Text style={styles.hintWarn}>Este local no tiene almacenes de destino configurados.</Text>
                       ) : (
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
-                          {opcionesDestino.map((alm) => {
-                            const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
-                            const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
-                            const sel = idAlm !== '' && form.AlmacenDestinoId === idAlm;
-                            return (
-                              <TouchableOpacity
-                                key={idAlm || nombre}
-                                style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
-                                onPress={() => setForm((f) => ({ ...f, AlmacenDestinoId: sel ? '' : idAlm }))}
-                              >
-                                <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
-                                  {nombre || idAlm || '—'}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </ScrollView>
+                        radiosAlmacen(opcionesDestino, form.AlmacenDestinoId, (idAlm, sel) => {
+                          setForm((f) => ({ ...f, AlmacenDestinoId: sel ? '' : idAlm }));
+                        })
                       )}
                     </View>
                   </View>
@@ -772,24 +837,9 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                   {esDevolucion ? (
                     <View style={[styles.group, styles.groupUltimo]}>
                       <Text style={styles.label}>Almacén destino *</Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
-                        {opcionesDestino.map((alm) => {
-                          const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
-                          const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
-                          const sel = idAlm !== '' && form.AlmacenDestinoId === idAlm;
-                          return (
-                            <TouchableOpacity
-                              key={idAlm || nombre}
-                              style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
-                              onPress={() => setForm((f) => ({ ...f, AlmacenDestinoId: sel ? '' : idAlm }))}
-                            >
-                              <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
-                                {nombre || idAlm || '—'}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </ScrollView>
+                      {radiosAlmacen(opcionesDestino, form.AlmacenDestinoId, (idAlm, sel) => {
+                        setForm((f) => ({ ...f, AlmacenDestinoId: sel ? '' : idAlm }));
+                      })}
                       {generalNoIdentificado ? (
                         <Text style={styles.avisoFactura}>
                           No hay ningún almacén llamado «Almacén General» en el maestro, así que no se ha podido
@@ -801,110 +851,111 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                   ) : (
                     <View style={[styles.group, styles.groupUltimo]}>
                       <Text style={styles.label}>Almacén origen *</Text>
-                      <>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
-                          {almacenesGeneralOpc.map((alm) => {
-                            const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
-                            const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
-                            const sel = !origenOtroLocal && idAlm !== '' && form.AlmacenOrigenId === idAlm;
-                            return (
-                              <TouchableOpacity
-                                key={idAlm || nombre}
-                                style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
-                                onPress={() => {
-                                  if (origenOtroLocal) {
-                                    usarAlmacenGeneral();
-                                    setForm((f) => ({ ...f, AlmacenOrigenId: idAlm }));
-                                    return;
-                                  }
-                                  setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }));
-                                }}
-                              >
-                                <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
-                                  {nombre || idAlm || '—'}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                          {puedeEnviarEntreLocales ? (
-                            <TouchableOpacity
-                              style={[styles.pickerChip, chipTouch, origenOtroLocal && styles.pickerChipActive]}
-                              onPress={origenOtroLocal ? usarAlmacenGeneral : usarOtroLocalComoOrigen}
+                      <View style={styles.rejilla}>
+                        {almacenesGeneralOpc.map((alm) => {
+                          const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
+                          const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
+                          const sel = !origenOtroLocal && idAlm !== '' && form.AlmacenOrigenId === idAlm;
+                          return (
+                            <Pressable
+                              key={idAlm || nombre}
+                              onPress={() => {
+                                if (origenOtroLocal) {
+                                  usarAlmacenGeneral();
+                                  setForm((f) => ({ ...f, AlmacenOrigenId: idAlm }));
+                                  return;
+                                }
+                                setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }));
+                              }}
+                              accessibilityRole="radio"
+                              accessibilityState={{ selected: sel }}
+                              style={({ pressed }) => [
+                                styles.tarjetaRadio,
+                                isPhone && styles.tarjetaRadioAncha,
+                                sel && styles.tarjetaRadioOn,
+                                { opacity: pressed ? 0.55 : 1 },
+                              ]}
                             >
-                              <Text
-                                style={[styles.pickerChipText, origenOtroLocal && styles.pickerChipTextActive]}
-                                numberOfLines={1}
-                              >
-                                Desde otro local
+                              <View style={[styles.radioCirculo, sel && styles.radioCirculoOn]}>
+                                {sel ? <View style={[styles.radioPunto, styles.radioPuntoOn]} /> : null}
+                              </View>
+                              <Text style={[styles.tarjetaRadioTexto, sel && styles.tarjetaRadioTextoOn]} numberOfLines={2}>
+                                {nombre || idAlm || '—'}
                               </Text>
-                            </TouchableOpacity>
-                          ) : null}
-                        </ScrollView>
-
-                        {generalNoIdentificado ? (
-                          <Text style={styles.avisoFactura}>
-                            No hay ningún almacén llamado «Almacén General» en el maestro, así que no se ha podido
-                            preseleccionar el origen habitual: elígelo a mano. Si el almacén elegido no es el central,
-                            el pedido generará factura entre sociedades y se rechazará sin el permiso de envíos entre
-                            locales. Revisa el nombre del almacén central en Almacenes.
-                          </Text>
+                            </Pressable>
+                          );
+                        })}
+                        {puedeEnviarEntreLocales ? (
+                          <Pressable
+                            onPress={origenOtroLocal ? usarAlmacenGeneral : usarOtroLocalComoOrigen}
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected: origenOtroLocal }}
+                            style={({ pressed }) => [
+                              styles.tarjetaRadio,
+                              isPhone && styles.tarjetaRadioAncha,
+                              origenOtroLocal && styles.tarjetaRadioOn,
+                              { opacity: pressed ? 0.55 : 1 },
+                            ]}
+                          >
+                            <View style={[styles.radioCirculo, origenOtroLocal && styles.radioCirculoOn]}>
+                              {origenOtroLocal ? <View style={[styles.radioPunto, styles.radioPuntoOn]} /> : null}
+                            </View>
+                            <Text style={[styles.tarjetaRadioTexto, origenOtroLocal && styles.tarjetaRadioTextoOn]} numberOfLines={2}>
+                              Desde otro local
+                            </Text>
+                          </Pressable>
                         ) : null}
+                      </View>
 
-                        {origenOtroLocal ? (
-                          <View style={styles.subGroup}>
-                            <Text style={styles.label}>Local que sirve *</Text>
-                            <SelectorDesplegable
-                              placeholder="— Seleccionar local que sirve —"
-                              icono="store"
-                              tituloLista="¿Qué local sirve la mercancía?"
-                              iconoLista="store"
-                              buscador
-                              valorId={localOrigenId || null}
-                              opciones={localesOrigenOpciones}
-                              vacioTexto="No hay otros locales disponibles."
-                              onSeleccionar={(id) => {
+                      {generalNoIdentificado ? (
+                        <Text style={styles.avisoFactura}>
+                          No hay ningún almacén llamado «Almacén General» en el maestro, así que no se ha podido
+                          preseleccionar el origen habitual: elígelo a mano. Si el almacén elegido no es el central,
+                          el pedido generará factura entre sociedades y se rechazará sin el permiso de envíos entre
+                          locales. Revisa el nombre del almacén central en Almacenes.
+                        </Text>
+                      ) : null}
+
+                      {origenOtroLocal ? (
+                        <View style={styles.subGroup}>
+                          <Text style={styles.label}>Local que sirve *</Text>
+                          <View style={styles.tarjetaLocal}>
+                            <View style={styles.tarjetaLocalTexto}>
+                              <Text style={[styles.tarjetaLocalValor, !localOrigen && styles.tarjetaLocalVacio]} numberOfLines={1}>
+                                {localOrigen ? nombreLocal(localOrigen) : '— Seleccionar local que sirve —'}
+                              </Text>
+                            </View>
+                            {cambiarLocal(
+                              '— Seleccionar local que sirve —',
+                              '¿Qué local sirve la mercancía?',
+                              localOrigenId,
+                              localesOrigenOpciones,
+                              (id) => {
                                 setLocalOrigenId(id);
                                 setErrorForm(null);
                                 setForm((f) => ({ ...f, AlmacenOrigenId: '' }));
-                              }}
-                            />
-                            {!localOrigenId ? (
-                              <Text style={styles.hint}>Elige el local del que sale la mercancía.</Text>
-                            ) : almacenesDelLocalOrigen.length === 0 ? (
-                              <Text style={styles.hintWarn}>
-                                Este local no tiene almacenes configurados. Asígnalos en Locales o elige otro origen.
-                              </Text>
-                            ) : (
-                              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
-                                {almacenesDelLocalOrigen.map((alm) => {
-                                    const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
-                                    const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
-                                    const sel = idAlm !== '' && form.AlmacenOrigenId === idAlm;
-                                    return (
-                                      <TouchableOpacity
-                                        key={idAlm || nombre}
-                                        style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
-                                        onPress={() => setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }))}
-                                      >
-                                        <Text
-                                          style={[styles.pickerChipText, sel && styles.pickerChipTextActive]}
-                                          numberOfLines={1}
-                                        >
-                                          {nombre || idAlm || '—'}
-                                        </Text>
-                                      </TouchableOpacity>
-                                    );
-                                  })}
-                                </ScrollView>
+                              },
+                              'No hay otros locales disponibles.',
                             )}
-                            {avisoEntreLocales ? (
-                              <Text style={avisoEntreLocales.tono === 'aviso' ? styles.avisoFactura : styles.hint}>
-                                {avisoEntreLocales.texto}
-                              </Text>
-                            ) : null}
                           </View>
-                        ) : null}
-                      </>
+                          {!localOrigenId ? (
+                            <Text style={styles.hint}>Elige el local del que sale la mercancía.</Text>
+                          ) : almacenesDelLocalOrigen.length === 0 ? (
+                            <Text style={styles.hintWarn}>
+                              Este local no tiene almacenes configurados. Asígnalos en Locales o elige otro origen.
+                            </Text>
+                          ) : (
+                            radiosAlmacen(almacenesDelLocalOrigen, form.AlmacenOrigenId, (idAlm, sel) => {
+                              setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }));
+                            })
+                          )}
+                          {avisoEntreLocales ? (
+                            <Text style={avisoEntreLocales.tono === 'aviso' ? styles.avisoFactura : styles.hint}>
+                              {avisoEntreLocales.texto}
+                            </Text>
+                          ) : null}
+                        </View>
+                      ) : null}
                     </View>
                   )}
                 </View>
@@ -922,39 +973,40 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                   </View>
                 ) : null}
 
-                <View style={styles.group}>
-                  <Text style={styles.label}>Fecha *</Text>
-                  <InputFecha
-                    valueIso={form.Fecha}
-                    onChangeIso={(v) => setForm((f) => ({ ...f, Fecha: v }))}
-                    placeholder="dd/mm/aaaa"
-                    style={styles.input}
-                  />
-                </View>
-
-                <View style={styles.group}>
-                  <Text style={styles.label}>Notas</Text>
-                  <TextInput
-                    style={[styles.input, styles.inputMultiline]}
-                    value={form.Notas}
-                    onChangeText={(v) => setForm((f) => ({ ...f, Notas: v }))}
-                    placeholder="Observaciones"
-                    placeholderTextColor="#94a3b8"
-                    multiline
-                  />
+                <View style={[styles.filaCampos, isPhone && styles.filaCamposPila]}>
+                  <View style={styles.campoMitad}>
+                    <Text style={styles.label}>Fecha *</Text>
+                    <InputFecha
+                      valueIso={form.Fecha}
+                      onChangeIso={(v) => setForm((f) => ({ ...f, Fecha: v }))}
+                      placeholder="dd/mm/aaaa"
+                      style={styles.input}
+                    />
+                  </View>
+                  <View style={styles.campoMitad}>
+                    <Text style={styles.label}>Notas</Text>
+                    <TextInput
+                      style={[styles.input, styles.inputMultiline]}
+                      value={form.Notas}
+                      onChangeText={(v) => setForm((f) => ({ ...f, Notas: v }))}
+                      placeholder="Observaciones"
+                      placeholderTextColor="#94a3b8"
+                      multiline
+                    />
+                  </View>
                 </View>
               </ScrollView>
               {errorForm ? <Text style={styles.error}>{errorForm}</Text> : null}
-              <View style={styles.footer}>
-                <TouchableOpacity style={styles.btnPrimary} onPress={crearPedido} disabled={guardando} activeOpacity={0.8}>
-                  {guardando ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <MaterialIcons name="arrow-forward" size={18} color="#fff" />
-                  )}
-                  <Text style={styles.btnPrimaryText}>{esDevolucion ? 'Crear y añadir botellas' : 'Crear y añadir productos'}</Text>
-                </TouchableOpacity>
-              </View>
+              <BarraAcciones inicio={<Text style={styles.pasoPie}>Paso 1 de 2</Text>}>
+                <BotonPrincipal
+                  estirar
+                  brillo
+                  tono={esDevolucion ? 'ambar' : 'rosa'}
+                  titulo={esDevolucion ? 'Crear y añadir botellas' : 'Crear y añadir productos'}
+                  estado={guardando ? 'enviando' : 'idle'}
+                  onPress={crearPedido}
+                />
+              </BarraAcciones>
             </>
           ) : (
             <>
@@ -1160,15 +1212,92 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'center', alignItems: 'center', padding: 16 },
   overlayPantalla: { padding: 0, backgroundColor: '#e8eef5', justifyContent: 'flex-start' },
   card: { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden' },
-  cardPantalla: { maxWidth: '100%', maxHeight: '100%', height: '100%', borderRadius: 0 },
+  cardPantalla: { flex: 1, maxWidth: '100%', maxHeight: '100%', height: '100%', borderRadius: 0 },
   cardLineas: { maxWidth: 760 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  title: { flex: 1, fontSize: 17, fontWeight: '700', color: '#334155' },
-  close: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  title: { flex: 1, minWidth: 0, fontSize: 17, fontWeight: '700', color: '#334155' },
+  close: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  pasos: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  pasoItem: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, minWidth: 0 },
+  pasoActual: { fontSize: 14, fontWeight: '700', color: '#ec4899' },
+  pasoHecho: { fontSize: 14, fontWeight: '700', color: '#0ea5e9' },
+  pasoPendiente: { fontSize: 14, fontWeight: '600', color: '#94a3b8' },
+  pasoSep: { fontSize: 14, color: '#94a3b8' },
+  pasoPie: { fontSize: 13, fontWeight: '600', color: '#64748b' },
   btnListo: { minHeight: MIN_TOUCH, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#e0f2fe' },
   btnListoText: { fontSize: 15, fontWeight: '700', color: '#0369a1' },
   loadingWrap: { paddingVertical: 48, alignItems: 'center' },
-  body: { paddingHorizontal: 16, paddingTop: 12 },
+  body: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.md },
+  bodyPantalla: { flex: 1 },
+  filaCampos: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.md },
+  filaCamposPila: { flexDirection: 'column' },
+  campoMitad: { flex: 1, minWidth: 0 },
+  tarjetaLocal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    minHeight: 72,
+    marginBottom: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  tarjetaLocalTexto: { flex: 1, minWidth: 0 },
+  tarjetaLocalValor: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
+  tarjetaLocalVacio: { fontWeight: '500', color: '#94a3b8' },
+  cambiarWrap: { position: 'relative', flexShrink: 0 },
+  cambiarTapa: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
+  selectorLleno: { flex: 1, height: '100%' },
+  triggerFantasma: { opacity: 0, height: '100%', minHeight: MIN_TOUCH, borderWidth: 0, backgroundColor: 'transparent' },
+  rejilla: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+  tarjetaRadio: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: '45%',
+    minWidth: '42%',
+    maxWidth: '100%',
+    minHeight: MIN_TOUCH,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  tarjetaRadioAncha: { flexBasis: '100%', minWidth: '100%' },
+  tarjetaRadioOn: { borderColor: '#ec4899', backgroundColor: '#fdf2f8' },
+  tarjetaRadioOnDev: { borderColor: '#d97706', backgroundColor: '#fffbeb' },
+  tarjetaRadioTexto: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '600', color: '#334155' },
+  tarjetaRadioTextoOn: { color: '#9d174d' },
+  tarjetaRadioTextoDev: { color: '#92400e' },
+  radioCirculo: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioCirculoOn: { borderColor: '#ec4899' },
+  radioCirculoDev: { borderColor: '#d97706' },
+  radioPunto: { width: 10, height: 10, borderRadius: 5 },
+  radioPuntoOn: { backgroundColor: '#ec4899' },
+  radioPuntoDev: { backgroundColor: '#d97706' },
   group: { marginBottom: 14 },
   groupUltimo: { marginBottom: 0 },
   bloqueSeccion: {
@@ -1208,12 +1337,6 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, paddingHorizontal: 12, minHeight: 44, fontSize: 15, color: '#334155', backgroundColor: '#fff', justifyContent: 'center', ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) },
   inputMultiline: { minHeight: 70, textAlignVertical: 'top', paddingTop: 10 },
   inputReadonly: { backgroundColor: '#f8fafc', color: '#64748b' },
-  pickerRow: { flexDirection: 'row' },
-  pickerChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc', marginRight: 8, minHeight: 40, justifyContent: 'center' },
-  pickerChipTouch: { minHeight: MIN_TOUCH },
-  pickerChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  pickerChipText: { fontSize: 13, color: '#475569', fontWeight: '600' },
-  pickerChipTextActive: { color: '#fff' },
   hint: { fontSize: 12, color: '#64748b', marginTop: 6 },
   hintWarn: { fontSize: 12, color: '#b45309', marginTop: 2 },
   subGroup: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
@@ -1222,8 +1345,6 @@ const styles = StyleSheet.create({
   hintOk: { fontSize: 12, color: '#15803d', marginTop: 2 },
   error: { fontSize: 13, color: '#dc2626', paddingHorizontal: 16, paddingTop: 8, fontWeight: '500' },
   footer: { flexDirection: 'row', gap: 10, padding: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  btnPrimary: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 48, borderRadius: 12, backgroundColor: '#0ea5e9' },
-  btnPrimaryText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   btnGhost: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff' },
   btnGhostText: { fontSize: 15, fontWeight: '600', color: '#64748b' },
   btnEnviar: { flex: 1.4, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 48, borderRadius: 12, backgroundColor: '#d97706' },
@@ -1231,12 +1352,6 @@ const styles = StyleSheet.create({
   btnEnviarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   btnDisabled: { opacity: 0.5 },
 
-  segmented: { flexDirection: 'row', gap: 8 },
-  segmentBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-  segmentBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  segmentBtnActiveDev: { backgroundColor: '#b45309', borderColor: '#b45309' },
-  segmentText: { fontSize: 14, fontWeight: '700', color: '#475569' },
-  segmentTextActive: { color: '#fff' },
   devHint: { fontSize: 12, color: '#b45309', marginTop: 6 },
 
   resumenCabecera: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#eff6ff', paddingHorizontal: 16, paddingVertical: 8 },
