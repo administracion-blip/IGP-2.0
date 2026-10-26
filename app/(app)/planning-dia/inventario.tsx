@@ -675,6 +675,7 @@ export default function InventarioConteoScreen() {
           ) : null}
           <FotoDobleConteo
             visible={capturando}
+            numero={numeroLibre}
             onCerrar={() => setCapturando(false)}
             onPar={(par) => {
               const numero = siguienteNumero(inventario.inventarioId, fotosCupo);
