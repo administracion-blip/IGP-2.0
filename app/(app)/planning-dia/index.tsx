@@ -18,6 +18,7 @@ import {
 } from '../../lib/planningEnlaces';
 import { EstrellaFavorito } from '../../components/EstrellaFavorito';
 import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
+import { SoftPulseBorderWrap } from '../../components/ui/SoftPulseBorderWrap';
 import { ObjetivoMensualCard, type ObjetivoMensualLocal } from '../../components/ObjetivoMensualCard';
 import { CampanasActivasPlanningCard } from '../../components/CampanasActivasPlanningCard';
 import { TopCamarerosPlanningCard } from '../../components/TopCamarerosPlanningCard';
@@ -63,6 +64,14 @@ const TARJETAS_INTERNAS: TarjetaInterna[] = [
     icon: 'groups',
     ruta: '/planning-dia/cuadrante',
     permiso: 'planning_dia.ver',
+  },
+  {
+    id: 'hacer-pedido',
+    label: 'Hacer pedido',
+    descripcion: 'Crear un pedido del local y enviarlo al almacén',
+    icon: 'local-shipping',
+    ruta: '/compras/pedidos?vista=tarjetas',
+    permiso: 'pedidos.ver',
   },
   {
     id: 'almacen',
@@ -396,19 +405,21 @@ export default function PlanningDiaIndexScreen() {
             {hubItems.map((item) => {
               const accent = hubAccentById(item.id);
               if (item.kind === 'internal') {
-                return (
+                const esHacerPedido = item.id === 'hacer-pedido';
+                const tarjeta = (
                   <HubNavCard
                     key={item.id}
                     label={item.label}
                     description={item.descripcion}
                     icon={item.icon}
-                    accentBg={accent.accentBg}
-                    accentFg={accent.accentFg}
+                    accentBg={esHacerPedido ? '#fce7f3' : accent.accentBg}
+                    accentFg={esHacerPedido ? '#db2777' : accent.accentFg}
                     variant={item.variant === 'accent' ? 'accent' : 'default'}
-                    width={cardWidth}
+                    width={esHacerPedido ? '100%' : cardWidth}
                     compact={compact}
                     badgeCount={item.badgeCount}
                     onPress={() => router.push(item.ruta as never)}
+                    style={esHacerPedido ? { backgroundColor: '#fdf2f8', borderColor: 'transparent' } : undefined}
                     trailing={
                       <EstrellaFavorito
                         favorito={{
@@ -420,6 +431,17 @@ export default function PlanningDiaIndexScreen() {
                       />
                     }
                   />
+                );
+                if (!esHacerPedido) return tarjeta;
+                return (
+                  <SoftPulseBorderWrap
+                    key={item.id}
+                    preset="favoritos"
+                    borderRadius={8}
+                    style={{ width: cardWidth }}
+                  >
+                    {tarjeta}
+                  </SoftPulseBorderWrap>
                 );
               }
               return (

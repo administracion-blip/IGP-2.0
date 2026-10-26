@@ -20,6 +20,8 @@ import { BadgeFormato, useMapaFormatosBase } from '../../components/compras/Badg
 import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../components/compras/EtiquetaZona';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../constants/layout';
+import { InputCantidad } from '../../components/InputCantidad';
+import { estadoFacturacionPedido } from '../../lib/comprasFacturacion';
 import { apiFetch } from '../../utils/api';
 import { anioEnCurso, urlPedidosPorAnio } from '../../lib/rangoAnioListado';
 import { SelectorAnioListado } from '../../components/SelectorAnioListado';
@@ -67,6 +69,13 @@ function FranjaPedidoNuevo() {
 }
 
 type Registro = Record<string, string | number | boolean | undefined | null>;
+
+function textoCantidad(valor: unknown): string {
+  const n = Number(valor ?? 0);
+  if (!Number.isFinite(n)) return '0';
+  if (Number.isInteger(n)) return String(n);
+  return String(n).replace('.', ',');
+}
 
 /** Clave de espera: EnviadoEn ISO si es válido; si no, Fecha. */
 function claveOrdenEspera(p: Registro): string {
@@ -128,6 +137,7 @@ export default function PedidosAlmacenScreen() {
   const lineasPorZona = useMemo(() => ordenarLineasPorZona(lineas, zonas), [lineas, zonas]);
   const [loadingLineas, setLoadingLineas] = useState(false);
   const [guardandoLinea, setGuardandoLinea] = useState<string | null>(null);
+  const [borradorCantidad, setBorradorCantidad] = useState<Record<string, string>>({});
   const [prepararTodoEnCurso, setPrepararTodoEnCurso] = useState(false);
   const enCursoRef = useRef(false);
   const ocupadoRef = useRef(false);
@@ -314,6 +324,80 @@ export default function PedidosAlmacenScreen() {
         : prev,
     );
   }, []);
+
+  const pedidoIdSel = pedidoSel ? String(valorEnLocal(pedidoSel, 'Id') ?? '') : '';
+  useEffect(() => {
+    setBorradorCantidad({});
+  }, [pedidoIdSel]);
+
+  const guardarCantidad = useCallback(
+    async (linea: Registro, texto: string) => {
+      if (!pedidoSel || !hasPermiso('pedidos.editar_enviado')) return;
+      if (estadoFacturacionPedido(pedidoSel).estado === 'facturado') return;
+      const pedidoId = String(valorEnLocal(pedidoSel, 'Id') ?? '');
+      const lineaIndex = String(linea.LineaIndex ?? '');
+      if (!pedidoId || !lineaIndex) return;
+      const limpio = texto.trim();
+      if (!limpio) {
+        setBorradorCantidad((prev) => {
+          if (!(lineaIndex in prev)) return prev;
+          const siguiente = { ...prev };
+          delete siguiente[lineaIndex];
+          return siguiente;
+        });
+        return;
+      }
+      const cant = parseFloat(limpio.replace(',', '.'));
+      const actual = Number(linea.Cantidad ?? 0);
+      if (!Number.isFinite(cant) || cant < 0) {
+        alert('La cantidad no es válida');
+        return;
+      }
+      if (cant === actual) {
+        setBorradorCantidad((prev) => {
+          if (!(lineaIndex in prev)) return prev;
+          const siguiente = { ...prev };
+          delete siguiente[lineaIndex];
+          return siguiente;
+        });
+        return;
+      }
+      setGuardandoLinea(lineaIndex);
+      try {
+        const res = await apiFetch(`/api/pedidos/${pedidoId}/lineas`, {
+          method: 'PUT',
+          body: JSON.stringify({ LineaIndex: lineaIndex, Cantidad: cant }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || 'Error al actualizar la cantidad');
+        const lineaNueva = (data.linea ?? { ...linea, Cantidad: cant }) as Registro;
+        const nuevasLineas = lineas.map((l) =>
+          String(l.LineaIndex ?? '') === lineaIndex ? { ...l, ...lineaNueva, Cantidad: cant } : l,
+        );
+        setLineas(nuevasLineas);
+        const total = nuevasLineas.reduce((suma, l) => suma + Number(l.TotalLinea ?? 0), 0);
+        setPedidos((prev) =>
+          prev.map((p) =>
+            String(valorEnLocal(p, 'Id') ?? '') === pedidoId ? { ...p, TotalAlbaran: total } : p,
+          ),
+        );
+        setPedidoSel((prev) =>
+          prev && String(valorEnLocal(prev, 'Id') ?? '') === pedidoId ? { ...prev, TotalAlbaran: total } : prev,
+        );
+        setBorradorCantidad((prev) => {
+          if (!(lineaIndex in prev)) return prev;
+          const siguiente = { ...prev };
+          delete siguiente[lineaIndex];
+          return siguiente;
+        });
+      } catch (e) {
+        alert((e as Error).message || 'Error al actualizar la cantidad');
+      } finally {
+        setGuardandoLinea(null);
+      }
+    },
+    [pedidoSel, lineas, hasPermiso],
+  );
 
   const toggleLinea = useCallback(
     async (linea: Registro) => {
@@ -587,6 +671,9 @@ export default function PedidosAlmacenScreen() {
     const prep = lineas.filter((l) => !!l.Preparada).length;
     const todasPreparadas = total > 0 && prep === total;
     const botonesEnCabecera = dosColumnas;
+    const facturacion = estadoFacturacionPedido(pedidoSel);
+    const puedeEditarCantidad =
+      hasPermiso('pedidos.editar_enviado') && facturacion.estado !== 'facturado';
 
     const botonesPreparar = (
       <>
@@ -661,6 +748,13 @@ export default function PedidosAlmacenScreen() {
           </View>
         ) : null}
 
+        {facturacion.estado === 'facturado' && hasPermiso('pedidos.editar_enviado') ? (
+          <View style={styles.avisoFacturado}>
+            <MaterialIcons name="lock-outline" size={16} color="#b45309" />
+            <Text style={styles.avisoFacturadoText}>{facturacion.detalle}</Text>
+          </View>
+        ) : null}
+
         {loadingLineas ? (
           <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 24 }} />
         ) : lineas.length === 0 ? (
@@ -672,33 +766,48 @@ export default function PedidosAlmacenScreen() {
               const preparada = !!l.Preparada;
               const guardando = guardandoLinea === key;
               return (
-                <TouchableOpacity
-                  key={key}
-                  style={[styles.linea, preparada && styles.lineaPreparada]}
-                  onPress={() => toggleLinea(l)}
-                  disabled={guardando || prepararTodoEnCurso}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.lineaCantidad}>{String(l.Cantidad ?? 0)}</Text>
-                  <View style={styles.lineaArticulo}>
-                    <EtiquetaZona zona={zonas.get(String(l.ProductId ?? '').trim())} />
-                    <Text style={[styles.lineaNombre, preparada && styles.lineaNombrePrep]} numberOfLines={2}>
-                      {String(l.ProductoNombre || l.ProductId || '—')}
-                    </Text>
-                    <BadgeFormato nombre={formatos.get(String(l.ProductId ?? '').trim())} />
-                  </View>
-                  <View style={styles.lineaCheck}>
-                    {guardando ? (
-                      <ActivityIndicator size="small" color={preparada ? '#16a34a' : '#0ea5e9'} />
-                    ) : (
-                      <MaterialIcons
-                        name={preparada ? 'check-circle' : 'radio-button-unchecked'}
-                        size={26}
-                        color={preparada ? '#16a34a' : '#94a3b8'}
-                      />
-                    )}
-                  </View>
-                </TouchableOpacity>
+                <View key={key} style={[styles.linea, preparada && styles.lineaPreparada]}>
+                  {puedeEditarCantidad ? (
+                    <InputCantidad
+                      value={borradorCantidad[key] ?? textoCantidad(l.Cantidad)}
+                      onChangeText={(v) => setBorradorCantidad((prev) => ({ ...prev, [key]: v }))}
+                      onCommit={(v) => { void guardarCantidad(l, v); }}
+                      disabled={guardando || prepararTodoEnCurso}
+                      compacto
+                      sinPasos
+                      style={styles.lineaCantidadInput}
+                    />
+                  ) : (
+                    <Text style={styles.lineaCantidad}>{textoCantidad(l.Cantidad)}</Text>
+                  )}
+                  <TouchableOpacity
+                    style={styles.lineaCuerpo}
+                    onPress={() => toggleLinea(l)}
+                    disabled={guardando || prepararTodoEnCurso}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={preparada ? 'Desmarcar línea' : 'Marcar línea preparada'}
+                  >
+                    <View style={styles.lineaArticulo}>
+                      <EtiquetaZona zona={zonas.get(String(l.ProductId ?? '').trim())} />
+                      <Text style={[styles.lineaNombre, preparada && styles.lineaNombrePrep]} numberOfLines={2}>
+                        {String(l.ProductoNombre || l.ProductId || '—')}
+                      </Text>
+                      <BadgeFormato nombre={formatos.get(String(l.ProductId ?? '').trim())} />
+                    </View>
+                    <View style={styles.lineaCheck}>
+                      {guardando ? (
+                        <ActivityIndicator size="small" color={preparada ? '#16a34a' : '#0ea5e9'} />
+                      ) : (
+                        <MaterialIcons
+                          name={preparada ? 'check-circle' : 'radio-button-unchecked'}
+                          size={26}
+                          color={preparada ? '#16a34a' : '#94a3b8'}
+                        />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                </View>
               );
             })}
           </ScrollView>
@@ -919,6 +1028,20 @@ const styles = StyleSheet.create({
   lineaNombre: { fontSize: 15, color: '#334155', fontWeight: '500', flexShrink: 1 },
   lineaNombrePrep: { color: '#15803d', fontWeight: '600' },
   lineaCantidad: { fontSize: 17, fontWeight: '700', color: '#0f172a', minWidth: 28, textAlign: 'right' },
+  lineaCantidadInput: { flexShrink: 0 },
+  lineaCuerpo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 0 },
+  avisoFacturado: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 10,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  avisoFacturadoText: { flex: 1, fontSize: 13, color: '#92400e' },
 
   sinPermisoText: { fontSize: 15, color: '#64748b', textAlign: 'center' },
   errorText: { fontSize: 14, color: '#dc2626', textAlign: 'center' },

@@ -611,8 +611,8 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       {/* El fondo no cierra el pedido en curso (evita perder datos); se cierra con la X o Cancelar. */}
-      <Pressable style={styles.overlay}>
-        <Pressable style={[styles.card, fase === 'lineas' && styles.cardLineas]} onPress={(e) => e.stopPropagation()}>
+      <Pressable style={[styles.overlay, isCompact && styles.overlayPantalla]}>
+        <Pressable style={[styles.card, fase === 'lineas' && styles.cardLineas, isCompact && styles.cardPantalla]} onPress={(e) => e.stopPropagation()}>
           <View style={styles.header}>
             <Text style={styles.title} numberOfLines={1}>
               {fase === 'cabecera'
@@ -1158,7 +1158,9 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  overlayPantalla: { padding: 0, backgroundColor: '#e8eef5', justifyContent: 'flex-start' },
   card: { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden' },
+  cardPantalla: { maxWidth: '100%', maxHeight: '100%', height: '100%', borderRadius: 0 },
   cardLineas: { maxWidth: 760 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   title: { flex: 1, fontSize: 17, fontWeight: '700', color: '#334155' },

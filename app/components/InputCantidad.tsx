@@ -28,6 +28,12 @@ type Props = {
   style?: ViewStyle;
   inputStyle?: TextStyle;
   disabled?: boolean;
+  /** Más bajo y estrecho, para una fila de listado. */
+  compacto?: boolean;
+  /** Sin botones +/−: la cantidad se escribe. */
+  sinPasos?: boolean;
+  /** Al salir del campo o al usar +/-. No se llama en cada tecla. */
+  onCommit?: (value: string) => void;
 };
 
 /**
@@ -43,6 +49,9 @@ export function InputCantidad({
   style,
   inputStyle,
   disabled = false,
+  compacto = false,
+  sinPasos = false,
+  onCommit,
 }: Props) {
   const actual = parseCantidad(value);
   const puedeBajar = !disabled && actual > min;
@@ -50,23 +59,27 @@ export function InputCantidad({
   const ajustar = (delta: number) => {
     if (disabled) return;
     const siguiente = Math.max(min, actual + delta);
-    onChangeText(formatCantidad(siguiente));
+    const texto = formatCantidad(siguiente);
+    onChangeText(texto);
+    onCommit?.(texto);
   };
 
   return (
-    <View style={[styles.contenedor, disabled && styles.contenedorDisabled, style]}>
+    <View style={[styles.contenedor, compacto && styles.contenedorCompacto, sinPasos && styles.contenedorSinPasos, disabled && styles.contenedorDisabled, style]}>
+      {sinPasos ? null : (
       <TouchableOpacity
-        style={[styles.boton, !puedeBajar && styles.botonDisabled]}
+        style={[styles.boton, compacto && styles.botonCompacto, !puedeBajar && styles.botonDisabled]}
         onPress={() => ajustar(-paso)}
         disabled={!puedeBajar}
         accessibilityRole="button"
         accessibilityLabel="Reducir cantidad"
         activeOpacity={0.7}
       >
-        <MaterialIcons name="remove" size={20} color={puedeBajar ? '#475569' : '#cbd5e1'} />
+        <MaterialIcons name="remove" size={compacto ? 16 : 20} color={puedeBajar ? '#475569' : '#cbd5e1'} />
       </TouchableOpacity>
+      )}
       <TextInput
-        style={[styles.input, inputStyle]}
+        style={[styles.input, compacto && styles.inputCompacto, inputStyle]}
         value={value}
         onChangeText={(v) => onChangeText(sanitizarEntrada(v))}
         placeholder={placeholder}
@@ -74,18 +87,21 @@ export function InputCantidad({
         keyboardType="decimal-pad"
         editable={!disabled}
         selectTextOnFocus
+        onBlur={() => onCommit?.(value)}
         {...(Platform.OS === 'android' ? { textAlignVertical: 'center' as const } : {})}
       />
+      {sinPasos ? null : (
       <TouchableOpacity
-        style={[styles.boton, disabled && styles.botonDisabled]}
+        style={[styles.boton, compacto && styles.botonCompacto, disabled && styles.botonDisabled]}
         onPress={() => ajustar(paso)}
         disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel="Aumentar cantidad"
         activeOpacity={0.7}
       >
-        <MaterialIcons name="add" size={20} color={disabled ? '#cbd5e1' : '#475569'} />
+        <MaterialIcons name="add" size={compacto ? 16 : 20} color={disabled ? '#cbd5e1' : '#475569'} />
       </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -102,6 +118,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     overflow: 'hidden',
   },
+  contenedorCompacto: {
+    minHeight: 32,
+    width: 96,
+    minWidth: 96,
+    maxWidth: 96,
+    flexGrow: 0,
+    borderRadius: 8,
+  },
+  contenedorSinPasos: {
+    width: 48,
+    minWidth: 48,
+    maxWidth: 48,
+  },
   contenedorDisabled: {
     backgroundColor: '#f8fafc',
     opacity: 0.7,
@@ -113,6 +142,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#f8fafc',
     borderColor: '#e2e8f0',
+  },
+  botonCompacto: {
+    width: 28,
+    minHeight: 32,
   },
   botonDisabled: {
     backgroundColor: '#f1f5f9',
@@ -128,5 +161,13 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     backgroundColor: 'transparent',
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}),
+  },
+  inputCompacto: {
+    flex: 0,
+    width: 40,
+    minWidth: 40,
+    maxWidth: 40,
+    paddingHorizontal: 0,
+    fontSize: 14,
   },
 });

@@ -13,7 +13,6 @@ import {
   Pressable,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import {
@@ -136,7 +135,7 @@ function precioVentaCongelado(
 
 export default function PedidosScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ crear?: string }>();
+  const params = useLocalSearchParams<{ crear?: string; vista?: string }>();
   const { localPermitido, hasPermiso } = useAuth();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [locales, setLocales] = useState<Local[]>([]);
@@ -968,7 +967,8 @@ export default function PedidosScreen() {
   };
 
   const { shouldStackPanels, shouldStackToolbar, shouldUseComfortableTable } = useBreakpoint();
-  const insets = useSafeAreaInsets();
+  const vistaParam = Array.isArray(params.vista) ? params.vista[0] : params.vista;
+  const moduloTarjetas = vistaParam === 'tarjetas';
 
   const volverAtras = useCallback(() => router.back(), [router]);
   const getColumnCellStyleTabla = useCallback(
@@ -991,9 +991,9 @@ export default function PedidosScreen() {
     [],
   );
   // Tabla de líneas estirada cuando hay espacio horizontal (tablet/escritorio horizontal).
-  const isWide = !shouldStackPanels;
-  // Apilar detalle en móvil vertical y tablet vertical; lado a lado en horizontal.
-  const detalleComoModal = shouldStackPanels;
+  const isWide = !shouldStackPanels && !moduloTarjetas;
+  // Hacer pedido siempre usa tarjetas. La tabla de Compras solo se apila en vertical.
+  const detalleComoModal = shouldStackPanels || moduloTarjetas;
 
   const renderLineasTable = (stretchWide: boolean) => (
     <View style={[styles.lineasTable, stretchWide && styles.lineasTableWide]}>
@@ -1165,7 +1165,7 @@ export default function PedidosScreen() {
               </TouchableOpacity>
             </View>
           ) : null}
-          {shouldStackToolbar ? (
+          {shouldStackToolbar && !(moduloTarjetas || shouldStackPanels) ? (
             <View style={styles.anioApilado}>
               <SelectorAnioListado
                 label="Año"
@@ -1175,6 +1175,75 @@ export default function PedidosScreen() {
               />
             </View>
           ) : null}
+          {moduloTarjetas || shouldStackPanels ? (
+            <View style={styles.listaMovil}>
+              <View style={styles.listaMovilHeader}>
+                <TouchableOpacity onPress={volverAtras} style={styles.listaMovilBack} accessibilityLabel="Volver">
+                  <MaterialIcons name="arrow-back" size={22} color="#334155" />
+                </TouchableOpacity>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.listaMovilTitulo}>{moduloTarjetas ? 'Hacer pedido' : 'Pedidos'}</Text>
+                  <Text style={styles.listaMovilSub}>Crear un pedido y enviarlo al almacén</Text>
+                </View>
+                <TouchableOpacity onPress={refetch} style={styles.listaMovilBack} accessibilityLabel="Recargar">
+                  <MaterialIcons name="refresh" size={22} color="#0ea5e9" />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity style={styles.listaMovilNuevo} onPress={handleCrear} activeOpacity={0.8}>
+                <MaterialIcons name="add" size={20} color="#0f172a" />
+                <Text style={styles.listaMovilNuevoText}>Nuevo pedido</Text>
+              </TouchableOpacity>
+              <SelectorAnioListado label="Año" estirar valorId={anioListado} onChange={setAnioListado} />
+              {chipsEstado}
+              <TextInput
+                style={styles.listaMovilBuscar}
+                value={filtroBusqueda}
+                onChangeText={setFiltroBusqueda}
+                placeholder="Buscar pedido, local o estado"
+                placeholderTextColor="#94a3b8"
+              />
+              {loading ? (
+                <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 24 }} />
+              ) : error ? (
+                <View style={styles.listaMovilCentro}>
+                  <Text style={styles.listaMovilVacio}>{error}</Text>
+                  <TouchableOpacity onPress={refetch} style={styles.listaMovilReintentar}>
+                    <Text style={styles.listaMovilReintentarText}>Reintentar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : pedidosFiltrados.length === 0 ? (
+                <Text style={styles.listaMovilVacio}>
+                  {filtroBusqueda.trim() ? 'Ningún pedido coincide con el filtro' : 'No hay pedidos'}
+                </Text>
+              ) : (
+                <ScrollView contentContainerStyle={styles.listaMovilScroll} keyboardShouldPersistTaps="handled">
+                  {[...pedidosFiltrados].map((p, index) => ({ p, index })).reverse().map(({ p, index }) => {
+                    const id = String(valorEnLocal(p, 'Id') ?? '');
+                    const localId = String(valorEnLocal(p, 'LocalId') ?? '').trim();
+                    const local = localId ? (nombresPorLocalId[localId] ?? '—') : '—';
+                    const estado = String(valorEnLocal(p, 'Estado') ?? '');
+                    return (
+                      <TouchableOpacity
+                        key={id || `sin-id-${index}`}
+                        style={styles.cardPedido}
+                        onPress={() => handleSelectRow(index)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.cardPedidoTop}>
+                          <Text style={styles.cardPedidoId} numberOfLines={1}>{id}</Text>
+                          <Text style={styles.cardPedidoEstado}>{estado || '—'}</Text>
+                        </View>
+                        <Text style={styles.cardPedidoLocal} numberOfLines={1}>{local}</Text>
+                        <Text style={styles.cardPedidoFecha} numberOfLines={1}>
+                          {formatFecha(valorEnLocal(p, 'Fecha'))} · {formatMoneda(valorEnLocal(p, 'TotalAlbaran'))}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
+          ) : (
           <TablaBasica<Pedido>
             extraToolbarLeft={chipsEstado}
             extraToolbarRight={
@@ -1207,6 +1276,7 @@ export default function PedidosScreen() {
             emptyMessage="No hay pedidos"
             emptyFilterMessage="Ningún pedido coincide con el filtro"
           />
+          )}
         </View>
         {(() => {
           const contenidoDetalle = (
@@ -1250,12 +1320,12 @@ export default function PedidosScreen() {
                     <MaterialIcons name="add" size={14} color={modalLineaFormVisible || bloqueadoEditar ? colors.textMuted : colors.success} />
                     <Text style={[styles.lineasAddBtnText, (modalLineaFormVisible || bloqueadoEditar) && { color: colors.textMuted }]}>Añadir línea</Text>
                   </TouchableOpacity>
-                  {!pedidoEnviado && (
+                  {!pedidoEnviado && isWide ? (
                     <TouchableOpacity style={styles.enviarPedidoBtn} onPress={enviarPedido}>
                       <MaterialIcons name="send" size={14} color="#9a3412" />
                       <Text style={styles.enviarPedidoBtnText}>Enviar pedido</Text>
                     </TouchableOpacity>
-                  )}
+                  ) : null}
                 </>
               ) : (
                 <View style={styles.lineasEditActions}>
@@ -1273,12 +1343,38 @@ export default function PedidosScreen() {
             <ScrollView style={[styles.lineasList, detalleComoModal && styles.lineasListFull]} showsVerticalScrollIndicator>
               {isWide ? (
                 renderLineasTable(true)
+              ) : lineas.length === 0 ? (
+                <Text style={styles.lineasEmpty}>No hay líneas</Text>
               ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator>
-                  {renderLineasTable(false)}
-                </ScrollView>
+                lineasPorZona.map((l, idx) => {
+                  const key = String(l.LineaIndex ?? idx);
+                  const nombre = String(l.ProductoNombre || l.ProductId || '—');
+                  const cantTexto = lineasEditValues[key] ?? String(l.Cantidad ?? '');
+                  return (
+                    <View key={key} style={styles.lineaMovil}>
+                      {editModeLineas ? (
+                        <InputCantidad
+                          value={cantTexto}
+                          onChangeText={(v) => setLineasEditValues((prev) => ({ ...prev, [key]: v }))}
+                          compacto
+                          sinPasos
+                          style={styles.lineaMovilCantidadInput}
+                        />
+                      ) : (
+                        <Text style={styles.lineaMovilCantidad}>{String(l.Cantidad ?? 0)}</Text>
+                      )}
+                      <Text style={styles.lineaMovilNombre} numberOfLines={2}>{nombre}</Text>
+                    </View>
+                  );
+                })
               )}
             </ScrollView>
+            {!isWide && pedidoParaLineas && !pedidoEnviado && !editModeLineas ? (
+              <TouchableOpacity style={styles.enviarFijo} onPress={enviarPedido} activeOpacity={0.8}>
+                <MaterialIcons name="send" size={18} color="#fff" />
+                <Text style={styles.enviarFijoText}>Enviar pedido</Text>
+              </TouchableOpacity>
+            ) : null}
             </>
           )}
           {pedidoParaLineas && modalLineaFormVisible && (
@@ -1402,19 +1498,17 @@ export default function PedidosScreen() {
           )}
           </View>
           );
-          return detalleComoModal ? (
-            <Modal visible={!!pedidoParaLineas} animationType="slide" onRequestClose={solicitarCerrarDetalle}>
-              <View style={[styles.detalleFullscreen, { paddingTop: insets.top }]}>
-                <View style={styles.detalleFullscreenBar}>
-                  <TouchableOpacity onPress={solicitarCerrarDetalle} style={styles.detalleVolverBtn} activeOpacity={0.7}>
-                    <MaterialIcons name="arrow-back" size={20} color={colors.accent} />
-                    <Text style={styles.detalleVolverText}>Volver a pedidos</Text>
-                  </TouchableOpacity>
-                </View>
-                {contenidoDetalle}
+          return detalleComoModal && pedidoParaLineas ? (
+            <View style={styles.detallePantalla}>
+              <View style={styles.detalleFullscreenBar}>
+                <TouchableOpacity onPress={solicitarCerrarDetalle} style={styles.detalleVolverBtn} activeOpacity={0.7}>
+                  <MaterialIcons name="arrow-back" size={20} color="#334155" />
+                  <Text style={styles.detalleVolverText}>Volver a pedidos</Text>
+                </TouchableOpacity>
               </View>
-            </Modal>
-          ) : (
+              {contenidoDetalle}
+            </View>
+          ) : detalleComoModal ? null : (
             contenidoDetalle
           );
           })()}
@@ -1720,7 +1814,7 @@ export default function PedidosScreen() {
 const RADIO_MEDIO = 8;
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, position: 'relative' },
   mainRow: {
     flex: 1,
     flexDirection: 'row',
@@ -2044,4 +2138,90 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   lineaFormBtns: { flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.md, justifyContent: 'flex-end' },
+  listaMovil: { flex: 1, backgroundColor: '#e8eef5', padding: 16, gap: 12 },
+  listaMovilHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  listaMovilBack: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
+  listaMovilTitulo: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
+  listaMovilSub: { fontSize: 13, color: '#64748b' },
+  listaMovilNuevo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e7edf4',
+  },
+  listaMovilNuevoText: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
+  listaMovilBuscar: {
+    minHeight: MIN_TOUCH,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e7edf4',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    fontSize: 15,
+    color: '#334155',
+  },
+  listaMovilScroll: { gap: 8, paddingBottom: 24 },
+  listaMovilCentro: { alignItems: 'center', gap: 10, paddingVertical: 24 },
+  listaMovilVacio: { fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 12 },
+  listaMovilReintentar: {
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  listaMovilReintentarText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
+  cardPedido: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e7edf4',
+    padding: 14,
+    gap: 4,
+  },
+  cardPedidoTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  cardPedidoId: { flex: 1, fontSize: 15, fontWeight: '700', color: '#0f172a' },
+  cardPedidoEstado: { fontSize: 12, fontWeight: '700', color: '#b45309' },
+  cardPedidoLocal: { fontSize: 15, color: '#334155' },
+  cardPedidoFecha: { fontSize: 13, color: '#64748b' },
+  detallePantalla: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    backgroundColor: '#e8eef5',
+    padding: 16,
+  },
+  lineaMovil: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e7edf4',
+    backgroundColor: '#fff',
+  },
+  lineaMovilCantidad: { fontSize: 17, fontWeight: '700', color: '#0f172a', minWidth: 28, textAlign: 'right' },
+  lineaMovilCantidadInput: { flexShrink: 0 },
+  lineaMovilNombre: { flex: 1, fontSize: 15, color: '#334155', fontWeight: '500' },
+  enviarFijo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: MIN_TOUCH,
+    marginTop: 8,
+    borderRadius: 12,
+    backgroundColor: '#16a34a',
+  },
+  enviarFijoText: { fontSize: 16, fontWeight: '700', color: '#fff' },
 });
