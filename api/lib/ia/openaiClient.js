@@ -31,7 +31,9 @@ export function modeloInformes() {
  *
  * @param {object} opts
  * @param {string} opts.system - mensaje de sistema.
- * @param {string} opts.user - mensaje de usuario.
+ * @param {string} opts.user - mensaje de usuario. Si no hay `imagenes`, viaja como texto.
+ * @param {Array<{ url: string }>} [opts.imagenes] — si viene con elementos, el
+ *   usuario pasa a ser texto + imágenes. Si se omite, el cuerpo no cambia.
  * @param {number} [opts.temperature=0.2]
  * @param {string} [opts.model]
  * @param {number} [opts.timeoutMs=90000] — actas: pasar valor alto si hace falta.
@@ -48,6 +50,7 @@ export async function chatCompletion({
   timeoutMs = 90000,
   responseFormat,
   maxTokens,
+  imagenes,
 } = {}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || String(apiKey).trim() === '') {
@@ -55,12 +58,19 @@ export async function chatCompletion({
   }
   const usedModel = model || modeloInformes();
 
+  const contenidoUsuario = Array.isArray(imagenes) && imagenes.length > 0
+    ? [
+      { type: 'text', text: user },
+      ...imagenes.map((img) => ({ type: 'image_url', image_url: { url: img.url } })),
+    ]
+    : user;
+
   const body = {
     model: usedModel,
     temperature,
     messages: [
       { role: 'system', content: system },
-      { role: 'user', content: user },
+      { role: 'user', content: contenidoUsuario },
     ],
   };
   if (responseFormat != null) {

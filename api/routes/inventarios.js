@@ -39,6 +39,7 @@ import {
   listarFotos,
   prepararFoto,
 } from '../lib/inventarios/fotos.js';
+import { leerPar, listarLecturas } from '../lib/inventarios/lectura.js';
 
 const router = Router();
 
@@ -333,6 +334,32 @@ router.post('/inventarios/:id/fotos/confirmar', ver, async (req, res) => {
     return res.status(201).json(foto);
   } catch (err) {
     return atrapar(res, err, 'Error confirmando la foto');
+  }
+});
+
+router.get('/inventarios/:id/lecturas', ver, async (req, res) => {
+  try {
+    const actual = await obtenerInventario(req.params.id);
+    if (!(await conAlmacen(req, res, actual.warehouseId))) return;
+    return res.json(await listarLecturas(req.params.id));
+  } catch (err) {
+    return atrapar(res, err, 'Error listando las lecturas');
+  }
+});
+
+router.post('/inventarios/:id/fotos/:numero/leer', ver, async (req, res) => {
+  try {
+    const actual = await obtenerInventario(req.params.id);
+    if (!(await conAlmacen(req, res, actual.warehouseId))) return;
+    const lectura = await leerPar({
+      inventarioId: req.params.id,
+      numero: req.params.numero,
+      reintentar: req.body?.reintentar === true,
+    });
+    const todo = await listarLecturas(req.params.id);
+    return res.status(lectura.error ? 200 : 201).json({ lectura, ...todo });
+  } catch (err) {
+    return atrapar(res, err, 'Error leyendo la foto');
   }
 });
 

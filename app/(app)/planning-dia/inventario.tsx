@@ -11,6 +11,7 @@ import {
   TextInput,
   Pressable,
   ActivityIndicator,
+  Animated,
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -53,6 +54,41 @@ const BOTELLAS = [
   { valor: 0.75, etiqueta: '0,75' },
   { valor: 0.9, etiqueta: '0,90' },
 ] as const;
+
+type PropuestaIa = {
+  productId: string;
+  cantidad: number;
+  fotos: number;
+  aviso: string | null;
+  baja: boolean;
+};
+
+function partirPropuesta(cantidad: number): { stockReal: number; botellasAbiertas: number } {
+  const segura = Math.round(cantidad * 10000) / 10000;
+  const enteras = Math.floor(segura + 1e-6);
+  const fraccion = Math.round((segura - enteras) * 100) / 100;
+  let mejor: number = BOTELLAS[0].valor;
+  let distancia = Infinity;
+  for (const b of BOTELLAS) {
+    const d = Math.abs(b.valor - fraccion);
+    if (d < distancia) {
+      distancia = d;
+      mejor = b.valor;
+    }
+  }
+  return { stockReal: enteras, botellasAbiertas: mejor };
+}
+
+function paresListos(fotos: Array<{ numero: number; posicion?: string }>): number[] {
+  const mapa = new Map<number, Set<string>>();
+  for (const foto of fotos) {
+    if (!mapa.has(foto.numero)) mapa.set(foto.numero, new Set());
+    if (foto.posicion) mapa.get(foto.numero)?.add(foto.posicion);
+  }
+  return [...mapa.entries()]
+    .filter(([, posiciones]) => posiciones.has('frente') && posiciones.has('superior'))
+    .map(([numero]) => numero);
+}
 
 type Linea = {
   productId: string;
@@ -122,6 +158,46 @@ function nombresAlmacenOrigen(raw: unknown): string[] {
     .filter(Boolean);
 }
 
+function BarraSubida({ subidas, enProceso }: { subidas: number; enProceso: number }) {
+  const avance = useRef(new Animated.Value(0)).current;
+  const [ancho, setAncho] = useState(0);
+  useEffect(() => {
+    if (enProceso <= 0 || subidas > 0) return undefined;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(avance, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(avance, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [avance, enProceso, subidas]);
+  if (enProceso <= 0) return null;
+  const total = subidas + enProceso;
+  const ratio = total > 0 ? subidas / total : 0;
+  const recorrido = Math.max(0, ancho - 72);
+  return (
+    <View
+      style={styles.barraPista}
+      onLayout={(e) => setAncho(e.nativeEvent.layout.width)}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: total, now: subidas }}
+      accessibilityLabel={`${subidas} de ${total} fotos subidas`}
+    >
+      {subidas > 0 ? (
+        <View style={[styles.barraRelleno, { width: `${Math.max(8, Math.round(ratio * 100))}%` }]} />
+      ) : (
+        <Animated.View
+          style={[
+            styles.barraTramo,
+            { transform: [{ translateX: avance.interpolate({ inputRange: [0, 1], outputRange: [0, recorrido] }) }] },
+          ]}
+        />
+      )}
+    </View>
+  );
+}
+
 function totalEscrito(texto: string, botellas: number): number | null {
   const parsed = parseCantidad(texto);
   if (parsed === 'mal') return null;
@@ -165,6 +241,7 @@ function textoResumen(plantilla: PlantillaOpcion): string | null {
 export default function InventarioConteoScreen() {
   const { hasPermiso } = useAuth();
   const puede = hasPermiso('inventario.contar') || hasPermiso('inventario.gestionar');
+  const puedeGestionar = hasPermiso('inventario.gestionar');
   const { isPhone } = useBreakpoint();
   const { confirmar, ConfirmarView } = useConfirmar();
 
@@ -187,7 +264,12 @@ export default function InventarioConteoScreen() {
   const [anadiendo, setAnadiendo] = useState(false);
   const [cargandoCatalogo, setCargandoCatalogo] = useState(false);
   const [catalogo, setCatalogo] = useState<Array<{ id: string; titulo: string; subtitulo?: string; badge?: string }> | null>(null);
-  const [fotosServidor, setFotosServidor] = useState<Array<{ numero: number }>>([]);
+  const [fotosServidor, setFotosServidor] = useState<Array<{ numero: number; posicion?: string }>>([]);
+  const [propuestas, setPropuestas] = useState<PropuestaIa[]>([]);
+  const [noIdentificados, setNoIdentificados] = useState<Array<{ descripcion: string; cantidad: number; numero: number | null }>>([]);
+  const [lecturasHechas, setLecturasHechas] = useState<number[]>([]);
+  const [lecturasFallidas, setLecturasFallidas] = useState<number[]>([]);
+  const lecturasEnCurso = useRef(new Set<number>());
   const [numerosReservados, setNumerosReservados] = useState<number[]>([]);
   const [capturando, setCapturando] = useState(false);
   const [colaTick, setColaTick] = useState(0);
@@ -369,12 +451,56 @@ export default function InventarioConteoScreen() {
         const body = await leerJson(res);
         if (!vivo || !res.ok) return;
         const lista = Array.isArray(body.fotos) ? body.fotos : [];
-        setFotosServidor(
-          lista
-            .map((f) => Number((f as { numero?: unknown }).numero))
-            .filter((n) => Number.isInteger(n) && n >= 1)
-            .map((numero) => ({ numero })),
-        );
+        const fotos = lista
+          .map((f) => ({
+            numero: Number((f as { numero?: unknown }).numero),
+            posicion: String((f as { posicion?: unknown }).posicion || ''),
+          }))
+          .filter((f) => Number.isInteger(f.numero) && f.numero >= 1);
+        setFotosServidor(fotos);
+        const lecturasRes = await apiFetch(`/api/inventarios/${encodeURIComponent(id)}/lecturas`);
+        const lecturasBody = await leerJson(lecturasRes);
+        if (!vivo || !lecturasRes.ok) return;
+        const lecturas = Array.isArray(lecturasBody.lecturas) ? lecturasBody.lecturas : [];
+        const hechas = lecturas
+          .map((l) => Number((l as { numero?: unknown }).numero))
+          .filter((n) => Number.isInteger(n));
+        setLecturasHechas(hechas);
+        setLecturasFallidas(lecturas
+          .filter((l) => Boolean((l as { error?: unknown }).error))
+          .map((l) => Number((l as { numero?: unknown }).numero))
+          .filter((n) => Number.isInteger(n)));
+        setPropuestas(Array.isArray(lecturasBody.propuestas) ? lecturasBody.propuestas as PropuestaIa[] : []);
+        setNoIdentificados(Array.isArray(lecturasBody.noIdentificados)
+          ? lecturasBody.noIdentificados as Array<{ descripcion: string; cantidad: number; numero: number | null }>
+          : []);
+        for (const numero of paresListos(fotos)) {
+          if (hechas.includes(numero) || lecturasEnCurso.current.has(numero)) continue;
+          lecturasEnCurso.current.add(numero);
+          void apiFetch(`/api/inventarios/${encodeURIComponent(id)}/fotos/${numero}/leer`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          }).then(async (lecturaRes) => {
+            lecturasEnCurso.current.delete(numero);
+            if (!vivo || lecturaRes.status === 409) return;
+            const lecturaBody = await leerJson(lecturaRes);
+            if (!lecturaRes.ok) {
+              if (vivo) setError(mensajeDe(lecturaBody, 'No se ha podido leer la foto'));
+              return;
+            }
+            if (!vivo) return;
+            const siguientes = Array.isArray(lecturaBody.lecturas) ? lecturaBody.lecturas : [];
+            setLecturasHechas(siguientes.map((l) => Number((l as { numero?: unknown }).numero)).filter((n) => Number.isInteger(n)));
+            setLecturasFallidas(siguientes
+              .filter((l) => Boolean((l as { error?: unknown }).error))
+              .map((l) => Number((l as { numero?: unknown }).numero))
+              .filter((n) => Number.isInteger(n)));
+            setPropuestas(Array.isArray(lecturaBody.propuestas) ? lecturaBody.propuestas as PropuestaIa[] : []);
+            setNoIdentificados(Array.isArray(lecturaBody.noIdentificados)
+              ? lecturaBody.noIdentificados as Array<{ descripcion: string; cantidad: number; numero: number | null }>
+              : []);
+          }).catch(() => { lecturasEnCurso.current.delete(numero); });
+        }
       } catch { /* la cola sigue; se reintenta al volver la red */ }
     };
     void cargarFotos();
@@ -508,6 +634,31 @@ export default function InventarioConteoScreen() {
     }
   }
 
+  async function borrarConteo(id: string, fecha: string) {
+    const ok = await confirmar(
+      'Borrar conteo',
+      `Se borrará el conteo del ${fechaVisible(fecha) || fecha}. Las cantidades y las fotos dejan de estar en el conteo.`,
+      { variant: 'danger', confirmarLabel: 'Borrar' },
+    );
+    if (!ok) return;
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/inventarios/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const body = await leerJson(res);
+      if (!res.ok) {
+        setError(mensajeDe(body, 'No se ha podido borrar el conteo'));
+        return;
+      }
+      if (inventario?.inventarioId === id) {
+        setInventario(null);
+        setAnadiendo(false);
+      }
+      if (warehouseId) await cargarAbiertos(warehouseId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    }
+  }
+
   async function empezar() {
     if (!warehouseId || !employeeId || !plantillaId || abriendo) return;
     const persona = empleados.find((e) => e.id === employeeId);
@@ -570,6 +721,16 @@ export default function InventarioConteoScreen() {
       setGuardandoId((id) => (id === productId ? null : id));
     }
   }, [inventario]);
+
+  async function usarPropuesta(productId: string, cantidad: number) {
+    if (guardandoId) {
+      setError('Espera a que se guarde la línea anterior.');
+      return;
+    }
+    const partes = partirPropuesta(cantidad);
+    setTextos((t) => ({ ...t, [productId]: textoCantidad(partes.stockReal) }));
+    await persistir(productId, partes.stockReal, partes.botellasAbiertas);
+  }
 
   function programar(productId: string, raw: string, botellasAbiertas: number) {
     setTextos((t) => ({ ...t, [productId]: raw }));
@@ -642,6 +803,9 @@ export default function InventarioConteoScreen() {
     ];
     const cupo = resumenCola(inventario.inventarioId, fotosCupo);
     const colaFotos = resumenCola(inventario.inventarioId, fotosServidor);
+    const leidas = lecturasHechas.filter((n) => !lecturasFallidas.includes(n)).length;
+    const pendientesLectura = paresListos(fotosServidor).filter((n) => !lecturasHechas.includes(n)).length;
+    const enCurso = colaFotos.enProceso + pendientesLectura;
     const numeroLibre = siguienteNumero(inventario.inventarioId, fotosCupo);
     return (
       <View style={styles.pagina}>
@@ -687,9 +851,15 @@ export default function InventarioConteoScreen() {
             ) : null}
           </View>
           {editable ? (
-            <Text key={`cola-${colaTick}`} style={styles.colaFotos}>
-              {`${colaFotos.subidas} subidas · ${colaFotos.enProceso} en proceso`}
-            </Text>
+            <View key={`cola-${colaTick}`}>
+              <Text style={styles.colaFotos}>
+                {`${colaFotos.subidas} subidas · ${leidas} leídas · ${enCurso} en proceso`}
+              </Text>
+              {lecturasFallidas.length > 0 ? (
+                <Text style={styles.error}>{`No se ha podido leer la foto ${lecturasFallidas.join(', ')}`}</Text>
+              ) : null}
+              <BarraSubida subidas={leidas} enProceso={enCurso} />
+            </View>
           ) : null}
           <FotoDobleConteo
             visible={capturando}
@@ -749,6 +919,16 @@ export default function InventarioConteoScreen() {
               </Pressable>
             )
           ) : null}
+          {noIdentificados.length > 0 ? (
+            <View style={styles.noIdentificados}>
+              <Text style={styles.noIdentificadosTitulo}>No identificados</Text>
+              {noIdentificados.map((fila, indice) => (
+                <Text key={`${fila.numero}-${indice}`} style={styles.noIdentificadosTexto}>
+                  {`${textoCantidad(fila.cantidad)} · ${fila.descripcion}`}
+                </Text>
+              ))}
+            </View>
+          ) : null}
           <ScrollView style={styles.flex} contentContainerStyle={styles.lista} keyboardShouldPersistTaps="handled">
             {lineasVisibles.map((linea) => (
               <View key={linea.productId} style={styles.tarjeta}>
@@ -762,6 +942,29 @@ export default function InventarioConteoScreen() {
                   {guardandoId === linea.productId ? <ActivityIndicator color={colors.accent} /> : null}
                 </View>
                 {linea.unidad ? <Text style={styles.unidad}>{linea.unidad}</Text> : null}
+                {(() => {
+                  const propuesta = propuestas.find((p) => p.productId === linea.productId);
+                  if (!propuesta) return null;
+                  const partes = partirPropuesta(propuesta.cantidad);
+                  return (
+                    <View style={[styles.propuesta, propuesta.baja && styles.propuestaBaja]}>
+                      <Text style={styles.propuestaTexto}>
+                        {`Propuesta ${textoCantidad(propuesta.cantidad)}`}
+                        {propuesta.aviso ? ` · ${propuesta.aviso}` : ''}
+                        {linea.stockReal != null ? ' · no sustituye lo escrito' : ''}
+                      </Text>
+                      {editable ? (
+                        <Pressable
+                          onPress={() => void usarPropuesta(linea.productId, propuesta.cantidad)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Usar la propuesta de ${partes.stockReal} enteras para ${linea.nombre}`}
+                        >
+                          <Text style={styles.propuestaUsar}>Usar</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  );
+                })()}
                 <View style={styles.conteoFila}>
                   <TextInput
                     value={textos[linea.productId] ?? ''}
@@ -808,6 +1011,17 @@ export default function InventarioConteoScreen() {
           ) : (
             <Text style={styles.aviso}>Estado: {inventario.estado}. El conteo sigue guardado.</Text>
           )}
+          {puedeGestionar && inventario.estado !== 'importado' ? (
+            <Pressable
+              style={styles.botonBorrar}
+              onPress={() => void borrarConteo(inventario.inventarioId, inventario.fecha)}
+              accessibilityRole="button"
+              accessibilityLabel="Borrar conteo"
+            >
+              <MaterialIcons name="delete-outline" size={18} color={colors.danger} />
+              <Text style={styles.botonBorrarTexto}>Borrar conteo</Text>
+            </Pressable>
+          ) : null}
         </View>
         {ConfirmarView}
       </View>
@@ -906,16 +1120,27 @@ export default function InventarioConteoScreen() {
           <View style={styles.abiertos}>
             <Text style={styles.etiqueta}>Conteos abiertos</Text>
             {abiertos.map((a) => (
-              <Pressable
-                key={a.inventarioId}
-                style={styles.abierto}
-                onPress={() => void abrirExistente(a.inventarioId)}
-                accessibilityRole="button"
-                accessibilityLabel={`Continuar conteo ${a.fecha}`}
-              >
-                <Text style={styles.producto}>{a.fecha} · {a.employeeNombre || 'Sin persona'}</Text>
-                <Text style={styles.unidad}>{a.plantillaNombre || a.estado}</Text>
-              </Pressable>
+              <View key={a.inventarioId} style={styles.abierto}>
+                <Pressable
+                  style={styles.abiertoCuerpo}
+                  onPress={() => void abrirExistente(a.inventarioId)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Continuar conteo ${a.fecha}`}
+                >
+                  <Text style={styles.producto}>{a.fecha} · {a.employeeNombre || 'Sin persona'}</Text>
+                  <Text style={styles.unidad}>{a.plantillaNombre || a.estado}</Text>
+                </Pressable>
+                {puedeGestionar && a.estado !== 'importado' ? (
+                  <Pressable
+                    style={styles.abiertoBorrar}
+                    onPress={() => void borrarConteo(a.inventarioId, a.fecha)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Borrar conteo ${a.fecha}`}
+                  >
+                    <MaterialIcons name="delete-outline" size={22} color={colors.danger} />
+                  </Pressable>
+                ) : null}
+              </View>
             ))}
           </View>
         ) : null}
@@ -1093,8 +1318,41 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.medium,
     fontSize: fontSizes[13],
     color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  barraPista: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: statusColors.success.bg,
+    overflow: 'hidden',
     marginBottom: SPACING.sm,
   },
+  propuesta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: radius.md,
+    backgroundColor: statusColors.success.bg,
+  },
+  propuestaBaja: { backgroundColor: statusColors.warning.bg },
+  propuestaTexto: { flex: 1, fontFamily: fontFamily.medium, fontSize: fontSizes[13], color: colors.textStrong },
+  propuestaUsar: { fontFamily: fontFamily.semibold, fontSize: fontSizes[14], color: colors.accentPressed },
+  noIdentificados: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: statusColors.warning.bg,
+    padding: SPACING.sm,
+    marginBottom: SPACING.sm,
+    gap: 2,
+  },
+  noIdentificadosTitulo: { fontFamily: fontFamily.semibold, fontSize: fontSizes[13], color: statusColors.warning.text },
+  noIdentificadosTexto: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textStrong },
+  barraRelleno: { height: '100%', borderRadius: 3, backgroundColor: colors.success },
+  barraTramo: { width: 72, height: '100%', borderRadius: 3, backgroundColor: colors.success },
   conteoFila: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm },
   inputEnteras: { width: 88, marginTop: 0, marginBottom: 0 },
   totalCaja: {
@@ -1154,14 +1412,36 @@ const styles = StyleSheet.create({
   abiertos: { width: '100%', maxWidth: 560, marginTop: SPACING.lg, gap: SPACING.sm },
   abierto: {
     minHeight: MIN_TOUCH,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
-    paddingHorizontal: SPACING.md,
+    paddingLeft: SPACING.md,
     paddingVertical: SPACING.sm,
   },
+  abiertoCuerpo: { flex: 1, justifyContent: 'center', minHeight: MIN_TOUCH },
+  abiertoBorrar: {
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  botonBorrar: {
+    minHeight: MIN_TOUCH,
+    marginTop: SPACING.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.lg,
+  },
+  botonBorrarTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.danger },
   aviso: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.warning, marginTop: SPACING.sm },
   error: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.danger, marginBottom: SPACING.sm },
 });
