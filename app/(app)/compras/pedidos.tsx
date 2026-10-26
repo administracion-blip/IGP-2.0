@@ -917,7 +917,9 @@ export default function PedidosScreen() {
    */
   const facturacionPedidoActual = estadoFacturacionPedido(pedidoParaLineas);
   const pedidoActualFacturado = facturacionPedidoActual.estado === 'facturado';
-  const bloqueadoEditar = (pedidoEnviado && !puedeEditarEnviado) || pedidoActualFacturado;
+  // En borrador el local sigue armando el pedido. Fuera de borrador, Editar y
+  // Añadir línea solo existen con el permiso de almacén. Facturado, nunca.
+  const puedeTocarLineas = !pedidoActualFacturado && (estadoPedidoActual === 'Borrador' || puedeEditarEnviado);
   const bloqueadoBorrar = (pedidoEnviado && !puedeBorrarEnviado) || pedidoActualFacturado;
 
   // Hay un pedido recién creado (Borrador) con líneas que aún no se ha enviado a
@@ -1304,7 +1306,7 @@ export default function PedidosScreen() {
             </View>
           ) : null}
           {moduloTarjetas ? (
-            <View style={styles.listaMovil}>
+            <View style={[styles.listaMovil, styles.fondoPantalla]}>
               <View style={styles.listaMovilHeader}>
                 <TouchableOpacity onPress={volverAtras} style={styles.listaMovilBack} accessibilityLabel="Volver">
                   <MaterialIcons name="arrow-back" size={22} color="#334155" />
@@ -1334,7 +1336,6 @@ export default function PedidosScreen() {
                 contentContainerStyle={styles.chipsEstadoRow}
               >
                 <SelectorAnioListado
-                  label="Año"
                   valorId={anioListado}
                   onChange={setAnioListado}
                   style={styles.anioEnFila}
@@ -1515,14 +1516,18 @@ export default function PedidosScreen() {
             <View style={styles.lineasEditBar}>
               {!editModeLineas ? (
                 <>
-                  <TouchableOpacity style={[styles.lineasEditarBtn, bloqueadoEditar && styles.btnDisabledOpacity]} onPress={entrarModoEditarLineas} disabled={loadingLineas || lineas.length === 0 || bloqueadoEditar}>
-                    <MaterialIcons name="edit" size={14} color={bloqueadoEditar ? colors.textMuted : colors.accent} />
-                    <Text style={[styles.lineasEditarBtnText, bloqueadoEditar && { color: colors.textMuted }]}>Editar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.lineasAddBtn, bloqueadoEditar && styles.btnDisabledOpacity]} onPress={() => setModalLineaFormVisible(true)} disabled={loadingLineas || modalLineaFormVisible || bloqueadoEditar}>
-                    <MaterialIcons name="add" size={14} color={modalLineaFormVisible || bloqueadoEditar ? colors.textMuted : colors.success} />
-                    <Text style={[styles.lineasAddBtnText, (modalLineaFormVisible || bloqueadoEditar) && { color: colors.textMuted }]}>Añadir línea</Text>
-                  </TouchableOpacity>
+                  {puedeTocarLineas ? (
+                    <TouchableOpacity style={styles.lineasEditarBtn} onPress={entrarModoEditarLineas} disabled={loadingLineas || lineas.length === 0}>
+                      <MaterialIcons name="edit" size={14} color={colors.accent} />
+                      <Text style={styles.lineasEditarBtnText}>Editar</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {puedeTocarLineas ? (
+                    <TouchableOpacity style={styles.lineasAddBtn} onPress={() => setModalLineaFormVisible(true)} disabled={loadingLineas || modalLineaFormVisible}>
+                      <MaterialIcons name="add" size={14} color={modalLineaFormVisible ? colors.textMuted : colors.success} />
+                      <Text style={[styles.lineasAddBtnText, modalLineaFormVisible && { color: colors.textMuted }]}>Añadir línea</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   {puedeEnviar && isWide ? (
                     <TouchableOpacity style={styles.enviarPedidoBtn} onPress={enviarPedido}>
                       <MaterialIcons name="send" size={14} color="#9a3412" />
@@ -1702,7 +1707,7 @@ export default function PedidosScreen() {
           </View>
           );
           return detalleComoModal && pedidoParaLineas ? (
-            <View style={styles.detallePantalla}>
+            <View style={[styles.detallePantalla, moduloTarjetas && styles.fondoPantalla]}>
               <View style={styles.detalleFullscreenBar}>
                 <TouchableOpacity onPress={solicitarCerrarDetalle} style={styles.detalleVolverBtn} activeOpacity={0.7}>
                   <MaterialIcons name="arrow-back" size={20} color="#334155" />
@@ -2044,6 +2049,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderLeftColor: colors.border,
     borderTopWidth: 0,
+    backgroundColor: '#ffffff',
   },
   lineasPanelHeader: {
     flexDirection: 'row',
@@ -2351,6 +2357,7 @@ const styles = StyleSheet.create({
   },
   lineaFormBtns: { flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.md, justifyContent: 'flex-end' },
   listaMovil: { flex: 1, position: 'relative', backgroundColor: '#e8eef5', padding: SPACING.lg, gap: SPACING.md },
+  fondoPantalla: { backgroundColor: '#ffffff' },
   listaMovilHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   listaMovilBack: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
   listaMovilTituloWrap: { flex: 1, minWidth: 0 },
