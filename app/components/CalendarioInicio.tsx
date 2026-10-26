@@ -1,5 +1,5 @@
 /**
- * Agenda de Inicio: semana tipo Google Calendar (rejilla horaria) o mes con
+ * Agenda de Inicio: día o semana tipo Google Calendar (rejilla horaria) o mes con
  * tareas, reuniones y proyectos. Reutiliza las APIs ya filtradas por servidor;
  * el color distingue el tipo, no el departamento.
  */
@@ -356,8 +356,12 @@ function alturaBanda(nCarriles: number, overflow: number, altoCarril: number, co
   return pad + cuerpo + extra + pad;
 }
 
-function empaquetarBarras(items: ItemAgenda[], lunes: string): { barras: BarraEmpaquetada[]; overflow: number } {
-  const domingo = addDaysIso(lunes, 6);
+function empaquetarBarras(
+  items: ItemAgenda[],
+  lunes: string,
+  dias = 7,
+): { barras: BarraEmpaquetada[]; overflow: number } {
+  const domingo = addDaysIso(lunes, dias - 1);
   const recortados: Array<{
     item: ItemAgenda;
     desde: string;
@@ -1232,6 +1236,7 @@ function BarraTramo({
   continuaDer,
   compacta,
   columnasFijas,
+  columnas = 7,
   offsetIzq = 0,
   onAbrir,
 }: {
@@ -1245,10 +1250,11 @@ function BarraTramo({
   continuaDer: boolean;
   compacta?: boolean;
   columnasFijas?: boolean;
+  columnas?: number;
   offsetIzq?: number;
   onAbrir: () => void;
 }) {
-  const resto = 7 - indiceInicio - span;
+  const resto = columnas - indiceInicio - span;
   const hueco = compacta ? 0 : GAP_SEMANA;
   const cuerpo = (
     <View
@@ -1326,6 +1332,7 @@ function BandaCarriles({
   altoCarril,
   compacta,
   columnasFijas,
+  columnas = 7,
   conGutterHoras,
   onAbrir,
 }: {
@@ -1334,6 +1341,7 @@ function BandaCarriles({
   altoCarril: number;
   compacta?: boolean;
   columnasFijas?: boolean;
+  columnas?: number;
   /** Semana: deja hueco a la izquierda alineado con la columna de horas. */
   conGutterHoras?: boolean;
   onAbrir: (item: ItemAgenda) => void;
@@ -1361,6 +1369,7 @@ function BandaCarriles({
           continuaDer={b.continuaDer}
           compacta={compacta}
           columnasFijas={columnasFijas}
+          columnas={columnas}
           offsetIzq={offsetIzq}
           onAbrir={() => onAbrir(b.item)}
         />
@@ -1380,12 +1389,18 @@ function BandaCarriles({
 export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = {}) {
   const router = useRouter();
   const acceso = useAccesoTasks();
-  const { isPhone, isPortrait, isCompact, shouldStackToolbar } = useBreakpoint();
+  const { width, isPhone, isPortrait, isDesktop, isCompact, shouldStackToolbar } = useBreakpoint();
 
   const puedeTareas = puedeVerProyectos(acceso);
   const puedeReuniones = puedeVerReuniones(acceso);
 
-  const [vista, setVista] = useState<'semana' | 'mes'>('semana');
+  const [vista, setVista] = useState<'dia' | 'semana' | 'mes'>(isDesktop ? 'semana' : 'dia');
+  const anchoInicial = useRef(width > 0);
+  useEffect(() => {
+    if (anchoInicial.current || width <= 0) return;
+    anchoInicial.current = true;
+    setVista(isDesktop ? 'semana' : 'dia');
+  }, [width, isDesktop]);
   const [ancla, setAncla] = useState(hoyIso);
   const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
 
@@ -1428,6 +1443,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   const hoy = hoyIso();
   const lunes = lunesDeSemanaIso(ancla);
   const rango = useMemo(() => {
+    if (vista === 'dia') return { desde: ancla, hasta: ancla };
     if (vista === 'semana') {
       return { desde: lunes, hasta: addDaysIso(lunes, 6) };
     }
@@ -1608,7 +1624,10 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
     }
     return map;
   }, [conFecha, rango.desde, rango.hasta]);
-  const empaquetadoSemana = useMemo(() => empaquetarBarras(conFecha, lunes), [conFecha, lunes]);
+  const empaquetadoSemana = useMemo(
+    () => empaquetarBarras(conFecha, vista === 'dia' ? ancla : lunes, vista === 'dia' ? 1 : 7),
+    [conFecha, lunes, ancla, vista],
+  );
 
   const bloquesPorDia = useMemo(() => {
     const map = new Map<string, BloqueEmpaquetado[]>();
@@ -2037,13 +2056,14 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   const scrollInicialClave = useRef<string | null>(null);
   const altoRejillaRef = useRef(0);
   const desplazarRejillaAlCargar = useCallback(() => {
-    if (vista !== 'semana' || cargando) return;
-    const clave = `${lunes}:${conFecha.length}`;
+    if (vista === 'mes' || cargando) return;
+    const clave = `${vista}:${vista === 'dia' ? ancla : lunes}:${conFecha.length}`;
     if (scrollInicialClave.current === clave) return;
     if (!rejillaScrollRef.current) return;
     if (altoRejillaRef.current <= 0) return;
+    const diasVista = vista === 'dia' ? [ancla] : diasDeSemana(lunes);
     let primer: number | null = null;
-    for (const iso of diasDeSemana(lunes)) {
+    for (const iso of diasVista) {
       for (const b of bloquesPorDia.get(iso)?.bloques ?? []) {
         const ini = minutosDeHhmm(b.item.horaInicio ?? '');
         if (ini == null) continue;
@@ -2051,7 +2071,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
         if (primer == null || vis < primer) primer = vis;
       }
     }
-    const hoyEnSemana = diasDeSemana(lunes).includes(hoy);
+    const hoyEnSemana = diasVista.includes(hoy);
     const ahoraEnRango = minutosAhora >= MINUTOS_DIA_INICIO && minutosAhora < MINUTOS_DIA_FIN;
     const yDe = (minutos: number) =>
       ((minutos - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA + PAD_REJILLA_TOP;
@@ -2073,21 +2093,22 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
     }
     rejillaScrollRef.current.scrollTo({ y, animated: false });
     scrollInicialClave.current = clave;
-  }, [vista, cargando, lunes, conFecha.length, bloquesPorDia, hoy, minutosAhora]);
+  }, [vista, cargando, lunes, ancla, conFecha.length, bloquesPorDia, hoy, minutosAhora]);
 
   useEffect(() => {
     desplazarRejillaAlCargar();
   }, [desplazarRejillaAlCargar]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || vista !== 'semana') return;
+    if (Platform.OS !== 'web' || vista === 'mes') return;
     medirBarraRejilla();
     window.addEventListener('resize', medirBarraRejilla);
     return () => window.removeEventListener('resize', medirBarraRejilla);
   }, [vista, medirBarraRejilla, cargando]);
 
   const ir = (delta: number) => {
-    if (vista === 'semana') setAncla(addDaysIso(lunesDeSemanaIso(ancla), delta * 7));
+    if (vista === 'dia') setAncla(addDaysIso(ancla, delta));
+    else if (vista === 'semana') setAncla(addDaysIso(lunesDeSemanaIso(ancla), delta * 7));
     else {
       setAncla(addMonthsIso(inicioMesIso(ancla), delta));
       setDiaSeleccionado(null);
@@ -2097,8 +2118,10 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
   if (acceso.permisosCargando) return null;
   if (!puedeTareas && !puedeReuniones) return null;
 
-  const semanaMovil = isPhone && isPortrait;
-  const diasSemana = diasDeSemana(lunes);
+  const semanaMovil = isPhone && isPortrait && vista === 'semana';
+  const diasColumna = vista === 'dia' ? [ancla] : diasDeSemana(lunes);
+  const etiquetaPaso =
+    vista === 'dia' ? 'Día' : vista === 'semana' ? 'Semana' : 'Mes';
 
   return (
     <View style={[styles.card, embebido && styles.cardEmbebida]}>
@@ -2168,13 +2191,24 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
           <TouchableOpacity
             style={styles.rangoBtn}
             onPress={() => ir(-1)}
-            accessibilityLabel={vista === 'semana' ? 'Semana anterior' : 'Mes anterior'}
+            accessibilityLabel={`${etiquetaPaso} anterior`}
           >
             <MaterialIcons name="chevron-left" size={22} color={tasksUi.color.textoPrimario} />
           </TouchableOpacity>
-          <Text style={[styles.rangoTexto, fuenteInter('semibold')]} numberOfLines={1}>
-            {etiquetaMes(ancla)}
-          </Text>
+          {vista === 'dia' ? (
+            <View style={styles.rangoDia}>
+              <Text style={[styles.rangoTextoDia, fuenteInter('semibold')]} numberOfLines={1}>
+                {`${weekdayShortEs(ancla).charAt(0).toUpperCase()}${weekdayShortEs(ancla).slice(1)} ${diaNumero(ancla)}`}
+              </Text>
+              <Text style={styles.rangoPequeno} numberOfLines={1}>
+                {etiquetaMes(ancla)}
+              </Text>
+            </View>
+          ) : (
+            <Text style={[styles.rangoTexto, fuenteInter('semibold')]} numberOfLines={1}>
+              {etiquetaMes(ancla)}
+            </Text>
+          )}
           {vista === 'semana' ? (
             <Text style={styles.rangoPequeno} numberOfLines={1}>
               {etiquetaSemana(lunes)}
@@ -2183,7 +2217,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
           <TouchableOpacity
             style={styles.rangoBtn}
             onPress={() => ir(1)}
-            accessibilityLabel={vista === 'semana' ? 'Semana siguiente' : 'Mes siguiente'}
+            accessibilityLabel={`${etiquetaPaso} siguiente`}
           >
             <MaterialIcons name="chevron-right" size={22} color={tasksUi.color.textoPrimario} />
           </TouchableOpacity>
@@ -2194,6 +2228,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
         <View style={styles.viewModeWrap}>
           {(
             [
+              ['dia', 'calendar-view-day', 'Día'],
               ['semana', 'calendar-view-week', 'Semana'],
               ['mes', 'calendar-month', 'Mes'],
             ] as const
@@ -2264,7 +2299,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
           <ActivityIndicator size="small" color={tasksUi.calendario.hoy} />
           <Text style={styles.centroTexto}>Cargando la agenda…</Text>
         </View>
-      ) : vista === 'semana' ? (
+      ) : vista !== 'mes' ? (
         <EnvolverSemana movil={semanaMovil} embebido={embebido}>
         <View
           style={[
@@ -2283,7 +2318,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
           >
             <View style={styles.gutterHora} />
             <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
-              {diasSemana.map((iso) => {
+              {diasColumna.map((iso) => {
                 const esHoy = iso === hoy;
                 return (
                   <View
@@ -2320,10 +2355,11 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                 overflow={empaquetadoSemana.overflow}
                 altoCarril={ALTO_CARRIL_SEMANA}
                 columnasFijas={semanaMovil}
+                columnas={vista === 'dia' ? 1 : 7}
                 onAbrir={abrir}
               />
               <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
-              {diasSemana.map((iso) => {
+              {diasColumna.map((iso) => {
                 const items = todoElDiaPorDia.get(iso) ?? [];
                 const sobre = isoDragOver === iso;
                 return (
@@ -2384,7 +2420,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                     {`${String(h).padStart(2, '0')}:00`}
                   </Text>
                 ))}
-                {diasSemana.includes(hoy) &&
+                {diasColumna.includes(hoy) &&
                 minutosAhora >= MINUTOS_DIA_INICIO &&
                 minutosAhora < MINUTOS_DIA_FIN ? (
                   <Text
@@ -2405,7 +2441,7 @@ export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = 
                 ) : null}
               </View>
               <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil, { height: ALTO_REJILLA_CAJA }]}>
-                {diasSemana.map((iso) => {
+                {diasColumna.map((iso) => {
                   const pack = bloquesPorDia.get(iso) ?? { bloques: [], mas: [] };
                   const bloques = pack.bloques;
                   const sobre = isoDragOver === iso;
@@ -2679,7 +2715,8 @@ const styles = StyleSheet.create({
   cuerpoAgenda: { position: 'relative', zIndex: 0, gap: 10 },
   cuerpoAgendaEmbebido: { flex: 1, minHeight: 0 },
   tituloBloque: { ...tasksUi.tipo.tituloSeccion },
-  rango: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 200 },
+  rango: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0 },
+  rangoDia: { flexShrink: 1, minWidth: 0 },
   rangoBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
@@ -2688,6 +2725,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  rangoTextoDia: {
+    fontSize: 22,
+    fontWeight: '600',
+    lineHeight: 26,
+    color: tasksUi.calendario.hoy,
+  },
   rangoTexto: {
     fontSize: 30,
     fontWeight: '600',
@@ -2695,6 +2738,7 @@ const styles = StyleSheet.create({
     lineHeight: 36,
     color: tasksUi.calendario.hoy,
     textAlign: 'center',
+    flexShrink: 1,
     ...tasksUi.tabularNums,
   },
   rangoPequeno: {
