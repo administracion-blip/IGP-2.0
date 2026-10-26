@@ -21,6 +21,16 @@ import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { FotoDobleConteo } from './FotoDobleConteo';
+import {
+  alSubirFoto,
+  drenarCola,
+  encolarFoto,
+  numerosEnCola,
+  resumenCola,
+  siguienteNumero,
+  suscribirCola,
+} from './colaFotosConteo';
 import {
   colors,
   statusColors,
@@ -159,6 +169,10 @@ export default function InventarioConteoScreen() {
   const [anadiendo, setAnadiendo] = useState(false);
   const [cargandoCatalogo, setCargandoCatalogo] = useState(false);
   const [catalogo, setCatalogo] = useState<Array<{ id: string; titulo: string; subtitulo?: string; badge?: string }> | null>(null);
+  const [fotosServidor, setFotosServidor] = useState<Array<{ numero: number }>>([]);
+  const [numerosReservados, setNumerosReservados] = useState<number[]>([]);
+  const [capturando, setCapturando] = useState(false);
+  const [colaTick, setColaTick] = useState(0);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const lineasVisibles = useMemo(() => {
@@ -326,6 +340,44 @@ export default function InventarioConteoScreen() {
     }
     void cargarAbiertos(warehouseId);
   }, [warehouseId, cargarAbiertos]);
+
+  useEffect(() => {
+    if (!inventario?.inventarioId) return;
+    const id = inventario.inventarioId;
+    let vivo = true;
+    const cargarFotos = async () => {
+      try {
+        const res = await apiFetch(`/api/inventarios/${encodeURIComponent(id)}/fotos`);
+        const body = await leerJson(res);
+        if (!vivo || !res.ok) return;
+        const lista = Array.isArray(body.fotos) ? body.fotos : [];
+        setFotosServidor(
+          lista
+            .map((f) => Number((f as { numero?: unknown }).numero))
+            .filter((n) => Number.isInteger(n) && n >= 1)
+            .map((numero) => ({ numero })),
+        );
+      } catch { /* la cola sigue; se reintenta al volver la red */ }
+    };
+    void cargarFotos();
+    alSubirFoto(() => { void cargarFotos(); });
+    const dejar = suscribirCola(() => setColaTick((n) => n + 1));
+    const reloj = setInterval(() => { void drenarCola(); }, 15000);
+    return () => {
+      vivo = false;
+      alSubirFoto(null);
+      dejar();
+      clearInterval(reloj);
+    };
+  }, [inventario?.inventarioId]);
+
+  useEffect(() => {
+    if (!inventario?.inventarioId) return;
+    const id = inventario.inventarioId;
+    const enCola = new Set(numerosEnCola(id));
+    const enServidor = new Set(fotosServidor.map((f) => f.numero));
+    setNumerosReservados((prev) => prev.filter((n) => !enCola.has(n) && !enServidor.has(n)));
+  }, [inventario?.inventarioId, fotosServidor, colaTick]);
 
   function entrar(inv: Inventario) {
     const lineas = (inv.lineas || []).map((l) => ({
@@ -566,6 +618,13 @@ export default function InventarioConteoScreen() {
 
   if (inventario) {
     const editable = inventario.estado === 'borrador' || inventario.estado === 'contado';
+    const fotosCupo = [
+      ...fotosServidor,
+      ...numerosReservados.map((numero) => ({ numero })),
+    ];
+    const cupo = resumenCola(inventario.inventarioId, fotosCupo);
+    const colaFotos = resumenCola(inventario.inventarioId, fotosServidor);
+    const numeroLibre = siguienteNumero(inventario.inventarioId, fotosCupo);
     return (
       <View style={styles.pagina}>
         <View style={styles.columna}>
@@ -587,13 +646,60 @@ export default function InventarioConteoScreen() {
           </View>
           <Text style={styles.ciego}>El stock teórico no se muestra.</Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <TextInput
-            value={filtro}
-            onChangeText={setFiltro}
-            placeholder="Buscar producto"
-            placeholderTextColor={colors.textMuted}
-            style={[styles.input, inputCursorStyle]}
-            {...inputCursorProps}
+          <View style={styles.buscadorFila}>
+            <TextInput
+              value={filtro}
+              onChangeText={setFiltro}
+              placeholder="Buscar producto"
+              placeholderTextColor={colors.textMuted}
+              style={[styles.input, styles.buscadorFlex, inputCursorStyle]}
+              {...inputCursorProps}
+            />
+            {editable ? (
+              <Pressable
+                style={[styles.botonFoto, numeroLibre == null && styles.botonOff]}
+                disabled={numeroLibre == null}
+                onPress={() => setCapturando(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Foto ${cupo.ocupados} de 6`}
+              >
+                <MaterialIcons name="photo-camera" size={18} color={colors.surface} />
+                <Text style={styles.botonFotoTexto}>{`Foto (${cupo.ocupados}/6)`}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {editable ? (
+            <Text key={`cola-${colaTick}`} style={styles.colaFotos}>
+              {`${colaFotos.subidas} subidas · ${colaFotos.enProceso} en proceso`}
+            </Text>
+          ) : null}
+          <FotoDobleConteo
+            visible={capturando}
+            onCerrar={() => setCapturando(false)}
+            onPar={(par) => {
+              const numero = siguienteNumero(inventario.inventarioId, fotosCupo);
+              setCapturando(false);
+              if (numero == null) return;
+              setNumerosReservados((prev) => (prev.includes(numero) ? prev : [...prev, numero]));
+              void (async () => {
+                try {
+                  for (const foto of par) {
+                    await encolarFoto({
+                      inventarioId: inventario.inventarioId,
+                      numero,
+                      posicion: foto.posicion,
+                      uri: foto.uri,
+                      nombre: foto.nombre,
+                      contentType: foto.contentType,
+                      tamano: foto.tamano,
+                    });
+                  }
+                } catch {
+                  setNumerosReservados((prev) => prev.filter((n) => n !== numero));
+                  setError('No se ha podido guardar la foto en el dispositivo');
+                }
+              })();
+            }}
           />
           {editable ? (
             anadiendo ? (
@@ -940,6 +1046,28 @@ const styles = StyleSheet.create({
     fontSize: fontSizes[16],
     color: colors.textStrong,
     backgroundColor: colors.surface,
+  },
+  buscadorFila: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  buscadorFlex: { flex: 1, minWidth: 0, marginTop: SPACING.sm },
+  botonFoto: {
+    minHeight: MIN_TOUCH,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  botonFotoTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[14], color: colors.surface },
+  colaFotos: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSizes[13],
+    color: colors.textSecondary,
+    marginBottom: SPACING.sm,
   },
   botellas: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   botella: {

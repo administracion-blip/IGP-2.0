@@ -33,6 +33,12 @@ import { abrirConteo, anadirProducto } from '../lib/inventarios/conteo.js';
 import { bufferInventario } from '../lib/inventarios/excel.js';
 import { guardarUmbral, leerUmbral } from '../lib/inventarios/umbral.js';
 import { listarProductosInventario } from '../lib/inventarios/productos.js';
+import {
+  borrarFoto,
+  confirmarFoto,
+  listarFotos,
+  prepararFoto,
+} from '../lib/inventarios/fotos.js';
 
 const router = Router();
 
@@ -290,6 +296,57 @@ router.post('/inventarios/:id/lineas', ver, async (req, res) => {
     return responderConteo(req, res, linea, 201);
   } catch (err) {
     return atrapar(res, err, 'Error añadiendo el producto');
+  }
+});
+
+router.get('/inventarios/:id/fotos', ver, async (req, res) => {
+  try {
+    const actual = await obtenerInventario(req.params.id);
+    if (!(await conAlmacen(req, res, actual.warehouseId))) return;
+    return res.json({ fotos: await listarFotos(req.params.id) });
+  } catch (err) {
+    return atrapar(res, err, 'Error listando las fotos');
+  }
+});
+
+router.post('/inventarios/:id/fotos/preparar', ver, async (req, res) => {
+  try {
+    const actual = await obtenerInventario(req.params.id);
+    if (!(await conAlmacen(req, res, actual.warehouseId))) return;
+    const foto = await prepararFoto({ inventarioId: req.params.id, ...req.body });
+    return res.status(201).json(foto);
+  } catch (err) {
+    return atrapar(res, err, 'Error preparando la foto');
+  }
+});
+
+router.post('/inventarios/:id/fotos/confirmar', ver, async (req, res) => {
+  try {
+    const actual = await obtenerInventario(req.params.id);
+    if (!(await conAlmacen(req, res, actual.warehouseId))) return;
+    const foto = await confirmarFoto({
+      inventarioId: req.params.id,
+      numero: req.body?.numero,
+      posicion: req.body?.posicion,
+      s3Key: req.body?.s3Key,
+    }, quien(req));
+    return res.status(201).json(foto);
+  } catch (err) {
+    return atrapar(res, err, 'Error confirmando la foto');
+  }
+});
+
+router.delete('/inventarios/:id/fotos/:numero/:posicion', ver, async (req, res) => {
+  try {
+    const actual = await obtenerInventario(req.params.id);
+    if (!(await conAlmacen(req, res, actual.warehouseId))) return;
+    return res.json(await borrarFoto({
+      inventarioId: req.params.id,
+      numero: req.params.numero,
+      posicion: req.params.posicion,
+    }));
+  } catch (err) {
+    return atrapar(res, err, 'Error borrando la foto');
   }
 });
 

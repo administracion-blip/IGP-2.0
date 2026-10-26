@@ -3,7 +3,7 @@
  *
  * Una sola tabla:
  *   PK = PLANTILLA#<id> | INV#<id>
- *   SK = META | FAMILIA#<id> | PRODUCTO#<id> | LINE#<productId>
+ *   SK = META | FAMILIA#<id> | PRODUCTO#<id> | LINE#<productId> | FOTO#<n>#<posicion>
  * GSI WarehouseId-Clave-index, solo en los META:
  *   Clave = PLANTILLA#<id> | INV#<fecha>#<id>
  */
@@ -52,6 +52,11 @@ export function skProducto(id) {
 
 export function skLinea(productId) {
   return `LINE#${productId}`;
+}
+
+/** Foto de un par del conteo. `posicion` es `frente` o `superior`. */
+export function skFoto(numero, posicion) {
+  return `FOTO#${numero}#${posicion}`;
 }
 
 export function claveListadoPlantilla(id) {
