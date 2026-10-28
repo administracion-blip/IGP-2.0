@@ -61,6 +61,36 @@ const OPCIONES_SYNC: { id: SyncOpcion; titulo: string; subtitulo: string; icono:
   { id: 'completo', titulo: 'Sincronización completa', subtitulo: 'Desde 2025-01-01 (puede tardar varios minutos)', icono: 'cloud-download' },
 ];
 
+/** Cantidad total por producto y unidad de compra, para no sumar botellas con cajas. */
+function resumenCantidadPorProducto(lineas: CompraLinea[]): { producto: string; id: string; unidad: string; cantidad: number }[] {
+  const map = new Map<string, { producto: string; id: string; unidad: string; cantidad: number }>();
+  for (const it of lineas) {
+    const id = idNorm(it.ProductId);
+    const unidad = (it.PurchaseUnitName || '').trim() || '—';
+    const clave = `${id}\u0001${unidad}`;
+    const cant = Number(it.Quantity);
+    const suma = Number.isFinite(cant) ? cant : 0;
+    const previa = map.get(clave);
+    if (previa) {
+      previa.cantidad = Math.round((previa.cantidad + suma) * 1000) / 1000;
+      continue;
+    }
+    map.set(clave, {
+      producto: (it.ProductName || it.ProductId || '—').toString().trim() || '—',
+      id: id === '__sin_id__' ? '' : String(it.ProductId ?? '').trim(),
+      unidad,
+      cantidad: suma,
+    });
+  }
+  return [...map.values()].sort(
+    (a, b) => a.producto.localeCompare(b.producto, 'es', { sensitivity: 'base' }) || a.unidad.localeCompare(b.unidad, 'es'),
+  );
+}
+
+function textoCantidad(n: number): string {
+  return n.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+}
+
 export default function ComprasProveedorScreen() {
   const router = useRouter();
   const { width: winWidth } = useBreakpoint();
@@ -70,6 +100,7 @@ export default function ComprasProveedorScreen() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState('');
   const [menuSyncVisible, setMenuSyncVisible] = useState(false);
+  const [menuDescargaVisible, setMenuDescargaVisible] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [modalFiltrosVisible, setModalFiltrosVisible] = useState(false);
   const [fechaDesde, setFechaDesde] = useState('');
@@ -298,8 +329,14 @@ export default function ComprasProveedorScreen() {
     const rows = filtrados.map((item) => COLUMNAS.map((col) => getCompraCellValue(item, col)));
     const data: string[][] = [headers, ...rows];
     const ws = XLSX.utils.aoa_to_sheet(data);
+    const resumen = resumenCantidadPorProducto(filtrados);
+    const wsResumen = XLSX.utils.aoa_to_sheet([
+      ['Producto', 'ID prod.', 'Unidad', 'Cantidad'],
+      ...resumen.map((fila) => [fila.producto, fila.id, fila.unidad, fila.cantidad]),
+    ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Compras');
+    XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
     const stamp = new Date().toISOString().slice(0, 10);
     const fname = `compras_proveedor_${stamp}.xlsx`;
     if (Platform.OS === 'web') {
@@ -322,9 +359,61 @@ export default function ComprasProveedorScreen() {
             dialogTitle: fname,
           })
         )
-        .catch(() => {});
+        .catch(() => setSyncResult('Error: No se pudo guardar el Excel'));
     }
   }, [filtrados]);
+
+  const exportarPdf = useCallback(async () => {
+    if (filtrados.length === 0) return;
+    setMenuDescargaVisible(false);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const fname = `compras_proveedor_${stamp}.pdf`;
+    try {
+      const { jsPDF: JsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const doc = new JsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      doc.setFontSize(12);
+      doc.text('Compras a proveedor', 8, 10);
+      doc.setFontSize(8);
+      const alcance = filtrados.length !== items.length
+        ? `${filtrados.length} de ${items.length} líneas (vista filtrada)`
+        : `${filtrados.length} líneas`;
+      doc.text(alcance, 8, 15);
+      autoTable(doc, {
+        startY: 18,
+        head: [COLUMNAS.map((col) => col.label)],
+        body: filtrados.map((item) => COLUMNAS.map((col) => getCompraCellValue(item, col))),
+        styles: { fontSize: 6, cellPadding: 0.8, overflow: 'linebreak' },
+        headStyles: { fillColor: [14, 165, 233], textColor: 255, fontSize: 6 },
+        margin: { left: 8, right: 8 },
+      });
+      const resumen = resumenCantidadPorProducto(filtrados);
+      doc.addPage('a4', 'portrait');
+      doc.setFontSize(12);
+      doc.text('Resumen por producto', 14, 14);
+      doc.setFontSize(8);
+      doc.text(alcance, 14, 20);
+      autoTable(doc, {
+        startY: 24,
+        head: [['Producto', 'ID prod.', 'Unidad', 'Cantidad']],
+        body: resumen.map((fila) => [fila.producto, fila.id, fila.unidad, textoCantidad(fila.cantidad)]),
+        styles: { fontSize: 9, cellPadding: 1.5, overflow: 'linebreak' },
+        headStyles: { fillColor: [14, 165, 233], textColor: 255, fontSize: 9 },
+        columnStyles: { 3: { halign: 'right' } },
+        margin: { left: 14, right: 14 },
+      });
+      if (Platform.OS === 'web') {
+        doc.save(fname);
+        return;
+      }
+      const base64 = doc.output('datauristring').split(',')[1] || '';
+      const fileUri = `${FileSystemLegacy.cacheDirectory ?? ''}${fname}`;
+      await FileSystemLegacy.writeAsStringAsync(fileUri, base64, { encoding: FileSystemLegacy.EncodingType.Base64 });
+      await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: fname });
+    } catch {
+      setSyncResult('Error: No se pudo generar el PDF');
+    }
+  }, [filtrados, items.length]);
 
   return (
     <View style={styles.container}>
@@ -411,19 +500,22 @@ export default function ComprasProveedorScreen() {
           >
             <MaterialIcons name="layers" size={TOOLBAR_ICON_SIZE} color={colors.textPrimary} />
           </ComprasToolbarIconBtn>
-          <ComprasToolbarIconBtn
-            tooltip="Exportar resultados filtrados a Excel"
-            onPress={exportarExcel}
+          <TouchableOpacity
+            style={[styles.descargarBtn, filtrados.length === 0 && { opacity: 0.45 }]}
+            onPress={() => setMenuDescargaVisible(true)}
             disabled={filtrados.length === 0}
-            accessibilityLabel="Exportar Excel"
-            variant="outline"
+            accessibilityLabel="Descargar"
+            accessibilityHint="Excel o PDF de las filas filtradas"
           >
             <MaterialIcons
-              name="table-chart"
+              name="download"
               size={TOOLBAR_ICON_SIZE}
               color={filtrados.length === 0 ? colors.borderStrong : colors.accent}
             />
-          </ComprasToolbarIconBtn>
+            <Text style={[styles.descargarBtnText, filtrados.length === 0 && { color: colors.borderStrong }]}>
+              Descargar
+            </Text>
+          </TouchableOpacity>
           <ComprasToolbarIconBtn
             tooltip={loading ? 'Cargando datos del servidor…' : 'Recargar datos desde el servidor'}
             onPress={() => {
@@ -561,6 +653,53 @@ export default function ComprasProveedorScreen() {
                   <Text style={styles.modalFiltrosCerrarText}>Listo</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={menuDescargaVisible} transparent animationType="fade" onRequestClose={() => setMenuDescargaVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setMenuDescargaVisible(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.syncMenuWrap}>
+            <View style={styles.syncMenuCard}>
+              <View style={styles.syncMenuHeader}>
+                <MaterialIcons name="download" size={18} color={colors.accent} />
+                <Text style={styles.syncMenuTitle}>Descargar</Text>
+                <TouchableOpacity onPress={() => setMenuDescargaVisible(false)} hitSlop={8} accessibilityLabel="Cerrar">
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={styles.syncMenuRow}
+                onPress={() => {
+                  setMenuDescargaVisible(false);
+                  exportarExcel();
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.syncMenuIconBox}>
+                  <MaterialIcons name="table-chart" size={18} color={colors.accent} />
+                </View>
+                <View style={styles.syncMenuRowTextWrap}>
+                  <Text style={styles.syncMenuRowTitle}>Excel</Text>
+                  <Text style={styles.syncMenuRowSub}>
+                    {filtrados.length} {filtrados.length === 1 ? 'línea' : 'líneas'}
+                    {filtrados.length !== items.length ? ' de la vista filtrada' : ''}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.syncMenuRow} onPress={() => { void exportarPdf(); }} activeOpacity={0.7}>
+                <View style={styles.syncMenuIconBox}>
+                  <MaterialIcons name="picture-as-pdf" size={18} color={colors.danger} />
+                </View>
+                <View style={styles.syncMenuRowTextWrap}>
+                  <Text style={styles.syncMenuRowTitle}>PDF</Text>
+                  <Text style={styles.syncMenuRowSub}>
+                    {filtrados.length} {filtrados.length === 1 ? 'línea' : 'líneas'}
+                    {filtrados.length !== items.length ? ' de la vista filtrada' : ''}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             </View>
           </TouchableOpacity>
         </TouchableOpacity>

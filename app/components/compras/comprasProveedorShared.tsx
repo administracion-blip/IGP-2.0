@@ -16,6 +16,7 @@ import {
   colors,
   fontFamily,
   fontSizes,
+  MIN_TOUCH,
   radius,
   statusColors,
   typography,
@@ -674,6 +675,23 @@ export const styles = StyleSheet.create({
   },
   modalFiltrosCerrarText: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
   // --- Menú de sincronización (elegir rango de días) ---
+  descargarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: 12,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  descargarBtnText: {
+    fontSize: fontSizes[13],
+    fontFamily: fontFamily.semibold,
+    fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
+  },
   syncMenuWrap: { width: '100%', maxWidth: 360 },
   syncMenuCard: {
     width: '100%',

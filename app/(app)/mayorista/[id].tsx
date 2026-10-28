@@ -374,12 +374,14 @@ export default function MayoristaDetalleScreen() {
   }, [ivaPorProductoId]);
 
   const prodHits = useMemo(() => {
+    const yaEnLinea = new Set(lineas.map((l) => String(l.producto_id || '').trim()).filter(Boolean));
+    const libres = catalogoProductos.filter((p) => !yaEnLinea.has(p.id));
     const qq = prodQ.trim().toLowerCase();
-    if (!qq) return catalogoProductos.slice(0, 50);
-    return catalogoProductos
-      .filter((p) => p.nombre.toLowerCase().includes(qq) || p.id.toLowerCase().includes(qq))
-      .slice(0, 50);
-  }, [catalogoProductos, prodQ]);
+    const base = qq
+      ? libres.filter((p) => p.nombre.toLowerCase().includes(qq) || p.id.toLowerCase().includes(qq))
+      : libres;
+    return base.slice(0, 50);
+  }, [catalogoProductos, prodQ, lineas]);
 
   const cargar = useCallback(async () => {
     if (!id) return;
@@ -1331,7 +1333,9 @@ export default function MayoristaDetalleScreen() {
                   <Text style={styles.emptySub}>
                     {catalogoProductos.length === 0
                       ? 'No hay productos con IGP activo. Márcalos en Productos Ágora.'
-                      : 'Ningún resultado para esa búsqueda.'}
+                      : prodQ.trim()
+                        ? 'Ningún resultado para esa búsqueda.'
+                        : 'Todos los productos ya están en la operación.'}
                   </Text>
                 ) : prodHits.map((p) => (
                   <TouchableOpacity key={p.id} style={styles.prodHit} onPress={() => anadirProducto(p)} activeOpacity={0.7}>

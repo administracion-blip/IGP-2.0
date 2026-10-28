@@ -728,7 +728,12 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
       ) : productosVisibles.length === 0 ? (
         <Text style={styles.lineasVacio}>Ningún producto con ese nombre.</Text>
       ) : (
-        <ScrollView style={styles.productosScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+        <ScrollView
+          style={styles.productosScroll}
+          contentContainerStyle={styles.productosScrollContenido}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator
+        >
           {productosVisibles.map((prod, idx) => {
             const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim() || `p-${idx}`;
             const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
@@ -749,13 +754,16 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                     <Text style={styles.lineaMeta}>{formatMoneda(precio)}</Text>
                   </View>
                 </View>
-                <InputCantidad
-                  value={cant}
-                  min={0}
-                  onChangeText={(v) => programarCantidadProducto(prod, v)}
-                  disabled={guardandoEste}
-                />
-                {guardandoEste ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
+                <View style={styles.prodCantidadFila}>
+                  <InputCantidad
+                    style={styles.prodCantidad}
+                    value={cant}
+                    min={0}
+                    onChangeText={(v) => programarCantidadProducto(prod, v)}
+                    disabled={guardandoEste}
+                  />
+                  {guardandoEste ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
+                </View>
               </View>
             );
           })}
@@ -1440,9 +1448,12 @@ const styles = StyleSheet.create({
   },
   buscadorProductoInput: { flex: 1, fontSize: 16, color: '#0f172a', minHeight: 44, ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) },
   productosScroll: { flex: 1 },
+  productosScrollContenido: { width: '100%' },
   prodCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    width: '100%',
+    alignSelf: 'stretch',
+    flexDirection: 'column',
+    alignItems: 'stretch',
     gap: 10,
     paddingVertical: 10,
     paddingHorizontal: 10,
@@ -1452,7 +1463,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#fff',
   },
-  prodTexto: { flex: 1, minWidth: 0 },
+  prodTexto: { minWidth: 0, alignSelf: 'stretch' },
+  prodCantidadFila: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  prodCantidad: { alignSelf: 'flex-start', width: 168, maxWidth: '100%', flexGrow: 0, flexShrink: 0 },
   cantidadCuatro: { flexShrink: 0, minWidth: 210 },
   cantidadCuatroInput: { minWidth: 88 },
   btnAnadirGrande: {
@@ -1488,7 +1501,7 @@ const styles = StyleSheet.create({
   lineasVacio: { fontSize: 14, color: '#94a3b8', paddingVertical: 16, textAlign: 'center' },
   lineaItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   lineaArticulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 },
-  lineaNombre: { fontSize: 14, color: '#334155', fontWeight: '600', flexShrink: 1 },
+  lineaNombre: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: 14, color: '#334155', fontWeight: '600' },
   lineaMeta: { fontSize: 12, color: '#64748b', marginTop: 1 },
   lineaBorrar: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
 
