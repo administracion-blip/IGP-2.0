@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
   Pressable,
   StyleSheet,
   Text,
@@ -28,6 +31,7 @@ const RELLENO = 'rgba(14, 165, 233, 0.16)';
 const ALTO_GRAFICO = 120;
 const MARGEN_SUP = 8;
 const MARGEN_INF = 4;
+const DURACION_ENTRADA = 800;
 
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] as const;
 
@@ -225,6 +229,77 @@ function trazosDe(puntos: Punto[]): Trazo[] {
   return salida;
 }
 
+function useReducirMovimiento(): boolean {
+  const [reducir, setReducir] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((valor) => {
+        if (vivo) setReducir(!!valor);
+      })
+      .catch(() => {});
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', (valor) => {
+      setReducir(!!valor);
+    });
+    return () => {
+      vivo = false;
+      sub.remove();
+    };
+  }, []);
+  return reducir;
+}
+
+function useProgresoEntrada(firma: string, activo: boolean, reducir: boolean) {
+  const progreso = useRef(new Animated.Value(activo && reducir ? 1 : 0)).current;
+  useEffect(() => {
+    if (!activo) return undefined;
+    if (reducir) {
+      progreso.setValue(1);
+      return undefined;
+    }
+    progreso.setValue(0);
+    const anim = Animated.timing(progreso, {
+      toValue: 1,
+      duration: DURACION_ENTRADA,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    anim.start();
+    const respaldo = setTimeout(() => progreso.setValue(1), DURACION_ENTRADA + 40);
+    return () => {
+      anim.stop();
+      clearTimeout(respaldo);
+    };
+  }, [activo, reducir, firma, progreso]);
+  return progreso;
+}
+
+function entradaCaja(progreso: Animated.Value, indice: number) {
+  const desde = indice * 0.15;
+  const hasta = Math.min(1, desde + 0.4);
+  return {
+    opacity: progreso.interpolate({
+      inputRange: [desde, hasta],
+      outputRange: [0, 1],
+      extrapolate: 'clamp',
+    }),
+    transform: [
+      {
+        translateY: progreso.interpolate({
+          inputRange: [desde, hasta],
+          outputRange: [10, 0],
+          extrapolate: 'clamp',
+        }),
+      },
+    ],
+  };
+}
+
+function eurosContador(valor: number): string {
+  if (!Number.isFinite(valor)) return '—';
+  return euros(Math.round(valor * 100) / 100);
+}
+
 function GraficoDiario({
   dias,
   ultimoDiaConDatos,
@@ -246,10 +321,33 @@ function GraficoDiario({
   const diaSel = dias.find((dia) => dia.fecha === seleccion) ?? null;
   const paso = dias.length > 0 ? ancho / dias.length : 0;
   const firma = `${dias[0]?.fecha ?? ''}:${dias[dias.length - 1]?.fecha ?? ''}:${ultimoDiaConDatos ?? ''}`;
+  const reducir = useReducirMovimiento();
+  const mascara = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     setSeleccion(null);
   }, [firma]);
+
+  useEffect(() => {
+    if (ancho <= 0) return undefined;
+    if (reducir) {
+      mascara.setValue(ancho);
+      return undefined;
+    }
+    mascara.setValue(0);
+    const anim = Animated.timing(mascara, {
+      toValue: ancho,
+      duration: DURACION_ENTRADA,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    anim.start();
+    const respaldo = setTimeout(() => mascara.setValue(ancho), DURACION_ENTRADA + 40);
+    return () => {
+      anim.stop();
+      clearTimeout(respaldo);
+    };
+  }, [ancho, firma, reducir, mascara]);
 
   return (
     <View style={styles.graficoBloque}>
@@ -337,6 +435,12 @@ function GraficoDiario({
             );
           })}
         </View>
+        {ancho > 0 ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.mascara, { width: ancho, transform: [{ translateX: mascara }] }]}
+          />
+        ) : null}
       </View>
 
       <View style={styles.leyenda}>
@@ -368,19 +472,24 @@ function CajaCifra({
   valor,
   accesible,
   enFila,
+  entrada,
 }: {
   etiqueta: string;
   valor: string;
   accesible: string;
   enFila: boolean;
+  entrada: StyleProp<ViewStyle>;
 }) {
   return (
-    <View style={[styles.caja, enFila && styles.cajaEnFila]} accessibilityLabel={`${accesible}: ${valor}`}>
+    <Animated.View
+      style={[styles.caja, enFila && styles.cajaEnFila, entrada]}
+      accessibilityLabel={`${accesible}: ${valor}`}
+    >
       <Text style={styles.cajaEtiqueta}>{etiqueta}</Text>
       <Text style={[styles.cajaValor, tasksUi.tabularNums]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
         {valor}
       </Text>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -478,6 +587,47 @@ export function FacturacionMesCard({
   const ritmo = hayObjetivo && datos != null ? clamp01(datos.objetivoAHoy / datos.objetivoMes) : 0;
   const diferencia = listo && datos != null ? datos.diferenciaRitmo : 0;
   const tono = diferencia > 0 ? 'ok' : diferencia < 0 ? 'mal' : 'neutro';
+  const firmaEntrada =
+    listo && datos
+      ? `${datos.totalReal}:${datos.objetivoAHoy}:${datos.objetivoMes}:${datos.ultimoDiaConDatos ?? ''}:${datos.dias.length}`
+      : '';
+  const reducirMovimiento = useReducirMovimiento();
+  const progresoEntrada = useProgresoEntrada(firmaEntrada, listo, reducirMovimiento);
+  const escalaBarra = useMemo(
+    () => progresoEntrada.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }),
+    [progresoEntrada],
+  );
+  const entradasCaja = useMemo(
+    () => [0, 1, 2].map((indice) => entradaCaja(progresoEntrada, indice)),
+    [progresoEntrada],
+  );
+  const [firmaCuenta, setFirmaCuenta] = useState(firmaEntrada);
+  const [totalAnimado, setTotalAnimado] = useState(0);
+  let totalVisible = totalAnimado;
+  if (firmaCuenta !== firmaEntrada) {
+    const siguiente = listo && datos && reducirMovimiento ? datos.totalReal : 0;
+    setFirmaCuenta(firmaEntrada);
+    setTotalAnimado(siguiente);
+    totalVisible = siguiente;
+  }
+  const totalReal = listo && datos ? datos.totalReal : 0;
+
+  useEffect(() => {
+    if (!listo || reducirMovimiento) return undefined;
+    const animado = new Animated.Value(0);
+    const id = animado.addListener(({ value }) => setTotalAnimado(value));
+    const anim = Animated.timing(animado, {
+      toValue: totalReal,
+      duration: DURACION_ENTRADA,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+    anim.start();
+    return () => {
+      anim.stop();
+      animado.removeListener(id);
+    };
+  }, [listo, totalReal, reducirMovimiento, firmaEntrada]);
 
   return (
     <>
@@ -546,7 +696,7 @@ export function FacturacionMesCard({
                 style={styles.total}
                 accessibilityLabel={`Facturación del mes ${euros(datos.totalReal)}`}
               >
-                {euros(datos.totalReal)}
+                {eurosContador(totalVisible)}
               </Text>
               <View
                 style={[
@@ -579,12 +729,19 @@ export function FacturacionMesCard({
               >
                 <View style={styles.pista}>
                   {logro > 0 ? (
-                    <LinearGradient
-                      colors={FRANJA}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={[styles.relleno, { width: `${logro * 100}%` }]}
-                    />
+                    <Animated.View
+                      style={[
+                        styles.relleno,
+                        { width: `${logro * 100}%`, transform: [{ scaleX: escalaBarra }], transformOrigin: 'left center' },
+                      ]}
+                    >
+                      <LinearGradient
+                        colors={FRANJA}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={StyleSheet.absoluteFill}
+                      />
+                    </Animated.View>
                   ) : null}
                 </View>
                 {hayObjetivo ? <View style={[styles.marca, { left: `${ritmo * 100}%` }]} /> : null}
@@ -598,18 +755,21 @@ export function FacturacionMesCard({
                 accesible="Objetivo a hoy"
                 valor={euros(datos.objetivoAHoy)}
                 enFila={isPhone}
+                entrada={entradasCaja[0]}
               />
               <CajaCifra
                 etiqueta="Del mes"
                 accesible="Objetivo del mes"
                 valor={euros(datos.objetivoMes)}
                 enFila={isPhone}
+                entrada={entradasCaja[1]}
               />
               <CajaCifra
                 etiqueta="Proyección"
                 accesible="Proyección a fin de mes"
                 valor={euros(datos.proyeccionFinMes)}
                 enFila={isPhone}
+                entrada={entradasCaja[2]}
               />
             </View>
 
@@ -810,6 +970,13 @@ const styles = StyleSheet.create({
     minHeight: MIN_TOUCH,
     position: 'relative',
     overflow: 'hidden',
+  },
+  mascara: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: tasksUi.color.superficie,
   },
   trazo: {
     position: 'absolute',

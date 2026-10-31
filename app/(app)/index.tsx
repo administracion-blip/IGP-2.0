@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,18 @@ import {
   Platform,
   Animated,
   ScrollView,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import WeatherWidget from '../components/WeatherWidget';
 import { CalendarioInicio } from '../components/CalendarioInicio';
+import {
+  FacturacionMesCard,
+  type EstadoFacturacionMes,
+  type FacturacionMesDatos,
+} from '../components/inicio/FacturacionMesCard';
+import type { ValorFiltroFacturacionMes } from '../components/inicio/FiltroFacturacionMes';
 import { tasksUi } from '../constants/tasksUiTokens';
 import { SPACING } from '../constants/layout';
 import { useAuth } from '../contexts/AuthContext';
@@ -201,9 +209,56 @@ function TickerFacturacion({
   );
 }
 
+function FacturacionMesInicio({ style }: { style?: StyleProp<ViewStyle> }) {
+  const [estado, setEstado] = useState<EstadoFacturacionMes>('cargando');
+  const [datos, setDatos] = useState<FacturacionMesDatos | null>(null);
+  const filtroRef = useRef<ValorFiltroFacturacionMes | null>(null);
+  const peticion = useRef(0);
+
+  const cargar = useCallback((filtro: ValorFiltroFacturacionMes) => {
+    filtroRef.current = filtro;
+    const id = peticion.current + 1;
+    peticion.current = id;
+    setEstado('cargando');
+    const params = new URLSearchParams({
+      year: String(filtro.year),
+      month: String(filtro.month),
+    });
+    if (filtro.localIds.length > 0) params.set('localIds', filtro.localIds.join(','));
+    apiFetch(`/api/agora/closeouts/facturacion-mes-diaria?${params.toString()}`)
+      .then(async (res) => {
+        const body = (await res.json().catch(() => null)) as (FacturacionMesDatos & { error?: string }) | null;
+        if (id !== peticion.current) return;
+        if (!res.ok || !body || !Array.isArray(body.dias)) {
+          setEstado('error');
+          return;
+        }
+        setDatos(body);
+        setEstado(body.dias.length > 0 ? 'listo' : 'vacio');
+      })
+      .catch(() => {
+        if (id !== peticion.current) return;
+        setEstado('error');
+      });
+  }, []);
+
+  return (
+    <FacturacionMesCard
+      estado={estado}
+      datos={datos}
+      style={style}
+      onCambioFiltro={cargar}
+      onReintentar={() => {
+        if (filtroRef.current) cargar(filtroRef.current);
+      }}
+    />
+  );
+}
+
 export default function AppHome() {
   const { isPhone, isCompact } = useBreakpoint();
-  const { localPermitido } = useAuth();
+  const { localPermitido, hasPermiso } = useAuth();
+  const puedeMes = hasPermiso('planning_dia.objetivo_card');
   const [totals, setTotals] = useState<TotalByLocal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -246,7 +301,18 @@ export default function AppHome() {
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
       <View style={homeInnerStyle}>
-        <WeatherWidget />
+        {puedeMes && !isPhone ? (
+          <View style={styles.filaMes}>
+            <View style={styles.columnaMes}>
+              <WeatherWidget />
+            </View>
+            <View style={styles.columnaMes}>
+              <FacturacionMesInicio style={styles.tarjetaMes} />
+            </View>
+          </View>
+        ) : (
+          <WeatherWidget />
+        )}
 
         <View style={styles.tickerShell}>
           <View style={styles.tickerBar}>
@@ -278,6 +344,8 @@ export default function AppHome() {
           </View>
         </View>
 
+        {puedeMes && isPhone ? <FacturacionMesInicio /> : null}
+
         <CalendarioInicio />
       </View>
     </ScrollView>
@@ -297,6 +365,21 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
     gap: SPACING.xl,
+  },
+  filaMes: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: SPACING.lg,
+  },
+  columnaMes: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+    alignSelf: 'stretch',
+  },
+  tarjetaMes: {
+    flexGrow: 1,
   },
   tickerShell: {
     width: '100%',
