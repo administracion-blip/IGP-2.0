@@ -27,15 +27,13 @@ import {
 } from './FiltroFacturacionMes';
 
 const FRANJA = ['#0ea5e9', '#ec4899'] as const;
+const TINTES = ['#f0f9ff', '#ffffff'] as const;
+const ANCHO_OCULTA_SUBTITULO = 960;
 const AZUL = '#0ea5e9';
 const AZUL_HOY = '#0369a1';
 const ROSA = '#ec4899';
 const MARCAS_EJE = new Set([1, 8, 15, 22, 29]);
 const SEMANA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'] as const;
-const CAJA_HOY = { fondo: '#f8fafc', texto: '#0f172a', icono: '#475569' } as const;
-const CAJA_MES = { fondo: '#e0f2fe', texto: '#0369a1', icono: '#0369a1' } as const;
-const CAJA_PROYECCION = { fondo: '#fdf2f8', texto: '#9d174d', icono: '#9d174d' } as const;
-const ETIQUETA_CAJA = '#475569';
 const ALTO_GRAFICO = 130;
 const ALTO_GRAFICO_MOVIL = 100;
 const AZUL_CLARO = '#e0f2fe';
@@ -277,13 +275,18 @@ function lineaObjetivo(dias: DiaFacturacionMes[], ancho: number, techo: number, 
     .join(' ');
 }
 
+function diaSemanaCorto(iso: string): string {
+  const coincidencia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!coincidencia) return '';
+  const fecha = new Date(Number(coincidencia[1]), Number(coincidencia[2]) - 1, Number(coincidencia[3]));
+  return SEMANA[fecha.getDay()] ?? '';
+}
+
 function fechaTooltip(iso: string): string {
   const coincidencia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!coincidencia) return iso;
-  const fecha = new Date(Number(coincidencia[1]), Number(coincidencia[2]) - 1, Number(coincidencia[3]));
-  const semana = SEMANA[fecha.getDay()] ?? '';
   const mes = MESES_CORTOS[Number(coincidencia[2]) - 1] ?? '';
-  return `${semana} ${Number(coincidencia[3])} ${mes}`;
+  return `${diaSemanaCorto(iso)} ${Number(coincidencia[3])} ${mes}`;
 }
 
 function pctDia(real: number, objetivo: number): number | null {
@@ -546,7 +549,7 @@ const GraficoDiario = memo(function GraficoDiario({
             {objetivo ? (
               <Path
                 d={objetivo}
-                stroke="#94a3b8"
+                stroke="#cbd5e1"
                 strokeWidth={1.5}
                 strokeDasharray="4 4"
                 fill="none"
@@ -601,14 +604,37 @@ const GraficoDiario = memo(function GraficoDiario({
         accessibilityLabel="Cerrar el detalle del día"
         hitSlop={{ top: 8, bottom: 14 }}
         onPress={() => setSeleccion(null)}
-        style={styles.eje}
+        style={[styles.eje, Platform.OS === 'web' && styles.ejeWeb]}
       >
         {dias.map((dia, indice) => {
+          const enWeb = Platform.OS === 'web';
           const numero = diaDelMes(dia.fecha);
-          if (!MARCAS_EJE.has(numero)) return null;
+          if (!enWeb && !MARCAS_EJE.has(numero)) return null;
+          if (enWeb) {
+            return (
+              <View
+                key={dia.fecha}
+                style={[
+                  styles.ejeCelda,
+                  {
+                    left: `${(indice / dias.length) * 100}%`,
+                    width: `${100 / dias.length}%`,
+                  },
+                ]}
+              >
+                <Text style={styles.ejeNumero} numberOfLines={1}>
+                  {numero}
+                </Text>
+                <Text style={styles.ejeSemana} numberOfLines={1}>
+                  {diaSemanaCorto(dia.fecha)}
+                </Text>
+              </View>
+            );
+          }
           return (
             <Text
               key={dia.fecha}
+              numberOfLines={1}
               style={[
                 styles.ejeMarca,
                 {
@@ -644,73 +670,93 @@ const GraficoDiario = memo(function GraficoDiario({
   );
 });
 
-function CajaCifra({
+function DatoCabecera({
   etiqueta,
   valor,
-  accesible,
-  enFila,
+  color,
   entrada,
-  icono,
-  fondo,
-  colorValor,
-  colorIcono,
-  crecimiento,
-  tono,
 }: {
   etiqueta: string;
   valor: string;
-  accesible: string;
-  enFila: boolean;
+  color: string;
   entrada: StyleProp<ViewStyle>;
-  icono: keyof typeof MaterialIcons.glyphMap;
-  fondo: string;
-  colorValor: string;
-  colorIcono: string;
-  crecimiento?: string | null;
-  tono?: 'ok' | 'mal' | 'neutro';
 }) {
-  const tonoCaja = tono ?? 'neutro';
   return (
-    <Animated.View
-      style={[styles.caja, { backgroundColor: fondo }, enFila && styles.cajaEnFila, entrada]}
-      accessibilityLabel={crecimiento ? `${accesible}: ${valor}. Crecimiento ${crecimiento}` : `${accesible}: ${valor}`}
-    >
-      <View style={styles.cajaEtiquetaFila}>
-        <MaterialIcons name={icono} size={16} color={colorIcono} />
-        <Text style={styles.cajaEtiqueta} numberOfLines={1}>
-          {etiqueta}
-        </Text>
-      </View>
-      <View style={styles.cajaValorFila}>
-        <Text
-          style={[styles.cajaValor, { color: colorValor }, tasksUi.tabularNums]}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.75}
-        >
-          {valor}
-        </Text>
-        {crecimiento ? (
-          <View
-            style={[
-              styles.chip,
-              styles.chipCaja,
-              tonoCaja === 'ok' ? styles.chipOk : tonoCaja === 'mal' ? styles.chipMal : styles.chipNeutro,
-            ]}
-          >
-            <Text
-              style={[
-                styles.chipTexto,
-                styles.chipTextoCaja,
-                tonoCaja === 'ok' ? styles.chipTextoOk : tonoCaja === 'mal' ? styles.chipTextoMal : styles.chipTextoNeutro,
-              ]}
-            >
-              {crecimiento}
-            </Text>
-          </View>
-        ) : null}
-      </View>
+    <Animated.View style={[styles.dato, entrada]} accessibilityLabel={`${etiqueta}: ${valor}`}>
+      <Text style={styles.datoEtiqueta} numberOfLines={1}>
+        {etiqueta}
+      </Text>
+      <Text style={[styles.datoValor, { color }, tasksUi.tabularNums]} numberOfLines={1}>
+        {valor}
+      </Text>
     </Animated.View>
+  );
+}
+
+function DatosCabecera({
+  datos,
+  entradas,
+  textoPct,
+  compacto = false,
+}: {
+  datos: FacturacionMesDatos;
+  entradas: StyleProp<ViewStyle>[];
+  textoPct: string | null;
+  compacto?: boolean;
+}) {
+  const sep = compacto ? styles.separadorCorto : styles.separador;
+  return (
+    <>
+      <DatoCabecera
+        etiqueta="Obj. a hoy"
+        valor={formatEuro0(datos.objetivoAHoy)}
+        color="#0f172a"
+        entrada={entradas[0]}
+      />
+      <View style={sep} />
+      <DatoCabecera
+        etiqueta="Obj. mes"
+        valor={formatEuro0(datos.objetivoMes)}
+        color="#0369a1"
+        entrada={entradas[1]}
+      />
+      <View style={sep} />
+      <DatoCabecera
+        etiqueta={textoPct ? `Proyección · ${textoPct}` : 'Proyección'}
+        valor={formatEuro0(datos.proyeccionFinMes)}
+        color="#be185d"
+        entrada={entradas[2]}
+      />
+    </>
+  );
+}
+
+function PastillaFiltro({
+  etiqueta,
+  deshabilitada,
+  onPress,
+  estilo,
+}: {
+  etiqueta: string;
+  deshabilitada: boolean;
+  onPress: () => void;
+  estilo?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Filtro de facturación: ${etiqueta}`}
+      accessibilityHint="Abre el mes y los locales"
+      accessibilityState={{ disabled: deshabilitada }}
+      disabled={deshabilitada}
+      onPress={onPress}
+      style={({ pressed }) => [styles.pastilla, estilo, pressed && styles.pulsado, deshabilitada && styles.inhabilitado]}
+    >
+      <Text style={styles.pastillaTexto} numberOfLines={1}>
+        {etiqueta}
+      </Text>
+      <MaterialIcons name="expand-more" size={18} color="#0f172a" />
+    </Pressable>
   );
 }
 
@@ -721,11 +767,6 @@ function Esqueleto() {
     <View style={styles.bloque} accessibilityLabel="Cargando facturación del mes" accessibilityRole="progressbar">
       <View style={[styles.hueso, styles.huesoTotal]} />
       <View style={[styles.hueso, styles.huesoPista]} />
-      <View style={styles.cajas}>
-        <View style={[styles.hueso, styles.huesoCaja]} />
-        <View style={[styles.hueso, styles.huesoCaja]} />
-        <View style={[styles.hueso, styles.huesoCaja]} />
-      </View>
       <View style={[styles.hueso, styles.huesoGrafico, { height: alto }]} />
     </View>
   );
@@ -746,6 +787,9 @@ export function FacturacionMesCard({
   const [abierto, setAbierto] = useState(false);
   const usuarioAplico = useRef(false);
   const onCambioRef = useRef(onCambioFiltro);
+  const filaRef = useRef<View>(null);
+  const [anchoTarjeta, setAnchoTarjeta] = useState(0);
+  const [nivelExtra, setNivelExtra] = useState(0);
   onCambioRef.current = onCambioFiltro;
 
   useEffect(() => {
@@ -773,14 +817,23 @@ export function FacturacionMesCard({
     if (valor) onCambioRef.current?.(valor);
   }, [valor]);
 
-  const etiqueta = !valor
+  const etiquetaLarga = !valor
     ? 'Cargando…'
     : etiquetaFiltroFacturacion({
         year: valor.year,
         month: valor.month,
         localIds: valor.localIds,
         locales: permitidos,
-        movil: isPhone,
+        movil: false,
+      });
+  const etiquetaCorta = !valor
+    ? 'Cargando…'
+    : etiquetaFiltroFacturacion({
+        year: valor.year,
+        month: valor.month,
+        localIds: valor.localIds,
+        locales: permitidos,
+        movil: true,
       });
 
   const abrirFiltro = () => {
@@ -788,6 +841,25 @@ export function FacturacionMesCard({
     setAbierto(true);
   };
   const listo = estado === 'listo' && datos != null && datos.dias.length > 0;
+  const piso = isPhone || anchoTarjeta <= 0 ? 0 : anchoTarjeta < 760 ? 3 : anchoTarjeta < 880 ? 2 : anchoTarjeta < ANCHO_OCULTA_SUBTITULO ? 1 : 0;
+  const nivel = Math.min(3, piso + nivelExtra);
+  const etiqueta = isPhone || nivel >= 2 ? etiquetaCorta : etiquetaLarga;
+
+  useEffect(() => {
+    setNivelExtra(0);
+  }, [anchoTarjeta, etiquetaLarga, isPhone]);
+
+  useEffect(() => {
+    if (isPhone || Platform.OS !== 'web' || !listo) return undefined;
+    const marco = requestAnimationFrame(() => {
+      const nodo = filaRef.current as unknown as { scrollWidth?: number; clientWidth?: number } | null;
+      if (!nodo?.clientWidth) return;
+      if ((nodo.scrollWidth ?? 0) > nodo.clientWidth + 4 && piso + nivelExtra < 3) {
+        setNivelExtra((actual) => actual + 1);
+      }
+    });
+    return () => cancelAnimationFrame(marco);
+  }, [anchoTarjeta, nivelExtra, piso, isPhone, listo, etiquetaLarga]);
   const vacio = estado === 'vacio' || (estado === 'listo' && !listo);
   const hayObjetivo = listo && datos != null && datos.objetivoMes > 0;
   const logro = hayObjetivo && datos != null ? clamp01(datos.totalReal / datos.objetivoMes) : 0;
@@ -824,6 +896,14 @@ export function FacturacionMesCard({
     totalVisible = siguiente;
   }
   const totalReal = listo && datos ? datos.totalReal : 0;
+  const diferenciaVisible =
+    listo && datos && totalReal > 0 ? datos.diferenciaRitmo * (totalVisible / totalReal) : 0;
+  const subtitulo =
+    listo && datos
+      ? datos.ultimoDiaConDatos
+        ? `Cajas hasta ${fechaVisible(datos.ultimoDiaConDatos)}`
+        : 'Sin cajas en este mes'
+      : null;
 
   useEffect(() => {
     if (!listo || reducirMovimiento == null) return undefined;
@@ -848,42 +928,39 @@ export function FacturacionMesCard({
 
   return (
     <>
-    <View style={[styles.tarjeta, style]}>
+    <View
+      style={[styles.tarjeta, style]}
+      onLayout={(evento) => {
+        const siguiente = evento.nativeEvent.layout.width;
+        setAnchoTarjeta((previo) => (Math.abs(previo - siguiente) < 0.5 ? previo : siguiente));
+      }}
+    >
       <LinearGradient
-        colors={FRANJA}
+        colors={TINTES}
         start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.franja}
+        end={{ x: 0, y: 1 }}
+        style={styles.tinte}
+        pointerEvents="none"
       />
       <View style={styles.cuerpo}>
-        <View style={styles.cabecera}>
-          <View style={styles.tituloFila}>
-            <Text style={styles.kicker}>Facturación</Text>
-            {listo && datos ? (
-              <Text style={styles.pie} numberOfLines={1}>
-                {datos.ultimoDiaConDatos
-                  ? `Cajas hasta ${fechaVisible(datos.ultimoDiaConDatos)}`
-                  : 'Sin cajas en este mes'}
-              </Text>
-            ) : null}
-          </View>
-          <View style={styles.ancla}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Filtro de facturación: ${etiqueta}`}
-              accessibilityHint={permitidos.length === 1 ? 'Abre el mes' : 'Abre el mes y los locales'}
-              accessibilityState={{ disabled: !valor }}
-              disabled={!valor}
+        {isPhone || !listo ? (
+          <View style={styles.filaTitulo}>
+            <View style={styles.tituloBloque}>
+              <Text style={styles.kicker}>Facturación</Text>
+              {subtitulo && (isPhone || nivel < 1) ? (
+                <Text style={styles.subtitulo} numberOfLines={1}>
+                  {subtitulo}
+                </Text>
+              ) : null}
+            </View>
+            <PastillaFiltro
+              etiqueta={etiqueta}
+              deshabilitada={!valor}
               onPress={abrirFiltro}
-              style={({ pressed }) => [styles.pastilla, pressed && styles.pulsado, !valor && styles.inhabilitado]}
-            >
-              <Text style={styles.pastillaTexto} numberOfLines={1}>
-                {etiqueta}
-              </Text>
-              <MaterialIcons name="expand-more" size={18} color={tasksUi.color.textoSecundario} />
-            </Pressable>
+              estilo={styles.pastillaEmpuja}
+            />
           </View>
-        </View>
+        ) : null}
 
         {estado === 'cargando' ? <Esqueleto /> : null}
 
@@ -917,57 +994,95 @@ export function FacturacionMesCard({
 
         {listo && datos ? (
           <View style={styles.bloque}>
-            <View style={[styles.hero, isPhone && styles.heroPhone]}>
-              <Text
-                style={styles.total}
-                accessibilityLabel={`Facturación del mes ${formatEuro0(datos.totalReal)}`}
-              >
-                {eurosContador(totalVisible)}
-              </Text>
-              <View
-                style={[
-                  styles.chip,
-                  tono === 'ok' ? styles.chipOk : tono === 'mal' ? styles.chipMal : styles.chipNeutro,
-                ]}
-                accessibilityLabel={etiquetaRitmo(datos)}
-              >
+            {!isPhone ? (
+              <View ref={filaRef} style={[styles.fila, nivel >= 3 && styles.filaSinMargen]}>
+                <View style={styles.tituloBloque}>
+                  <Text style={styles.kicker}>Facturación</Text>
+                  {nivel < 1 && subtitulo ? (
+                    <Text style={styles.subtitulo} numberOfLines={1}>
+                      {subtitulo}
+                    </Text>
+                  ) : null}
+                </View>
                 <Text
-                  style={[
-                    styles.chipTexto,
-                    tono === 'ok' ? styles.chipTextoOk : tono === 'mal' ? styles.chipTextoMal : styles.chipTextoNeutro,
-                  ]}
+                  style={styles.total}
+                  accessibilityLabel={`Facturación del mes ${formatEuro0(datos.totalReal)}`}
                 >
-                  {textoChip(datos.diferenciaRitmo, pctRitmo)}
+                  {eurosContador(totalVisible)}
                 </Text>
+                <View
+                  style={[
+                    styles.chip,
+                    tono === 'ok' ? styles.chipOk : tono === 'mal' ? styles.chipMal : styles.chipNeutro,
+                  ]}
+                  accessibilityLabel={etiquetaRitmo(datos)}
+                >
+                  <Text
+                    style={[
+                      styles.chipTexto,
+                      tono === 'ok' ? styles.chipTextoOk : tono === 'mal' ? styles.chipTextoMal : styles.chipTextoNeutro,
+                    ]}
+                  >
+                    {textoChip(diferenciaVisible, pctRitmo)}
+                  </Text>
+                </View>
+                {nivel < 3 ? (
+                  <View style={styles.filaDatos}>
+                    <DatosCabecera datos={datos} entradas={entradasCaja} textoPct={textoPct} />
+                  </View>
+                ) : null}
+                <PastillaFiltro
+                  etiqueta={etiqueta}
+                  deshabilitada={!valor}
+                  onPress={abrirFiltro}
+                  estilo={styles.pastillaEmpuja}
+                />
               </View>
-            </View>
+            ) : (
+              <View style={styles.heroPhone}>
+                <Text
+                  style={[styles.total, styles.totalMovil]}
+                  accessibilityLabel={`Facturación del mes ${formatEuro0(datos.totalReal)}`}
+                >
+                  {eurosContador(totalVisible)}
+                </Text>
+                <View
+                  style={[
+                    styles.chip,
+                    styles.chipMovil,
+                    tono === 'ok' ? styles.chipOk : tono === 'mal' ? styles.chipMal : styles.chipNeutro,
+                  ]}
+                  accessibilityLabel={etiquetaRitmo(datos)}
+                >
+                  <Text
+                    style={[
+                      styles.chipTexto,
+                      tono === 'ok' ? styles.chipTextoOk : tono === 'mal' ? styles.chipTextoMal : styles.chipTextoNeutro,
+                    ]}
+                  >
+                    {textoChip(diferenciaVisible, pctRitmo)}
+                  </Text>
+                </View>
+              </View>
+            )}
 
-            <View style={styles.barraBloque}>
+            {!isPhone && nivel >= 3 ? (
+              <View style={styles.filaDatosSegunda}>
+                <DatosCabecera datos={datos} entradas={entradasCaja} textoPct={textoPct} />
+              </View>
+            ) : null}
+
+            <View style={[styles.barraBloque, isPhone && styles.barraBloqueMovil]}>
               <View
                 style={styles.pistaCaja}
                 accessibilityRole="progressbar"
                 accessibilityValue={{ min: 0, max: 100, now: Math.round(logro * 100) }}
                 accessibilityLabel={
                   hayObjetivo
-                    ? `Facturado ${formatEuro0(datos.totalReal)}, ${mesPct == null ? '' : textoPorcentaje(mesPct)} del mes. Hoy ${hoyPct == null ? '' : textoPorcentaje(hoyPct)}. Objetivo del mes ${formatEuro0(datos.objetivoMes)}.`
+                    ? `Facturado ${formatEuro0(datos.totalReal)}, ${mesPct == null ? '' : textoPorcentaje(mesPct)} del mes. Hoy ${hoyPct == null ? '' : textoPorcentaje(hoyPct)}.`
                     : 'Sin objetivo del mes'
                 }
               >
-                {hayObjetivo && hoyPct != null ? (
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.hoyAncla,
-                      ritmo < 0.14
-                        ? styles.hoyAnclaIzq
-                        : ritmo > 0.86
-                          ? styles.hoyAnclaDer
-                          : { left: `${ritmo * 100}%` },
-                    ]}
-                  >
-                    <Text style={styles.hoyTexto}>{`Hoy ${textoPorcentaje(hoyPct)}`}</Text>
-                  </View>
-                ) : null}
                 <View style={styles.pista}>
                   {logro > 0 ? (
                     <Animated.View
@@ -991,49 +1106,32 @@ export function FacturacionMesCard({
                 <Text style={styles.barraPieTexto}>
                   {mesPct == null ? '— del mes' : `${textoPorcentaje(mesPct)} del mes`}
                 </Text>
-                <Text style={styles.barraPieTexto}>Obj. mes {formatEuro0(datos.objetivoMes)}</Text>
+                {hayObjetivo && hoyPct != null ? (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.hoyAncla,
+                      ritmo < 0.14 ? styles.hoyAnclaIzq : ritmo > 0.86 ? styles.hoyAnclaDer : { left: `${ritmo * 100}%` },
+                    ]}
+                  >
+                    <Text style={styles.hoyTexto}>{`Hoy ${textoPorcentaje(hoyPct)}`}</Text>
+                  </View>
+                ) : null}
               </View>
             </View>
 
-            <View style={[styles.cajas, isPhone && styles.cajasPhone]}>
-              <CajaCifra
-                etiqueta="Objetivo a hoy"
-                accesible="Objetivo a hoy"
-                valor={formatEuro0(datos.objetivoAHoy)}
-                enFila={isPhone}
-                entrada={entradasCaja[0]}
-                icono="today"
-                fondo={CAJA_HOY.fondo}
-                colorValor={CAJA_HOY.texto}
-                colorIcono={CAJA_HOY.icono}
-              />
-              <CajaCifra
-                etiqueta="Objetivo del mes"
-                accesible="Objetivo del mes"
-                valor={formatEuro0(datos.objetivoMes)}
-                enFila={isPhone}
-                entrada={entradasCaja[1]}
-                icono="calendar-month"
-                fondo={CAJA_MES.fondo}
-                colorValor={CAJA_MES.texto}
-                colorIcono={CAJA_MES.icono}
-              />
-              <CajaCifra
-                etiqueta="Proyección"
-                accesible="Proyección a fin de mes"
-                valor={formatEuro0(datos.proyeccionFinMes)}
-                enFila={isPhone}
-                entrada={entradasCaja[2]}
-                icono="trending-up"
-                fondo={CAJA_PROYECCION.fondo}
-                colorValor={CAJA_PROYECCION.texto}
-                colorIcono={CAJA_PROYECCION.icono}
-                crecimiento={textoPct}
-                tono={tono}
-              />
-            </View>
+            {isPhone ? (
+              <View style={styles.filaDatosMovil}>
+                <DatosCabecera datos={datos} entradas={entradasCaja} textoPct={textoPct} compacto />
+              </View>
+            ) : null}
 
             <GraficoDiario dias={datos.dias} ultimoDiaConDatos={datos.ultimoDiaConDatos} />
+            {!isPhone && nivel >= 1 && subtitulo ? (
+              <Text style={styles.pieGrafico} numberOfLines={1}>
+                {subtitulo}
+              </Text>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -1064,13 +1162,13 @@ export function FacturacionMesCard({
 
 const sombraTarjeta: ViewStyle =
   Platform.OS === 'web'
-    ? ({ boxShadow: '0 4px 16px rgba(15, 23, 42, 0.06)' } as ViewStyle)
+    ? ({ boxShadow: '0 6px 24px rgba(15, 23, 42, 0.07)' } as ViewStyle)
     : {
         shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.06,
-        shadowRadius: 16,
-        elevation: 3,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.07,
+        shadowRadius: 24,
+        elevation: 4,
       };
 
 const styles = StyleSheet.create({
@@ -1078,16 +1176,22 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'stretch',
     backgroundColor: tasksUi.color.superficie,
-    borderRadius: tasksUi.radius.contenedor,
+    borderRadius: 16,
     overflow: 'hidden',
+    position: 'relative',
     ...sombraTarjeta,
   },
-  franja: {
-    height: 4,
+  tinte: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 40,
   },
   cuerpo: {
-    padding: SPACING.xl,
-    gap: SPACING.md,
+    paddingTop: 16,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
   },
   cabecera: {
     flexDirection: 'row',
@@ -1108,6 +1212,79 @@ const styles = StyleSheet.create({
     ...tasksUi.tipo.tituloSeccion,
     flexShrink: 0,
   },
+  subtitulo: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#94a3b8',
+  },
+  tituloBloque: {
+    flexShrink: 0,
+  },
+  filaTitulo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  fila: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
+    overflow: 'hidden',
+    marginBottom: SPACING.md,
+  },
+  filaSinMargen: {
+    marginBottom: 0,
+  },
+  filaDatos: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    marginLeft: SPACING.lg,
+  },
+  filaDatosSegunda: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  filaDatosMovil: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SPACING.md,
+    marginBottom: SPACING.lg,
+  },
+  separador: {
+    width: 1,
+    height: 32,
+    marginHorizontal: SPACING.lg,
+    backgroundColor: '#e2e8f0',
+  },
+  separadorCorto: {
+    width: 1,
+    height: 32,
+    marginHorizontal: SPACING.sm,
+    backgroundColor: '#e2e8f0',
+  },
+  dato: {
+    flexShrink: 0,
+  },
+  datoEtiqueta: {
+    fontSize: 11,
+    lineHeight: 14,
+    color: '#94a3b8',
+  },
+  datoValor: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  pieGrafico: {
+    marginTop: SPACING.sm,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#94a3b8',
+  },
   ancla: {
     flexShrink: 1,
     minWidth: 0,
@@ -1118,20 +1295,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: SPACING.xs,
-    flexShrink: 1,
-    minWidth: 0,
-    maxWidth: '100%',
+    flexShrink: 0,
     minHeight: MIN_TOUCH,
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: 14,
     borderRadius: tasksUi.radius.pildora,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeFuerte,
-    backgroundColor: tasksUi.color.superficie,
+    backgroundColor: '#f1f5f9',
+  },
+  pastillaEmpuja: {
+    marginLeft: 'auto',
   },
   pastillaTexto: {
-    ...tasksUi.tipo.dato,
-    flexShrink: 1,
-    color: tasksUi.color.textoPrimario,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    color: '#0f172a',
   },
   pulsado: {
     opacity: 0.72,
@@ -1140,58 +1317,91 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   bloque: {
-    gap: SPACING.md,
-  },
-  hero: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    gap: SPACING.md,
+    gap: 0,
   },
   heroPhone: {
     flexDirection: 'column',
     alignItems: 'flex-start',
+    marginBottom: SPACING.sm,
   },
   total: {
-    fontSize: 36,
+    marginLeft: 24,
+    fontSize: 26,
     fontWeight: '700',
-    lineHeight: 42,
-    color: tasksUi.color.textoPrimario,
+    lineHeight: 32,
+    color: '#0f172a',
     ...tasksUi.tabularNums,
-    flexShrink: 1,
-    minWidth: 0,
+    flexShrink: 0,
+  },
+  totalMovil: {
+    marginLeft: 0,
+    fontSize: 28,
+    lineHeight: 34,
   },
   chip: {
+    marginLeft: SPACING.sm,
     borderRadius: tasksUi.radius.pildora,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
-    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    flexShrink: 0,
   },
-  chipCaja: {
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: 2,
+  chipMovil: {
+    marginLeft: 0,
+    marginTop: SPACING.xs,
   },
-  chipOk: { backgroundColor: tasksUi.color.exitoSuave },
-  chipMal: { backgroundColor: tasksUi.color.peligroSuave },
+  chipOk: { backgroundColor: '#dcfce7' },
+  chipMal: { backgroundColor: '#fee2e2' },
   chipNeutro: { backgroundColor: tasksUi.color.superficieHundida },
   chipTexto: {
-    ...tasksUi.tipo.dato,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
     ...tasksUi.tabularNums,
   },
-  chipTextoOk: { color: tasksUi.color.exito },
-  chipTextoMal: { color: tasksUi.color.peligro },
+  chipTextoOk: { color: '#15803d' },
+  chipTextoMal: { color: '#b91c1c' },
   chipTextoNeutro: { color: tasksUi.color.textoSecundario },
-  chipTextoCaja: {
-    ...tasksUi.tipo.micro,
-  },
   barraBloque: {
-    gap: SPACING.xs,
+    marginBottom: SPACING.lg,
+  },
+  barraBloqueMovil: {
+    marginBottom: 0,
   },
   pistaCaja: {
     position: 'relative',
-    height: 32,
-    justifyContent: 'flex-end',
+    height: 12,
+    justifyContent: 'center',
+  },
+  pista: {
+    height: 6,
+    borderRadius: tasksUi.radius.pildora,
+    backgroundColor: '#e2e8f0',
+    overflow: 'hidden',
+  },
+  relleno: {
+    height: '100%',
+    borderRadius: tasksUi.radius.pildora,
+  },
+  marca: {
+    position: 'absolute',
+    width: 2,
+    height: 12,
+    marginLeft: -1,
+    top: 0,
+    borderRadius: 1,
+    backgroundColor: '#0f172a',
+  },
+  barraPie: {
+    position: 'relative',
+    minHeight: 16,
+    marginTop: 2,
+    justifyContent: 'center',
+  },
+  barraPieTexto: {
+    fontSize: 11,
+    lineHeight: 14,
+    color: '#94a3b8',
+    ...tasksUi.tabularNums,
   },
   hoyAncla: {
     position: 'absolute',
@@ -1211,39 +1421,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   hoyTexto: {
-    ...tasksUi.tipo.micro,
-    color: tasksUi.color.textoPrimario,
+    fontSize: 11,
+    lineHeight: 14,
+    color: '#0f172a',
     fontWeight: '600',
-  },
-  pista: {
-    height: 10,
-    borderRadius: tasksUi.radius.pildora,
-    backgroundColor: tasksUi.color.superficieHundida,
-    overflow: 'hidden',
-  },
-  relleno: {
-    height: '100%',
-    borderRadius: tasksUi.radius.pildora,
-  },
-  marca: {
-    position: 'absolute',
-    width: 2,
-    height: 16,
-    marginLeft: -1,
-    bottom: -3,
-    borderRadius: 1,
-    backgroundColor: tasksUi.color.textoPrimario,
-  },
-  barraPie: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: SPACING.sm,
-  },
-  barraPieTexto: {
-    ...tasksUi.tipo.micro,
     ...tasksUi.tabularNums,
-    flexShrink: 1,
   },
   cajas: {
     flexDirection: 'row',
@@ -1277,7 +1459,7 @@ const styles = StyleSheet.create({
   },
   cajaEtiqueta: {
     ...tasksUi.tipo.micro,
-    color: ETIQUETA_CAJA,
+    color: tasksUi.color.textoTerciario,
     flexShrink: 1,
   },
   cajaValorFila: {
@@ -1323,6 +1505,26 @@ const styles = StyleSheet.create({
   eje: {
     height: 16,
     position: 'relative',
+  },
+  ejeWeb: {
+    height: 28,
+  },
+  ejeCelda: {
+    position: 'absolute',
+    top: 0,
+    alignItems: 'center',
+  },
+  ejeNumero: {
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '700',
+    color: tasksUi.color.textoSecundario,
+    textAlign: 'center',
+  },
+  ejeSemana: {
+    ...tasksUi.tipo.micro,
+    lineHeight: 13,
+    textAlign: 'center',
   },
   ejeMarca: {
     position: 'absolute',
@@ -1400,7 +1602,7 @@ const styles = StyleSheet.create({
     width: 3,
     height: 2,
     borderRadius: 1,
-    backgroundColor: tasksUi.color.textoTerciario,
+    backgroundColor: '#cbd5e1',
   },
   leyendaTexto: {
     ...tasksUi.tipo.micro,
@@ -1444,9 +1646,11 @@ const styles = StyleSheet.create({
     width: '46%',
   },
   huesoPista: {
-    height: 8,
+    height: 6,
     width: '100%',
     borderRadius: tasksUi.radius.pildora,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.lg,
   },
   huesoCaja: {
     flex: 1,
