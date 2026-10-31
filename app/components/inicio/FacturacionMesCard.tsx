@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
 import { tasksUi } from '../../constants/tasksUiTokens';
 import { useLocalesPermitidos, valorEnLocal, type LocalItem } from '../../contexts/LocalesContext';
@@ -36,10 +36,14 @@ const CAJA_HOY = { fondo: '#f8fafc', texto: '#0f172a', icono: '#475569' } as con
 const CAJA_MES = { fondo: '#e0f2fe', texto: '#0369a1', icono: '#0369a1' } as const;
 const CAJA_PROYECCION = { fondo: '#fdf2f8', texto: '#9d174d', icono: '#9d174d' } as const;
 const ETIQUETA_CAJA = '#475569';
-const ALTO_GRAFICO = 120;
-const MARGEN_SUP = 8;
-const MARGEN_INF = 4;
-const BASE_Y = ALTO_GRAFICO - MARGEN_INF;
+const ALTO_GRAFICO = 130;
+const ALTO_GRAFICO_MOVIL = 100;
+const AZUL_CLARO = '#e0f2fe';
+const PUNTO_HOY = 8;
+const RADIO_BARRA = 4;
+const ALTO_BARRA_MIN = 3;
+const FLECHA = 8;
+const DURACION_TOOLTIP = 150;
 const DURACION_ENTRADA = 800;
 
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] as const;
@@ -112,14 +116,11 @@ function fechaVisible(iso: string): string {
   return `${Number(coincidencia[3])} ${mes} ${coincidencia[1]}`;
 }
 
-function euros(valor: number | null | undefined): string {
+const formatoEuro0 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 });
+
+function formatEuro0(valor: number | null | undefined): string {
   if (valor == null || !Number.isFinite(valor)) return '—';
-  return valor.toLocaleString('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  return `${formatoEuro0.format(valor)} €`;
 }
 
 function textoPorcentaje(pct: number): string {
@@ -129,7 +130,7 @@ function textoPorcentaje(pct: number): string {
 function textoChip(diferencia: number, pct: number | null): string {
   if (!Number.isFinite(diferencia)) return '—';
   const flecha = diferencia > 0 ? '▲' : diferencia < 0 ? '▼' : '';
-  const importe = euros(Math.abs(diferencia));
+  const importe = formatEuro0(Math.abs(diferencia));
   const base = flecha ? `${flecha} ${importe}` : importe;
   if (pct == null) return base;
   return `${base} · ${textoCrecimiento(pct)}`;
@@ -165,10 +166,19 @@ function clamp01(valor: number): number {
   return Math.min(1, Math.max(0, valor));
 }
 
-function yDe(valor: number, maximo: number): number {
-  const usable = Math.max(1, ALTO_GRAFICO - MARGEN_SUP - MARGEN_INF);
-  const t = maximo > 0 ? Math.min(Math.max(valor, 0), maximo) / maximo : 0;
-  return MARGEN_SUP + (1 - t) * usable;
+function techoDe(dias: DiaFacturacionMes[]): number {
+  return maximoDe(dias) * 1.15;
+}
+
+function yDe(valor: number, techo: number, alto: number): number {
+  const v = Number.isFinite(valor) ? Math.max(0, valor) : 0;
+  const t = techo > 0 ? Math.min(v, techo) / techo : 0;
+  return alto * (1 - t);
+}
+
+function anchoBarraDe(ancho: number, dias: number): number {
+  if (ancho <= 0 || dias <= 0) return 0;
+  return Math.max(6, Math.min(18, (ancho / dias) * 0.55));
 }
 
 function maximoDe(dias: DiaFacturacionMes[]): number {
@@ -188,6 +198,8 @@ type BarraDia = {
   alto: number;
   futuro: boolean;
   hoy: boolean;
+  baja: boolean;
+  visible: boolean;
 };
 
 function diaDelMes(iso: string): number {
@@ -199,38 +211,67 @@ function coord(valor: number): string {
   return (Math.round(valor * 10) / 10).toString();
 }
 
+function trazoBarra(x: number, y: number, ancho: number, alto: number): string {
+  const radio = Math.min(RADIO_BARRA, ancho / 2, Math.max(0, alto));
+  const base = y + alto;
+  const derecha = x + ancho;
+  if (radio <= 0) {
+    return `M ${coord(x)} ${coord(base)} H ${coord(derecha)} V ${coord(y)} H ${coord(x)} Z`;
+  }
+  return [
+    `M ${coord(x)} ${coord(base)}`,
+    `V ${coord(y + radio)}`,
+    `A ${coord(radio)} ${coord(radio)} 0 0 1 ${coord(x + radio)} ${coord(y)}`,
+    `H ${coord(derecha - radio)}`,
+    `A ${coord(radio)} ${coord(radio)} 0 0 1 ${coord(derecha)} ${coord(y + radio)}`,
+    `V ${coord(base)}`,
+    'Z',
+  ].join(' ');
+}
+
 function barrasDe(
   dias: DiaFacturacionMes[],
   ultimo: string | null,
   ancho: number,
-  maximo: number,
+  techo: number,
+  alto: number,
 ): BarraDia[] {
-  if (ancho <= 0 || dias.length === 0) return [];
+  if (ancho <= 0 || dias.length === 0 || alto <= 0) return [];
   const paso = ancho / dias.length;
-  const grosor = Math.max(2, Math.min(7, paso * 0.42));
+  const grosor = anchoBarraDe(ancho, dias.length);
   return dias.map((dia, indice) => {
     const futuro = !ultimo || dia.fecha > ultimo;
     const hoy = ultimo != null && dia.fecha === ultimo;
-    const y = futuro ? BASE_Y - 8 : Math.min(yDe(dia.real, maximo), BASE_Y - 2);
+    const tieneObjetivo = Number.isFinite(dia.objetivo) && dia.objetivo > 0;
+    const natural = futuro
+      ? tieneObjetivo
+        ? alto - yDe(dia.objetivo, techo, alto)
+        : 0
+      : alto - yDe(dia.real, techo, alto);
+    const baja = !futuro && natural < ALTO_BARRA_MIN;
+    const altura = futuro ? natural : Math.max(ALTO_BARRA_MIN, natural);
     return {
       indice,
       x: paso * indice + (paso - grosor) / 2,
       ancho: grosor,
-      y,
-      alto: Math.max(2, BASE_Y - y),
+      y: alto - altura,
+      alto: altura,
       futuro,
       hoy,
+      baja,
+      visible: futuro ? tieneObjetivo : true,
     };
   });
 }
 
-function lineaObjetivo(dias: DiaFacturacionMes[], ancho: number, maximo: number): string {
+function lineaObjetivo(dias: DiaFacturacionMes[], ancho: number, techo: number, alto: number): string {
   if (ancho <= 0 || dias.length === 0) return '';
   const paso = ancho / dias.length;
+  const grosor = anchoBarraDe(ancho, dias.length);
   return dias
     .map((dia, indice) => {
-      const x = paso * (indice + 0.5);
-      const y = yDe(dia.objetivo, maximo);
+      const x = paso * indice + (paso - grosor) / 2 + grosor / 2;
+      const y = yDe(dia.objetivo, techo, alto);
       return `${indice === 0 ? 'M' : 'L'} ${coord(x)} ${coord(y)}`;
     })
     .join(' ');
@@ -252,7 +293,7 @@ function pctDia(real: number, objetivo: number): number | null {
 
 function textoTooltip(dia: DiaFacturacionMes, ultimo: string | null): string {
   const futuro = !ultimo || dia.fecha > ultimo;
-  const partes = [fechaTooltip(dia.fecha), futuro ? '—' : euros(dia.real), `Obj. ${euros(dia.objetivo)}`];
+  const partes = [fechaTooltip(dia.fecha), futuro ? '—' : formatEuro0(dia.real), `Obj. ${formatEuro0(dia.objetivo)}`];
   if (!futuro) {
     const pct = pctDia(dia.real, dia.objetivo);
     if (pct != null) partes.push(textoCrecimiento(pct));
@@ -328,7 +369,102 @@ function entradaCaja(progreso: Animated.Value, indice: number) {
 
 function eurosContador(valor: number): string {
   if (!Number.isFinite(valor)) return '—';
-  return euros(valor);
+  return formatEuro0(valor);
+}
+
+const sombraTooltip: ViewStyle =
+  Platform.OS === 'web'
+    ? ({ boxShadow: '0 8px 20px rgba(15, 23, 42, 0.22)' } as ViewStyle)
+    : {
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.22,
+        shadowRadius: 16,
+        elevation: 8,
+      };
+
+function TooltipDia({
+  dia,
+  ultimo,
+  centroX,
+  altoBarra,
+  anchoGrafico,
+  reducir,
+}: {
+  dia: DiaFacturacionMes;
+  ultimo: string | null;
+  centroX: number;
+  altoBarra: number;
+  anchoGrafico: number;
+  reducir: boolean | null;
+}) {
+  const [anchoTip, setAnchoTip] = useState(0);
+  const opacidad = useRef(new Animated.Value(0)).current;
+  const escala = useRef(new Animated.Value(0.95)).current;
+  const futuro = !ultimo || dia.fecha > ultimo;
+  const pct = futuro ? null : pctDia(dia.real, dia.objetivo);
+
+  useEffect(() => {
+    if (anchoTip <= 0) return undefined;
+    if (reducir !== false) {
+      opacidad.setValue(1);
+      escala.setValue(1);
+      return undefined;
+    }
+    opacidad.setValue(0);
+    escala.setValue(0.95);
+    const anim = Animated.parallel([
+      Animated.timing(opacidad, {
+        toValue: 1,
+        duration: DURACION_TOOLTIP,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(escala, {
+        toValue: 1,
+        duration: DURACION_TOOLTIP,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    anim.start();
+    return () => anim.stop();
+  }, [anchoTip, dia.fecha, reducir, opacidad, escala]);
+
+  const tope = Math.max(0, anchoGrafico - anchoTip);
+  const left = anchoTip > 0 ? Math.min(Math.max(0, centroX - anchoTip / 2), tope) : 0;
+  const flechaLeft = Math.min(Math.max(8, centroX - left - FLECHA / 2), Math.max(8, anchoTip - FLECHA - 8));
+
+  return (
+    <Animated.View
+      accessibilityLiveRegion="polite"
+      onLayout={(evento) => {
+        const siguiente = evento.nativeEvent.layout.width;
+        setAnchoTip((previo) => (Math.abs(previo - siguiente) < 0.5 ? previo : siguiente));
+      }}
+      style={[
+        styles.tooltip,
+        sombraTooltip,
+        {
+          bottom: altoBarra + 10 + FLECHA,
+          left,
+          maxWidth: anchoGrafico > 0 ? anchoGrafico : undefined,
+          opacity: anchoTip > 0 ? opacidad : 0,
+          transform: [{ scale: escala }],
+        },
+      ]}
+    >
+      <Text style={styles.tooltipFecha}>{fechaTooltip(dia.fecha)}</Text>
+      <Text style={styles.tooltipImporte}>{futuro ? '—' : formatEuro0(dia.real)}</Text>
+      <Text style={styles.tooltipLineaObj}>
+        {`Obj. ${formatEuro0(dia.objetivo)}`}
+        {pct != null ? (
+          <Text style={pct < 0 ? styles.tooltipMal : styles.tooltipOk}>{` · ${textoCrecimiento(pct)}`}</Text>
+        ) : null}
+      </Text>
+      <View pointerEvents="none" style={[styles.flecha, { left: flechaLeft }]} />
+    </Animated.View>
+  );
 }
 
 const GraficoDiario = memo(function GraficoDiario({
@@ -338,16 +474,23 @@ const GraficoDiario = memo(function GraficoDiario({
   dias: DiaFacturacionMes[];
   ultimoDiaConDatos: string | null;
 }) {
+  const { isPhone } = useBreakpoint();
+  const alto = isPhone ? ALTO_GRAFICO_MOVIL : ALTO_GRAFICO;
   const raizRef = useRef<View>(null);
   const [ancho, setAncho] = useState(0);
   const [seleccion, setSeleccion] = useState<string | null>(null);
-  const maximo = useMemo(() => maximoDe(dias), [dias]);
+  const techo = useMemo(() => techoDe(dias), [dias]);
   const barras = useMemo(
-    () => barrasDe(dias, ultimoDiaConDatos, ancho, maximo),
-    [ancho, dias, ultimoDiaConDatos, maximo],
+    () => barrasDe(dias, ultimoDiaConDatos, ancho, techo, alto),
+    [ancho, dias, ultimoDiaConDatos, techo, alto],
   );
-  const objetivo = useMemo(() => lineaObjetivo(dias, ancho, maximo), [ancho, dias, maximo]);
+  const objetivo = useMemo(
+    () => lineaObjetivo(dias, ancho, techo, alto),
+    [ancho, dias, techo, alto],
+  );
   const diaSel = dias.find((dia) => dia.fecha === seleccion) ?? null;
+  const barraSel = barras.find((barra) => dias[barra.indice]?.fecha === seleccion) ?? null;
+  const reducir = useReducirMovimiento();
   const firma = `${dias[0]?.fecha ?? ''}:${dias[dias.length - 1]?.fecha ?? ''}:${ultimoDiaConDatos ?? ''}`;
 
   useEffect(() => {
@@ -370,7 +513,7 @@ const GraficoDiario = memo(function GraficoDiario({
   return (
     <View ref={raizRef} style={styles.graficoBloque}>
       <View
-        style={styles.plot}
+        style={[styles.plot, { height: alto, overflow: 'visible' }]}
         accessibilityLabel="Gráfico diario de facturación"
         onLayout={(evento) => {
           const siguiente = evento.nativeEvent.layout.width;
@@ -381,23 +524,21 @@ const GraficoDiario = memo(function GraficoDiario({
         {ancho > 0 ? (
           <Svg
             width={ancho}
-            height={ALTO_GRAFICO}
+            height={alto}
             style={StyleSheet.absoluteFill}
             pointerEvents="none"
           >
             {barras.map((barra) => {
+              if (!barra.visible || barra.alto <= 0) return null;
               const fecha = dias[barra.indice]?.fecha;
               const activa = seleccion != null && fecha === seleccion;
-              const opacidad = barra.futuro ? (activa ? 0.55 : 0.2) : seleccion && !activa ? 0.28 : 1;
+              const opacidad = seleccion && !activa ? 0.35 : 1;
+              const fill = barra.hoy ? AZUL_HOY : barra.futuro ? AZUL_CLARO : AZUL;
               return (
-                <Rect
+                <Path
                   key={`barra-${barra.indice}`}
-                  x={barra.x}
-                  y={barra.y}
-                  width={barra.ancho}
-                  height={barra.alto}
-                  rx={barra.ancho / 2}
-                  fill={barra.hoy ? AZUL_HOY : AZUL}
+                  d={trazoBarra(barra.x, barra.y, barra.ancho, barra.alto)}
+                  fill={fill}
                   fillOpacity={opacidad}
                 />
               );
@@ -407,9 +548,9 @@ const GraficoDiario = memo(function GraficoDiario({
                 d={objetivo}
                 stroke="#94a3b8"
                 strokeWidth={1.5}
-                strokeDasharray="3 4"
+                strokeDasharray="4 4"
                 fill="none"
-                strokeLinecap="round"
+                strokeLinecap="butt"
                 strokeLinejoin="round"
               />
             ) : null}
@@ -419,9 +560,10 @@ const GraficoDiario = memo(function GraficoDiario({
                 <Circle
                   key={`hoy-${barra.indice}`}
                   cx={barra.x + barra.ancho / 2}
-                  cy={barra.y}
-                  r={3.5}
+                  cy={Math.max(PUNTO_HOY / 2, barra.y - PUNTO_HOY / 2)}
+                  r={PUNTO_HOY / 2}
                   fill={ROSA}
+                  fillOpacity={seleccion && dias[barra.indice]?.fecha !== seleccion ? 0.35 : 1}
                 />
               ))}
           </Svg>
@@ -441,6 +583,17 @@ const GraficoDiario = memo(function GraficoDiario({
             );
           })}
         </View>
+        {diaSel && barraSel ? (
+          <TooltipDia
+            key={diaSel.fecha}
+            dia={diaSel}
+            ultimo={ultimoDiaConDatos}
+            centroX={barraSel.x + barraSel.ancho / 2}
+            altoBarra={barraSel.alto}
+            anchoGrafico={ancho}
+            reducir={reducir}
+          />
+        ) : null}
       </View>
 
       <Pressable
@@ -456,7 +609,14 @@ const GraficoDiario = memo(function GraficoDiario({
           return (
             <Text
               key={dia.fecha}
-              style={[styles.ejeMarca, { left: `${((indice + 0.5) / dias.length) * 100}%` }]}
+              style={[
+                styles.ejeMarca,
+                {
+                  left: `${((indice + 0.5) / dias.length) * 100}%`,
+                  width: 28,
+                  marginLeft: -14,
+                },
+              ]}
             >
               {numero}
             </Text>
@@ -467,6 +627,7 @@ const GraficoDiario = memo(function GraficoDiario({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Cerrar el detalle del día"
+        hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
         onPress={() => setSeleccion(null)}
         style={styles.leyenda}
       >
@@ -479,12 +640,6 @@ const GraficoDiario = memo(function GraficoDiario({
         </View>
         <Text style={styles.leyendaTexto}>Objetivo</Text>
       </Pressable>
-
-      {diaSel ? (
-        <View style={styles.tooltip} accessibilityLiveRegion="polite">
-          <Text style={styles.tooltipTexto}>{textoTooltip(diaSel, ultimoDiaConDatos)}</Text>
-        </View>
-      ) : null}
     </View>
   );
 });
@@ -560,6 +715,8 @@ function CajaCifra({
 }
 
 function Esqueleto() {
+  const { isPhone } = useBreakpoint();
+  const alto = isPhone ? ALTO_GRAFICO_MOVIL : ALTO_GRAFICO;
   return (
     <View style={styles.bloque} accessibilityLabel="Cargando facturación del mes" accessibilityRole="progressbar">
       <View style={[styles.hueso, styles.huesoTotal]} />
@@ -569,7 +726,7 @@ function Esqueleto() {
         <View style={[styles.hueso, styles.huesoCaja]} />
         <View style={[styles.hueso, styles.huesoCaja]} />
       </View>
-      <View style={[styles.hueso, styles.huesoGrafico]} />
+      <View style={[styles.hueso, styles.huesoGrafico, { height: alto }]} />
     </View>
   );
 }
@@ -763,7 +920,7 @@ export function FacturacionMesCard({
             <View style={[styles.hero, isPhone && styles.heroPhone]}>
               <Text
                 style={styles.total}
-                accessibilityLabel={`Facturación del mes ${euros(datos.totalReal)}`}
+                accessibilityLabel={`Facturación del mes ${formatEuro0(datos.totalReal)}`}
               >
                 {eurosContador(totalVisible)}
               </Text>
@@ -792,7 +949,7 @@ export function FacturacionMesCard({
                 accessibilityValue={{ min: 0, max: 100, now: Math.round(logro * 100) }}
                 accessibilityLabel={
                   hayObjetivo
-                    ? `Facturado ${euros(datos.totalReal)}, ${mesPct == null ? '' : textoPorcentaje(mesPct)} del mes. Hoy ${hoyPct == null ? '' : textoPorcentaje(hoyPct)}. Objetivo del mes ${euros(datos.objetivoMes)}.`
+                    ? `Facturado ${formatEuro0(datos.totalReal)}, ${mesPct == null ? '' : textoPorcentaje(mesPct)} del mes. Hoy ${hoyPct == null ? '' : textoPorcentaje(hoyPct)}. Objetivo del mes ${formatEuro0(datos.objetivoMes)}.`
                     : 'Sin objetivo del mes'
                 }
               >
@@ -834,7 +991,7 @@ export function FacturacionMesCard({
                 <Text style={styles.barraPieTexto}>
                   {mesPct == null ? '— del mes' : `${textoPorcentaje(mesPct)} del mes`}
                 </Text>
-                <Text style={styles.barraPieTexto}>Obj. mes {euros(datos.objetivoMes)}</Text>
+                <Text style={styles.barraPieTexto}>Obj. mes {formatEuro0(datos.objetivoMes)}</Text>
               </View>
             </View>
 
@@ -842,7 +999,7 @@ export function FacturacionMesCard({
               <CajaCifra
                 etiqueta="Objetivo a hoy"
                 accesible="Objetivo a hoy"
-                valor={euros(datos.objetivoAHoy)}
+                valor={formatEuro0(datos.objetivoAHoy)}
                 enFila={isPhone}
                 entrada={entradasCaja[0]}
                 icono="today"
@@ -853,7 +1010,7 @@ export function FacturacionMesCard({
               <CajaCifra
                 etiqueta="Objetivo del mes"
                 accesible="Objetivo del mes"
-                valor={euros(datos.objetivoMes)}
+                valor={formatEuro0(datos.objetivoMes)}
                 enFila={isPhone}
                 entrada={entradasCaja[1]}
                 icono="calendar-month"
@@ -864,7 +1021,7 @@ export function FacturacionMesCard({
               <CajaCifra
                 etiqueta="Proyección"
                 accesible="Proyección a fin de mes"
-                valor={euros(datos.proyeccionFinMes)}
+                valor={formatEuro0(datos.proyeccionFinMes)}
                 enFila={isPhone}
                 entrada={entradasCaja[2]}
                 icono="trending-up"
@@ -1138,19 +1295,21 @@ const styles = StyleSheet.create({
   },
   graficoBloque: {
     gap: SPACING.sm,
+    position: 'relative',
+    overflow: 'visible',
+    zIndex: 2,
   },
   plot: {
-    height: ALTO_GRAFICO,
     minHeight: MIN_TOUCH,
     position: 'relative',
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   base: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: MARGEN_INF,
-    height: StyleSheet.hairlineWidth,
+    bottom: 0,
+    height: 1,
     backgroundColor: tasksUi.color.bordeSutil,
   },
   hits: {
@@ -1168,32 +1327,66 @@ const styles = StyleSheet.create({
   ejeMarca: {
     position: 'absolute',
     top: 0,
+    textAlign: 'center',
     ...tasksUi.tipo.micro,
     color: tasksUi.color.textoTerciario,
-    transform: [{ translateX: '-50%' }],
   },
   tooltip: {
-    alignSelf: 'flex-start',
-    maxWidth: '100%',
+    position: 'absolute',
+    zIndex: 4,
     backgroundColor: '#0f172a',
-    borderRadius: tasksUi.radius.control,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
   },
-  tooltipTexto: {
-    ...tasksUi.tipo.micro,
+  tooltipFecha: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    color: '#94a3b8',
+  },
+  tooltipImporte: {
+    marginTop: 2,
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '700',
     color: '#ffffff',
+  },
+  tooltipLineaObj: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#cbd5e1',
+  },
+  tooltipOk: {
+    color: '#4ade80',
+    fontWeight: '600',
+  },
+  tooltipMal: {
+    color: '#f87171',
+    fontWeight: '600',
+  },
+  flecha: {
+    position: 'absolute',
+    bottom: -FLECHA,
+    width: 0,
+    height: 0,
+    borderLeftWidth: FLECHA / 2,
+    borderRightWidth: FLECHA / 2,
+    borderTopWidth: FLECHA,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#0f172a',
   },
   leyenda: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: SPACING.xs,
-    minHeight: MIN_TOUCH,
   },
   muestraReal: {
-    width: 12,
-    height: 3,
+    width: 8,
+    height: 8,
     borderRadius: 2,
     backgroundColor: AZUL,
   },
