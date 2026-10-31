@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Defs, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
 import { tasksUi } from '../../constants/tasksUiTokens';
 import { useLocalesPermitidos, valorEnLocal, type LocalItem } from '../../contexts/LocalesContext';
@@ -28,6 +28,10 @@ import {
 
 const FRANJA = ['#0ea5e9', '#ec4899'] as const;
 const AZUL = '#0ea5e9';
+const AZUL_HOY = '#0369a1';
+const ROSA = '#ec4899';
+const MARCAS_EJE = new Set([1, 8, 15, 22, 29]);
+const SEMANA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'] as const;
 const CAJA_HOY = { fondo: '#f8fafc', texto: '#0f172a', icono: '#475569' } as const;
 const CAJA_MES = { fondo: '#e0f2fe', texto: '#0369a1', icono: '#0369a1' } as const;
 const CAJA_PROYECCION = { fondo: '#fdf2f8', texto: '#9d174d', icono: '#9d174d' } as const;
@@ -37,7 +41,6 @@ const MARGEN_SUP = 8;
 const MARGEN_INF = 4;
 const BASE_Y = ALTO_GRAFICO - MARGEN_INF;
 const DURACION_ENTRADA = 800;
-const DURACION_CURVA = 1100;
 
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] as const;
 
@@ -100,8 +103,6 @@ function idsPermitidos(solicitados: string[] | undefined, permitidos: LocalFiltr
     .filter((id) => id !== '000000' && validos.has(id));
   return pedidos.length > 0 ? pedidos : permitidos.map((local) => local.id);
 }
-
-type Punto = { x: number; y: number; indice: number };
 
 function fechaVisible(iso: string): string {
   const coincidencia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
@@ -179,72 +180,84 @@ function maximoDe(dias: DiaFacturacionMes[]): number {
   return maximo > 0 ? maximo : 1;
 }
 
-/** La curva real se corta en el último día con cierre. El objetivo sigue el mes entero. */
-function valoresReal(dias: DiaFacturacionMes[], ultimo: string | null): Array<number | null> {
-  if (!ultimo) return dias.map(() => null);
-  return dias.map((dia) => (dia.fecha <= ultimo && Number.isFinite(dia.real) ? dia.real : null));
-}
+type BarraDia = {
+  indice: number;
+  x: number;
+  ancho: number;
+  y: number;
+  alto: number;
+  futuro: boolean;
+  hoy: boolean;
+};
 
-function tramos(valores: Array<number | null>, ancho: number, maximo: number): Punto[][] {
-  if (valores.length === 0 || ancho <= 0) return [];
-  const paso = ancho / valores.length;
-  const grupos: Punto[][] = [];
-  let actual: Punto[] = [];
-  valores.forEach((valor, indice) => {
-    if (valor == null || !Number.isFinite(valor)) {
-      if (actual.length > 0) grupos.push(actual);
-      actual = [];
-      return;
-    }
-    actual.push({ x: paso * (indice + 0.5), y: yDe(valor, maximo), indice });
-  });
-  if (actual.length > 0) grupos.push(actual);
-  return grupos;
+function diaDelMes(iso: string): number {
+  const n = Number(iso.slice(8, 10));
+  return Number.isFinite(n) ? n : 0;
 }
 
 function coord(valor: number): string {
   return (Math.round(valor * 10) / 10).toString();
 }
 
-function limitarY(y: number): number {
-  return Math.min(BASE_Y, Math.max(MARGEN_SUP, y));
+function barrasDe(
+  dias: DiaFacturacionMes[],
+  ultimo: string | null,
+  ancho: number,
+  maximo: number,
+): BarraDia[] {
+  if (ancho <= 0 || dias.length === 0) return [];
+  const paso = ancho / dias.length;
+  const grosor = Math.max(2, Math.min(7, paso * 0.42));
+  return dias.map((dia, indice) => {
+    const futuro = !ultimo || dia.fecha > ultimo;
+    const hoy = ultimo != null && dia.fecha === ultimo;
+    const y = futuro ? BASE_Y - 8 : Math.min(yDe(dia.real, maximo), BASE_Y - 2);
+    return {
+      indice,
+      x: paso * indice + (paso - grosor) / 2,
+      ancho: grosor,
+      y,
+      alto: Math.max(2, BASE_Y - y),
+      futuro,
+      hoy,
+    };
+  });
 }
 
-/** Catmull-Rom en bézier cúbico. Un solo día se dibuja como un tramo corto. */
-function curvaSuave(puntos: Punto[]): string {
-  if (puntos.length === 0) return '';
-  if (puntos.length === 1) {
-    const p = puntos[0];
-    return `M ${coord(p.x - 6)} ${coord(p.y)} L ${coord(p.x + 6)} ${coord(p.y)}`;
+function lineaObjetivo(dias: DiaFacturacionMes[], ancho: number, maximo: number): string {
+  if (ancho <= 0 || dias.length === 0) return '';
+  const paso = ancho / dias.length;
+  return dias
+    .map((dia, indice) => {
+      const x = paso * (indice + 0.5);
+      const y = yDe(dia.objetivo, maximo);
+      return `${indice === 0 ? 'M' : 'L'} ${coord(x)} ${coord(y)}`;
+    })
+    .join(' ');
+}
+
+function fechaTooltip(iso: string): string {
+  const coincidencia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!coincidencia) return iso;
+  const fecha = new Date(Number(coincidencia[1]), Number(coincidencia[2]) - 1, Number(coincidencia[3]));
+  const semana = SEMANA[fecha.getDay()] ?? '';
+  const mes = MESES_CORTOS[Number(coincidencia[2]) - 1] ?? '';
+  return `${semana} ${Number(coincidencia[3])} ${mes}`;
+}
+
+function pctDia(real: number, objetivo: number): number | null {
+  if (!(objetivo > 0) || !Number.isFinite(real)) return null;
+  return Math.round(((real - objetivo) / objetivo) * 1000) / 10;
+}
+
+function textoTooltip(dia: DiaFacturacionMes, ultimo: string | null): string {
+  const futuro = !ultimo || dia.fecha > ultimo;
+  const partes = [fechaTooltip(dia.fecha), futuro ? '—' : euros(dia.real), `Obj. ${euros(dia.objetivo)}`];
+  if (!futuro) {
+    const pct = pctDia(dia.real, dia.objetivo);
+    if (pct != null) partes.push(textoCrecimiento(pct));
   }
-  let d = `M ${coord(puntos[0].x)} ${coord(puntos[0].y)}`;
-  for (let i = 0; i < puntos.length - 1; i += 1) {
-    const p0 = puntos[Math.max(0, i - 1)];
-    const p1 = puntos[i];
-    const p2 = puntos[i + 1];
-    const p3 = puntos[Math.min(puntos.length - 1, i + 2)];
-    const c1x = p1.x + (p2.x - p0.x) / 6;
-    const c1y = limitarY(p1.y + (p2.y - p0.y) / 6);
-    const c2x = p2.x - (p3.x - p1.x) / 6;
-    const c2y = limitarY(p2.y - (p3.y - p1.y) / 6);
-    d += ` C ${coord(c1x)} ${coord(c1y)} ${coord(c2x)} ${coord(c2y)} ${coord(p2.x)} ${coord(p2.y)}`;
-  }
-  return d;
-}
-
-function areaDe(puntos: Punto[]): string {
-  const linea = curvaSuave(puntos);
-  if (!linea || puntos.length === 0) return '';
-  const primero = puntos[0];
-  const ultimo = puntos[puntos.length - 1];
-  const x0 = puntos.length === 1 ? primero.x - 6 : primero.x;
-  const x1 = puntos.length === 1 ? ultimo.x + 6 : ultimo.x;
-  return `${linea} L ${coord(x1)} ${coord(BASE_Y)} L ${coord(x0)} ${coord(BASE_Y)} Z`;
-}
-
-function eurosDelDia(dia: DiaFacturacionMes, ultimo: string | null): string {
-  if (!ultimo || dia.fecha > ultimo) return '—';
-  return euros(dia.real);
+  return partes.join(' · ');
 }
 
 function useReducirMovimiento(): boolean | null {
@@ -325,71 +338,37 @@ const GraficoDiario = memo(function GraficoDiario({
   dias: DiaFacturacionMes[];
   ultimoDiaConDatos: string | null;
 }) {
-  const gradId = `factMesGrad${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  const raizRef = useRef<View>(null);
   const [ancho, setAncho] = useState(0);
   const [seleccion, setSeleccion] = useState<string | null>(null);
   const maximo = useMemo(() => maximoDe(dias), [dias]);
-  const reales = useMemo(
-    () => (ancho > 0 ? tramos(valoresReal(dias, ultimoDiaConDatos), ancho, maximo) : []),
+  const barras = useMemo(
+    () => barrasDe(dias, ultimoDiaConDatos, ancho, maximo),
     [ancho, dias, ultimoDiaConDatos, maximo],
   );
-  const objetivos = useMemo(
-    () => (ancho > 0 ? tramos(dias.map((dia) => dia.objetivo), ancho, maximo) : []),
-    [ancho, dias, maximo],
-  );
-  const curvasReales = useMemo(
-    () =>
-      reales
-        .map((puntos) => ({
-          clave: String(puntos[0]?.indice ?? 0),
-          linea: curvaSuave(puntos),
-          area: areaDe(puntos),
-        }))
-        .filter((trazo) => trazo.linea.length > 0),
-    [reales],
-  );
-  const curvasObjetivo = useMemo(
-    () =>
-      objetivos
-        .map((puntos) => ({
-          clave: String(puntos[0]?.indice ?? 0),
-          linea: curvaSuave(puntos),
-        }))
-        .filter((trazo) => trazo.linea.length > 0),
-    [objetivos],
-  );
+  const objetivo = useMemo(() => lineaObjetivo(dias, ancho, maximo), [ancho, dias, maximo]);
   const diaSel = dias.find((dia) => dia.fecha === seleccion) ?? null;
   const firma = `${dias[0]?.fecha ?? ''}:${dias[dias.length - 1]?.fecha ?? ''}:${ultimoDiaConDatos ?? ''}`;
-  const reducir = useReducirMovimiento();
-  const revelado = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     setSeleccion(null);
   }, [firma]);
 
   useEffect(() => {
-    if (ancho <= 0 || reducir == null) return undefined;
-    if (reducir) {
-      revelado.setValue(ancho);
-      return undefined;
-    }
-    revelado.setValue(0);
-    const anim = Animated.timing(revelado, {
-      toValue: ancho,
-      duration: DURACION_CURVA,
-      easing: Easing.bezier(0.22, 1, 0.36, 1),
-      useNativeDriver: false,
-    });
-    anim.start();
-    const respaldo = setTimeout(() => revelado.setValue(ancho), DURACION_CURVA + 40);
-    return () => {
-      anim.stop();
-      clearTimeout(respaldo);
+    if (!seleccion || Platform.OS !== 'web' || typeof document === 'undefined') return undefined;
+    const cerrar = (evento: Event) => {
+      const nodo = raizRef.current as unknown as { contains?: (objetivo: Node) => boolean } | null;
+      const destino = evento.target;
+      if (!nodo || typeof nodo.contains !== 'function' || !(destino instanceof Node)) return;
+      if (nodo.contains(destino)) return;
+      setSeleccion(null);
     };
-  }, [ancho, firma, reducir, revelado]);
+    document.addEventListener('pointerdown', cerrar);
+    return () => document.removeEventListener('pointerdown', cerrar);
+  }, [seleccion]);
 
   return (
-    <View style={styles.graficoBloque}>
+    <View ref={raizRef} style={styles.graficoBloque}>
       <View
         style={styles.plot}
         accessibilityLabel="Gráfico diario de facturación"
@@ -398,57 +377,55 @@ const GraficoDiario = memo(function GraficoDiario({
           setAncho((previo) => (Math.abs(previo - siguiente) < 0.5 ? previo : siguiente));
         }}
       >
-        <View
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-          accessible={false}
-          importantForAccessibility="no-hide-descendants"
-        >
-          {ancho > 0 ? (
-            <Svg width={ancho} height={ALTO_GRAFICO} style={StyleSheet.absoluteFill}>
-              {curvasObjetivo.map((trazo) => (
-                <Path
-                  key={`obj-${trazo.clave}`}
-                  d={trazo.linea}
-                  stroke="#94a3b8"
-                  strokeWidth={1.5}
-                  strokeDasharray="3 4"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+        <View style={styles.base} pointerEvents="none" />
+        {ancho > 0 ? (
+          <Svg
+            width={ancho}
+            height={ALTO_GRAFICO}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          >
+            {barras.map((barra) => {
+              const fecha = dias[barra.indice]?.fecha;
+              const activa = seleccion != null && fecha === seleccion;
+              const opacidad = barra.futuro ? (activa ? 0.55 : 0.2) : seleccion && !activa ? 0.28 : 1;
+              return (
+                <Rect
+                  key={`barra-${barra.indice}`}
+                  x={barra.x}
+                  y={barra.y}
+                  width={barra.ancho}
+                  height={barra.alto}
+                  rx={barra.ancho / 2}
+                  fill={barra.hoy ? AZUL_HOY : AZUL}
+                  fillOpacity={opacidad}
+                />
+              );
+            })}
+            {objetivo ? (
+              <Path
+                d={objetivo}
+                stroke="#94a3b8"
+                strokeWidth={1.5}
+                strokeDasharray="3 4"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ) : null}
+            {barras
+              .filter((barra) => barra.hoy)
+              .map((barra) => (
+                <Circle
+                  key={`hoy-${barra.indice}`}
+                  cx={barra.x + barra.ancho / 2}
+                  cy={barra.y}
+                  r={3.5}
+                  fill={ROSA}
                 />
               ))}
-            </Svg>
-          ) : null}
-          <Animated.View pointerEvents="none" style={[styles.recorte, { width: revelado }]}>
-            {ancho > 0 ? (
-              <Svg width={ancho} height={ALTO_GRAFICO}>
-                <Defs>
-                  <SvgGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor={AZUL} stopOpacity={0.42} />
-                    <Stop offset="0.62" stopColor={AZUL} stopOpacity={0.1} />
-                    <Stop offset="1" stopColor={AZUL} stopOpacity={0} />
-                  </SvgGradient>
-                </Defs>
-                {curvasReales.map((trazo) => (
-                  <Path key={`area-${trazo.clave}`} d={trazo.area} fill={`url(#${gradId})`} />
-                ))}
-                {curvasReales.map((trazo) => (
-                  <Path
-                    key={`linea-${trazo.clave}`}
-                    d={trazo.linea}
-                    stroke={AZUL}
-                    strokeWidth={2.5}
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                ))}
-              </Svg>
-            ) : null}
-          </Animated.View>
-          <View style={styles.base} />
-        </View>
+          </Svg>
+        ) : null}
         <View style={styles.hits}>
           {dias.map((dia) => {
             const activo = dia.fecha === seleccion;
@@ -457,16 +434,42 @@ const GraficoDiario = memo(function GraficoDiario({
                 key={dia.fecha}
                 accessibilityRole="button"
                 accessibilityState={{ selected: activo }}
-                accessibilityLabel={`${fechaVisible(dia.fecha)}. Real ${eurosDelDia(dia, ultimoDiaConDatos)}. Objetivo ${euros(dia.objetivo)}`}
+                accessibilityLabel={textoTooltip(dia, ultimoDiaConDatos)}
                 onPress={() => setSeleccion((previo) => (previo === dia.fecha ? null : dia.fecha))}
-                style={[styles.diaHit, activo && styles.diaHitActivo]}
+                style={styles.diaHit}
               />
             );
           })}
         </View>
       </View>
 
-      <View style={styles.leyenda}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Cerrar el detalle del día"
+        hitSlop={{ top: 8, bottom: 14 }}
+        onPress={() => setSeleccion(null)}
+        style={styles.eje}
+      >
+        {dias.map((dia, indice) => {
+          const numero = diaDelMes(dia.fecha);
+          if (!MARCAS_EJE.has(numero)) return null;
+          return (
+            <Text
+              key={dia.fecha}
+              style={[styles.ejeMarca, { left: `${((indice + 0.5) / dias.length) * 100}%` }]}
+            >
+              {numero}
+            </Text>
+          );
+        })}
+      </Pressable>
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Cerrar el detalle del día"
+        onPress={() => setSeleccion(null)}
+        style={styles.leyenda}
+      >
         <View style={styles.muestraReal} />
         <Text style={styles.leyendaTexto}>Real</Text>
         <View style={styles.muestraGuiones}>
@@ -475,13 +478,11 @@ const GraficoDiario = memo(function GraficoDiario({
           <View style={styles.guion} />
         </View>
         <Text style={styles.leyendaTexto}>Objetivo</Text>
-      </View>
+      </Pressable>
 
       {diaSel ? (
-        <View style={styles.ficha} accessibilityLiveRegion="polite">
-          <Text style={styles.fichaFecha}>{fechaVisible(diaSel.fecha)}</Text>
-          <Text style={styles.fichaReal}>{eurosDelDia(diaSel, ultimoDiaConDatos)}</Text>
-          <Text style={styles.fichaObj}>Objetivo {euros(diaSel.objetivo)}</Text>
+        <View style={styles.tooltip} accessibilityLiveRegion="polite">
+          <Text style={styles.tooltipTexto}>{textoTooltip(diaSel, ultimoDiaConDatos)}</Text>
         </View>
       ) : null}
     </View>
@@ -1144,18 +1145,11 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  recorte: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    height: ALTO_GRAFICO,
-    overflow: 'hidden',
-  },
   base: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
+    bottom: MARGEN_INF,
     height: StyleSheet.hairlineWidth,
     backgroundColor: tasksUi.color.bordeSutil,
   },
@@ -1167,14 +1161,35 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: MIN_TOUCH,
   },
-  diaHitActivo: {
-    backgroundColor: 'rgba(14, 165, 233, 0.08)',
+  eje: {
+    height: 16,
+    position: 'relative',
+  },
+  ejeMarca: {
+    position: 'absolute',
+    top: 0,
+    ...tasksUi.tipo.micro,
+    color: tasksUi.color.textoTerciario,
+    transform: [{ translateX: '-50%' }],
+  },
+  tooltip: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    backgroundColor: '#0f172a',
+    borderRadius: tasksUi.radius.control,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+  },
+  tooltipTexto: {
+    ...tasksUi.tipo.micro,
+    color: '#ffffff',
   },
   leyenda: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: SPACING.xs,
+    minHeight: MIN_TOUCH,
   },
   muestraReal: {
     width: 12,
@@ -1196,32 +1211,6 @@ const styles = StyleSheet.create({
   },
   leyendaTexto: {
     ...tasksUi.tipo.micro,
-  },
-  ficha: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
-    borderRadius: tasksUi.radius.control,
-    backgroundColor: tasksUi.color.superficie,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    ...tasksUi.sombraFlotante,
-  },
-  fichaFecha: {
-    ...tasksUi.tipo.dato,
-    color: tasksUi.color.textoPrimario,
-  },
-  fichaReal: {
-    ...tasksUi.tipo.dato,
-    ...tasksUi.tabularNums,
-    color: AZUL,
-  },
-  fichaObj: {
-    ...tasksUi.tipo.micro,
-    ...tasksUi.tabularNums,
   },
   pie: {
     ...tasksUi.tipo.micro,
