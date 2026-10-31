@@ -28,6 +28,10 @@ import {
 
 const FRANJA = ['#0ea5e9', '#ec4899'] as const;
 const AZUL = '#0ea5e9';
+const CAJA_HOY = { fondo: '#f8fafc', texto: '#0f172a', icono: '#475569' } as const;
+const CAJA_MES = { fondo: '#e0f2fe', texto: '#0369a1', icono: '#0369a1' } as const;
+const CAJA_PROYECCION = { fondo: '#fdf2f8', texto: '#9d174d', icono: '#9d174d' } as const;
+const ETIQUETA_CAJA = '#475569';
 const ALTO_GRAFICO = 120;
 const MARGEN_SUP = 8;
 const MARGEN_INF = 4;
@@ -109,11 +113,11 @@ function fechaVisible(iso: string): string {
 
 function euros(valor: number | null | undefined): string {
   if (valor == null || !Number.isFinite(valor)) return '—';
-  return Math.round(valor).toLocaleString('es-ES', {
+  return valor.toLocaleString('es-ES', {
     style: 'currency',
     currency: 'EUR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 
@@ -490,6 +494,10 @@ function CajaCifra({
   accesible,
   enFila,
   entrada,
+  icono,
+  fondo,
+  colorValor,
+  colorIcono,
   crecimiento,
   tono,
 }: {
@@ -498,18 +506,32 @@ function CajaCifra({
   accesible: string;
   enFila: boolean;
   entrada: StyleProp<ViewStyle>;
+  icono: keyof typeof MaterialIcons.glyphMap;
+  fondo: string;
+  colorValor: string;
+  colorIcono: string;
   crecimiento?: string | null;
   tono?: 'ok' | 'mal' | 'neutro';
 }) {
   const tonoCaja = tono ?? 'neutro';
   return (
     <Animated.View
-      style={[styles.caja, enFila && styles.cajaEnFila, entrada]}
+      style={[styles.caja, { backgroundColor: fondo }, enFila && styles.cajaEnFila, entrada]}
       accessibilityLabel={crecimiento ? `${accesible}: ${valor}. Crecimiento ${crecimiento}` : `${accesible}: ${valor}`}
     >
-      <Text style={styles.cajaEtiqueta}>{etiqueta}</Text>
+      <View style={styles.cajaEtiquetaFila}>
+        <MaterialIcons name={icono} size={16} color={colorIcono} />
+        <Text style={styles.cajaEtiqueta} numberOfLines={1}>
+          {etiqueta}
+        </Text>
+      </View>
       <View style={styles.cajaValorFila}>
-        <Text style={[styles.cajaValor, tasksUi.tabularNums]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+        <Text
+          style={[styles.cajaValor, { color: colorValor }, tasksUi.tabularNums]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+        >
           {valor}
         </Text>
         {crecimiento ? (
@@ -817,18 +839,26 @@ export function FacturacionMesCard({
 
             <View style={[styles.cajas, isPhone && styles.cajasPhone]}>
               <CajaCifra
-                etiqueta="A hoy"
+                etiqueta="Objetivo a hoy"
                 accesible="Objetivo a hoy"
                 valor={euros(datos.objetivoAHoy)}
                 enFila={isPhone}
                 entrada={entradasCaja[0]}
+                icono="today"
+                fondo={CAJA_HOY.fondo}
+                colorValor={CAJA_HOY.texto}
+                colorIcono={CAJA_HOY.icono}
               />
               <CajaCifra
-                etiqueta="Del mes"
+                etiqueta="Objetivo del mes"
                 accesible="Objetivo del mes"
                 valor={euros(datos.objetivoMes)}
                 enFila={isPhone}
                 entrada={entradasCaja[1]}
+                icono="calendar-month"
+                fondo={CAJA_MES.fondo}
+                colorValor={CAJA_MES.texto}
+                colorIcono={CAJA_MES.icono}
               />
               <CajaCifra
                 etiqueta="Proyección"
@@ -836,6 +866,10 @@ export function FacturacionMesCard({
                 valor={euros(datos.proyeccionFinMes)}
                 enFila={isPhone}
                 entrada={entradasCaja[2]}
+                icono="trending-up"
+                fondo={CAJA_PROYECCION.fondo}
+                colorValor={CAJA_PROYECCION.texto}
+                colorIcono={CAJA_PROYECCION.icono}
                 crecimiento={textoPct}
                 tono={tono}
               />
@@ -1063,10 +1097,9 @@ const styles = StyleSheet.create({
   caja: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: tasksUi.color.superficieHundida,
     borderRadius: tasksUi.radius.control,
     padding: SPACING.sm,
-    gap: 2,
+    gap: SPACING.xs,
   },
   cajaEnFila: {
     flexGrow: 0,
@@ -1077,8 +1110,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: SPACING.sm,
   },
+  cajaEtiquetaFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    minWidth: 0,
+    flexShrink: 1,
+  },
   cajaEtiqueta: {
     ...tasksUi.tipo.micro,
+    color: ETIQUETA_CAJA,
+    flexShrink: 1,
   },
   cajaValorFila: {
     flexDirection: 'row',
@@ -1088,8 +1130,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   cajaValor: {
-    ...tasksUi.tipo.dato,
-    color: tasksUi.color.textoPrimario,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 24,
     flexShrink: 1,
   },
   graficoBloque: {
