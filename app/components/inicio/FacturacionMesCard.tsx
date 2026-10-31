@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -11,8 +11,16 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
 import { tasksUi } from '../../constants/tasksUiTokens';
+import { useLocalesPermitidos, valorEnLocal, type LocalItem } from '../../contexts/LocalesContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { formatId6 } from '../../utils/idFormat';
 import { formatMoneda } from '../../utils/formatMoneda';
+import {
+  FiltroFacturacionMes,
+  etiquetaFiltroFacturacion,
+  type LocalFiltroMes,
+  type ValorFiltroFacturacionMes,
+} from './FiltroFacturacionMes';
 
 const FRANJA = ['#0ea5e9', '#ec4899'] as const;
 const AZUL = '#0ea5e9';
@@ -45,11 +53,43 @@ export type EstadoFacturacionMes = 'cargando' | 'vacio' | 'error' | 'listo';
 type Props = {
   estado: EstadoFacturacionMes;
   datos?: FacturacionMesDatos | null;
-  etiquetaFiltro: string;
-  onAbrirFiltro: () => void;
+  /** Ids pedidos desde fuera. Solo se conservan los que el usuario tiene asignados. */
+  localIdsSolicitados?: string[];
+  onCambioFiltro?: (valor: ValorFiltroFacturacionMes) => void;
   onReintentar?: () => void;
   style?: StyleProp<ViewStyle>;
 };
+
+function esSedeGrupoParipe(local: LocalItem): boolean {
+  return String(valorEnLocal(local, 'sede') ?? '').toUpperCase().includes('PARIPE');
+}
+
+function localesDelFiltro(locales: LocalItem[]): LocalFiltroMes[] {
+  const vistos = new Set<string>();
+  const salida: LocalFiltroMes[] = [];
+  for (const local of locales) {
+    if (!esSedeGrupoParipe(local)) continue;
+    const nombre = String(valorEnLocal(local, 'nombre') ?? '').trim();
+    const id = formatId6(valorEnLocal(local, 'id_Locales'));
+    if (!nombre || id === '000000' || vistos.has(id)) continue;
+    vistos.add(id);
+    salida.push({ id, nombre });
+  }
+  salida.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+  return salida;
+}
+
+function mismosIds(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id, indice) => id === b[indice]);
+}
+
+function idsPermitidos(solicitados: string[] | undefined, permitidos: LocalFiltroMes[]): string[] {
+  const validos = new Set(permitidos.map((local) => local.id));
+  const pedidos = (solicitados ?? [])
+    .map((id) => formatId6(id))
+    .filter((id) => id !== '000000' && validos.has(id));
+  return pedidos.length > 0 ? pedidos : permitidos.map((local) => local.id);
+}
 
 type Punto = { x: number; y: number; indice: number };
 type Trazo = { clave: string; left: number; top: number; ancho: number; grados: number };
@@ -362,12 +402,75 @@ function Esqueleto() {
 export function FacturacionMesCard({
   estado,
   datos = null,
-  etiquetaFiltro,
-  onAbrirFiltro,
+  localIdsSolicitados,
+  onCambioFiltro,
   onReintentar,
   style,
 }: Props) {
   const { isPhone } = useBreakpoint();
+  const { locales, loading: cargandoLocales, error: errorLocales, refresh } = useLocalesPermitidos();
+  const permitidos = useMemo(() => localesDelFiltro(locales), [locales]);
+  const [valor, setValor] = useState<ValorFiltroFacturacionMes | null>(null);
+  const [abierto, setAbierto] = useState(false);
+  const [anclaje, setAnclaje] = useState<{ x: number; y: number; ancho: number; alto: number } | null>(null);
+  const anclaRef = useRef<View>(null);
+  const usuarioAplico = useRef(false);
+  const onCambioRef = useRef(onCambioFiltro);
+  onCambioRef.current = onCambioFiltro;
+
+  useEffect(() => {
+    if (cargandoLocales) return;
+    const ahora = new Date();
+    setValor((previo) => {
+      if (previo && usuarioAplico.current) {
+        const validos = new Set(permitidos.map((local) => local.id));
+        const filtrados = previo.localIds.filter((id) => validos.has(id));
+        const siguiente = filtrados.length > 0 ? filtrados : permitidos.map((local) => local.id);
+        if (mismosIds(previo.localIds, siguiente)) return previo;
+        return { ...previo, localIds: siguiente };
+      }
+      const year = previo?.year ?? ahora.getFullYear();
+      const month = previo?.month ?? ahora.getMonth() + 1;
+      const localIds = idsPermitidos(localIdsSolicitados, permitidos);
+      if (previo && previo.year === year && previo.month === month && mismosIds(previo.localIds, localIds)) {
+        return previo;
+      }
+      return { year, month, localIds };
+    });
+  }, [cargandoLocales, permitidos, localIdsSolicitados]);
+
+  useEffect(() => {
+    if (valor) onCambioRef.current?.(valor);
+  }, [valor]);
+
+  const etiqueta = !valor
+    ? 'Cargando…'
+    : etiquetaFiltroFacturacion({
+        year: valor.year,
+        month: valor.month,
+        localIds: valor.localIds,
+        locales: permitidos,
+        movil: isPhone,
+      });
+
+  const abrirFiltro = () => {
+    if (!valor) return;
+    if (isPhone) {
+      setAnclaje(null);
+      setAbierto(true);
+      return;
+    }
+    const nodo = anclaRef.current;
+    if (!nodo) {
+      setAbierto(true);
+      return;
+    }
+    setAbierto(true);
+    nodo.measureInWindow((x, y, ancho, alto) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      setAnclaje({ x, y, ancho, alto });
+    });
+  };
   const listo = estado === 'listo' && datos != null && datos.dias.length > 0;
   const vacio = estado === 'vacio' || (estado === 'listo' && !listo);
   const hayObjetivo = listo && datos != null && datos.objetivoMes > 0;
@@ -377,6 +480,7 @@ export function FacturacionMesCard({
   const tono = diferencia > 0 ? 'ok' : diferencia < 0 ? 'mal' : 'neutro';
 
   return (
+    <>
     <View style={[styles.tarjeta, style]}>
       <LinearGradient
         colors={FRANJA}
@@ -387,18 +491,22 @@ export function FacturacionMesCard({
       <View style={styles.cuerpo}>
         <View style={styles.cabecera}>
           <Text style={styles.kicker}>Facturación</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Filtro de facturación: ${etiquetaFiltro}`}
-            accessibilityHint="Abre el mes y los locales"
-            onPress={onAbrirFiltro}
-            style={({ pressed }) => [styles.pastilla, pressed && styles.pulsado]}
-          >
-            <Text style={styles.pastillaTexto} numberOfLines={1}>
-              {etiquetaFiltro}
-            </Text>
-            <MaterialIcons name="expand-more" size={18} color={tasksUi.color.textoSecundario} />
-          </Pressable>
+          <View ref={anclaRef} collapsable={false} style={styles.ancla}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Filtro de facturación: ${etiqueta}`}
+              accessibilityHint={permitidos.length === 1 ? 'Abre el mes' : 'Abre el mes y los locales'}
+              accessibilityState={{ disabled: !valor }}
+              disabled={!valor}
+              onPress={abrirFiltro}
+              style={({ pressed }) => [styles.pastilla, pressed && styles.pulsado, !valor && styles.inhabilitado]}
+            >
+              <Text style={styles.pastillaTexto} numberOfLines={1}>
+                {etiqueta}
+              </Text>
+              <MaterialIcons name="expand-more" size={18} color={tasksUi.color.textoSecundario} />
+            </Pressable>
+          </View>
         </View>
 
         {estado === 'cargando' ? <Esqueleto /> : null}
@@ -516,6 +624,28 @@ export function FacturacionMesCard({
         ) : null}
       </View>
     </View>
+    {valor ? (
+      <FiltroFacturacionMes
+        visible={abierto}
+        movil={isPhone}
+        anclaje={anclaje}
+        year={valor.year}
+        month={valor.month}
+        localIds={valor.localIds}
+        locales={permitidos}
+        errorLocales={errorLocales}
+        onReintentarLocales={() => {
+          void refresh();
+        }}
+        onCerrar={() => setAbierto(false)}
+        onAplicar={(siguiente) => {
+          usuarioAplico.current = true;
+          setValor(siguiente);
+          setAbierto(false);
+        }}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -548,6 +678,11 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     flexShrink: 0,
   },
+  ancla: {
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: '100%',
+  },
   pastilla: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -570,6 +705,9 @@ const styles = StyleSheet.create({
   },
   pulsado: {
     opacity: 0.72,
+  },
+  inhabilitado: {
+    opacity: 0.4,
   },
   bloque: {
     gap: SPACING.md,
