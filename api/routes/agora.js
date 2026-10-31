@@ -86,6 +86,7 @@ import { filtrarLecturaPorLocal, permiteLecturaLocal, workplacesLectura } from '
 import { MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, cargarAlcance, modoLecturas } from '../lib/alcance.js';
 import { invalidarMapaAlmacenes } from '../lib/alcanceAlmacenes.js';
 import { buildObjetivoMensualCard, loadFestivosByFecha } from '../lib/agora/objetivoMensual.js';
+import { buildFacturacionMesDiaria } from '../lib/agora/facturacionMesDiaria.js';
 import { agregarFacturasPorHora } from '../lib/agora/ventasHoraStore.js';
 import {
   buildExcepcionesFromInvoices,
@@ -922,6 +923,20 @@ router.get('/agora/closeouts/objetivo-mensual-card', requirePermission('planning
   } catch (err) {
     console.error('[agora/closeouts/objetivo-mensual-card]', err.message || err);
     responderError(res, err, { mensaje: 'Error al calcular objetivo mensual' });
+  }
+});
+
+router.get('/agora/closeouts/facturacion-mes-diaria', requirePermission('planning_dia.objetivo_card'), async (req, res) => {
+  try {
+    const payload = await buildFacturacionMesDiaria(req.user, {
+      year: req.query.year,
+      month: req.query.month,
+      localIds: req.query.localIds,
+    });
+    res.json(payload);
+  } catch (err) {
+    console.error('[agora/closeouts/facturacion-mes-diaria]', err.message || err);
+    responderError(res, err, { mensaje: 'Error al calcular la facturación del mes' });
   }
 });
 
