@@ -222,8 +222,6 @@ const styles = StyleSheet.create({
   widgetShell: {
     width: '100%',
     alignSelf: 'stretch',
-    flexGrow: 1,
-    flexShrink: 0,
     borderRadius: tasksUi.radius.contenedor,
   },
   widget: {
@@ -235,7 +233,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: tasksUi.space[3],
     width: '100%',
     alignSelf: 'stretch',
-    flexGrow: 1,
     overflow: 'hidden',
   },
   mainRow: {

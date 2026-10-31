@@ -358,8 +358,16 @@ export async function generarFichaEscandalloPdf(datos: FichaEscandalloDatos): Pr
   return doc;
 }
 
+function nombreArchivoFicha(datos: FichaEscandalloDatos): string {
+  const limpio = (valor: string) =>
+    valor.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const nombre = limpio(String(datos.nombre || ''));
+  const id = limpio(String(datos.productoId || ''));
+  const base = [nombre, id, 'ESCANDALLO'].filter(Boolean).join(' ').replace(/[. ]+$/g, '');
+  return `${base || 'ESCANDALLO'}.pdf`;
+}
+
 export async function descargarFichaEscandalloPdf(datos: FichaEscandalloDatos): Promise<void> {
   const doc = await generarFichaEscandalloPdf(datos);
-  const safe = String(datos.productoId || 'receta').replace(/[^\w\-]+/g, '_') || 'receta';
-  doc.save(`ficha-escandallo-${safe}.pdf`);
+  doc.save(nombreArchivoFicha(datos));
 }

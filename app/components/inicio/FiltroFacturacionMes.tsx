@@ -43,12 +43,9 @@ export type ValorFiltroFacturacionMes = {
   localIds: string[];
 };
 
-type Anclaje = { x: number; y: number; ancho: number; alto: number };
-
 type Props = {
   visible: boolean;
   movil: boolean;
-  anclaje?: Anclaje | null;
   year: number;
   month: number;
   localIds: string[];
@@ -115,7 +112,6 @@ function useReducirMovimiento(): boolean {
 export function FiltroFacturacionMes({
   visible,
   movil,
-  anclaje = null,
   year,
   month,
   localIds,
@@ -202,19 +198,13 @@ export function FiltroFacturacionMes({
 
   const translateY = progreso.interpolate({
     inputRange: [0, 1],
-    outputRange: [movil ? 64 : -8, 0],
+    outputRange: [12, 0],
   });
   const margen = SPACING.lg;
-  const anchoDeseado = Math.max(0, Math.min(ventana * 0.42, ventana - margen * 2));
-  const left = Math.min(
-    Math.max(margen, anclaje?.x ?? margen),
-    Math.max(margen, ventana - anchoDeseado - margen),
-  );
-  const yAncla = anclaje?.y ?? margen;
-  const altoAncla = anclaje?.alto ?? 0;
-  const abreHaciaAbajo = yAncla < altoVentana * 0.5;
-  const top = abreHaciaAbajo ? yAncla + altoAncla + SPACING.sm : undefined;
-  const bottom = abreHaciaAbajo ? undefined : altoVentana - yAncla + SPACING.sm;
+  const anchoPanel = Math.max(0, Math.min(360, ventana - margen * 2));
+  const altoMax = Math.max(320, altoVentana - margen * 2);
+  const altoCromo = SPACING.md * 2 + MIN_TOUCH + SPACING.sm + MIN_TOUCH * 3 + SPACING.sm + 22 + MIN_TOUCH + SPACING.sm;
+  const altoLista = Math.max(96, Math.min(200, altoMax - altoCromo));
 
   const cambiarAnio = (delta: number) => {
     setDraftYear((previo) => {
@@ -241,7 +231,11 @@ export function FiltroFacturacionMes({
   };
 
   const panel = (
-    <View style={[styles.panel, movil ? styles.hoja : styles.desplegable, !movil && { width: anchoDeseado }]}>
+    <Pressable
+      pointerEvents="auto"
+      onPress={(e) => e.stopPropagation()}
+      style={[styles.panel, styles.desplegable, { width: anchoPanel, maxHeight: altoMax }]}
+    >
       <View style={styles.anioFila}>
         <Pressable
           accessibilityRole="button"
@@ -313,7 +307,11 @@ export function FiltroFacturacionMes({
           ) : locales.length === 0 ? (
             <Text style={styles.avisoTexto}>No tienes locales de Grupo Paripe.</Text>
           ) : (
-            <ScrollView style={styles.lista} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+            <ScrollView
+              style={[styles.lista, { maxHeight: altoLista }]}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+            >
               {locales.map((local) => {
                 const marcado = draftIds.includes(local.id);
                 return (
@@ -361,26 +359,25 @@ export function FiltroFacturacionMes({
           <Text style={styles.aplicarTexto}>Aplicar</Text>
         </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 
   return (
     <Modal visible={montado} transparent animationType="none" onRequestClose={onCerrar} statusBarTranslucent>
-      <View style={styles.marco} accessibilityViewIsModal>
+      <Pressable
+        style={styles.marco}
+        onPress={onCerrar}
+        accessibilityViewIsModal
+        accessibilityRole="button"
+        accessibilityLabel="Cerrar filtro"
+      >
         <Animated.View pointerEvents="none" style={[styles.velo, { opacity: progreso }]} />
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={onCerrar}
-          accessibilityRole="button"
-          accessibilityLabel="Cerrar filtro"
-        />
-        <View
-          pointerEvents="box-none"
-          style={movil ? styles.anclajeMovil : [styles.anclajeDrop, { top, bottom, left }]}
-        >
-          <Animated.View style={{ opacity: progreso, transform: [{ translateY }] }}>{panel}</Animated.View>
+        <View pointerEvents="box-none" style={styles.anclajeCentro}>
+          <Animated.View pointerEvents="box-none" style={[styles.tarjetaAnim, { opacity: progreso, transform: [{ translateY }] }]}>
+            {panel}
+          </Animated.View>
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }
@@ -393,25 +390,23 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: tasksUi.color.overlay,
   },
-  anclajeMovil: {
+  anclajeCentro: {
     flex: 1,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.lg,
     zIndex: 1,
   },
-  anclajeDrop: {
-    position: 'absolute',
-    zIndex: 1,
+  tarjetaAnim: {
+    maxWidth: '100%',
+    maxHeight: '100%',
+    alignItems: 'center',
   },
   panel: {
     backgroundColor: tasksUi.color.superficie,
-    padding: SPACING.lg,
-    gap: SPACING.md,
-    maxHeight: '90%',
-  },
-  hoja: {
-    borderTopLeftRadius: tasksUi.radius.contenedor,
-    borderTopRightRadius: tasksUi.radius.contenedor,
-    width: '100%',
+    padding: SPACING.md,
+    gap: SPACING.sm,
+    overflow: 'hidden',
   },
   desplegable: {
     borderRadius: tasksUi.radius.contenedor,
@@ -467,17 +462,19 @@ const styles = StyleSheet.create({
   },
   localesBloque: {
     gap: SPACING.xs,
+    flexShrink: 1,
+    minHeight: 0,
   },
   rotulo: {
     ...tasksUi.tipo.etiqueta,
   },
   lista: {
-    maxHeight: 220,
+    flexGrow: 0,
   },
   local: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.sm,
+    gap: SPACING.xs,
     minHeight: MIN_TOUCH,
   },
   localNombre: {
@@ -512,7 +509,11 @@ const styles = StyleSheet.create({
   },
   acciones: {
     flexDirection: 'row',
+    flexShrink: 0,
     gap: SPACING.sm,
+    paddingTop: SPACING.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: tasksUi.color.bordeSutil,
   },
   accion: {
     flex: 1,

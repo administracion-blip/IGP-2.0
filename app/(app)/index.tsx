@@ -301,18 +301,7 @@ export default function AppHome() {
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
       <View style={homeInnerStyle}>
-        {puedeMes && !isPhone ? (
-          <View style={styles.filaMes}>
-            <View style={styles.columnaMes}>
-              <WeatherWidget />
-            </View>
-            <View style={styles.columnaMes}>
-              <FacturacionMesInicio style={styles.tarjetaMes} />
-            </View>
-          </View>
-        ) : (
-          <WeatherWidget />
-        )}
+        <WeatherWidget />
 
         <View style={styles.tickerShell}>
           <View style={styles.tickerBar}>
@@ -344,7 +333,7 @@ export default function AppHome() {
           </View>
         </View>
 
-        {puedeMes && isPhone ? <FacturacionMesInicio /> : null}
+        {puedeMes ? <FacturacionMesInicio /> : null}
 
         <CalendarioInicio />
       </View>
@@ -365,21 +354,6 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
     gap: SPACING.xl,
-  },
-  filaMes: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: SPACING.lg,
-  },
-  columnaMes: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 0,
-    alignSelf: 'stretch',
-  },
-  tarjetaMes: {
-    flexGrow: 1,
   },
   tickerShell: {
     width: '100%',

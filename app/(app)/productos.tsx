@@ -12,6 +12,7 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Switch,
+  type TextStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -36,13 +37,12 @@ import {
 import { EstadoVacio } from '../components/ui/EstadoVacio';
 
 const PAGE_SIZE = 50;
-const MAX_TEXT_LENGTH = 30;
+const MIN_COL_WIDTH = 48;
 
 /** Columnas preferidas para Productos Ágora (solo campos permitidos por API) */
 const PREFERRED_COLS_AGORA = ['Id', 'IGP', 'Name', 'Zona', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'ultimo_iva_compra', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'Active', 'IsSoldByWeight'];
 
 const DEFAULT_COL_WIDTH = 90;
-const MAX_TEXT_LENGTH_TABLE = 30;
 
 type Producto = Record<string, unknown>;
 
@@ -146,15 +146,68 @@ function labelColumna(col: string): string {
   return col.toUpperCase();
 }
 
-function truncar(val: string, max = MAX_TEXT_LENGTH_TABLE): string {
-  if (val.length <= max) return val;
-  return val.slice(0, max - 3) + '…';
-}
-
 function valorPorColumna(item: Producto, col: string): unknown {
   if (item[col] !== undefined && item[col] !== null) return item[col];
   const key = Object.keys(item).find((k) => k.toLowerCase() === col.toLowerCase());
   return key != null ? item[key] : undefined;
+}
+
+function portalEtiqueta(children: React.ReactNode): React.ReactNode {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return null;
+  const { createPortal } = require('react-dom') as typeof import('react-dom');
+  return createPortal(children, document.body);
+}
+
+function textoNoCabe(nodo: HTMLElement): boolean {
+  if (nodo.scrollWidth > nodo.clientWidth + 1) return true;
+  const rango = document.createRange();
+  rango.selectNodeContents(nodo);
+  return rango.getBoundingClientRect().width > nodo.clientWidth + 1;
+}
+
+/** Etiqueta con el valor entero cuando la celda lo recorta. */
+function EtiquetaCampo({ texto, estiloTexto }: { texto: string; estiloTexto?: TextStyle | TextStyle[] }) {
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  const alEntrar = (nodo: HTMLElement) => {
+    if (!texto || texto === '—' || !textoNoCabe(nodo)) {
+      setPos(null);
+      return;
+    }
+    const rect = nodo.getBoundingClientRect();
+    const ancho = 320;
+    const margen = 8;
+    const left = Math.max(margen, Math.min(rect.left, window.innerWidth - ancho - margen));
+    const debajo = rect.bottom + 6;
+    const top = debajo + 48 > window.innerHeight ? Math.max(margen, rect.top - 40) : debajo;
+    setPos({ left, top });
+  };
+
+  const eventos =
+    Platform.OS === 'web'
+      ? ({
+          onMouseEnter: (e: { currentTarget: HTMLElement }) => alEntrar(e.currentTarget),
+          onMouseLeave: () => setPos(null),
+        } as object)
+      : {};
+
+  return (
+    <>
+      <Text style={[styles.textoCelda, estiloTexto]} numberOfLines={1} ellipsizeMode="tail" {...eventos}>
+        {texto}
+      </Text>
+      {pos
+        ? portalEtiqueta(
+            <View
+              pointerEvents="none"
+              style={[styles.etiquetaCampo, { position: 'fixed' as 'absolute', left: pos.left, top: pos.top }]}
+            >
+              <Text style={styles.etiquetaCampoTexto}>{texto}</Text>
+            </View>,
+          )
+        : null}
+    </>
+  );
 }
 
 /* ─── Componente de fila memoizado ─── */
@@ -164,6 +217,7 @@ type ProductRowProps = {
   isSelected: boolean;
   isLastRow: boolean;
   columnas: string[];
+  anchoDe: (col: string) => number;
   onToggleSelect: (rowId: string, shiftKey: boolean) => void;
   onToggleIGP: (producto: Producto) => void;
   onEditar: (producto: Producto) => void;
@@ -172,7 +226,7 @@ type ProductRowProps = {
 };
 
 const ProductRow = memo(function ProductRow({
-  producto, rowId, isSelected, isLastRow, columnas, onToggleSelect, onToggleIGP, onEditar, valorCelda, puedeEditar,
+  producto, rowId, isSelected, isLastRow, columnas, anchoDe, onToggleSelect, onToggleIGP, onEditar, valorCelda, puedeEditar,
 }: ProductRowProps) {
   const handlePress = useCallback((e: any) => {
     if (!rowId) return;
@@ -220,7 +274,7 @@ const ProductRow = memo(function ProductRow({
       )}
       {columnas.map((col, colIdx) => {
         const isLastCol = colIdx === columnas.length - 1;
-        const colWidth = getAnchoColumna(col);
+        const colWidth = anchoDe(col);
         const isMoneda = col === 'CostPrice';
         const isIGP = col === 'IGP';
         if (col === 'Zona') {
@@ -266,17 +320,15 @@ const ProductRow = memo(function ProductRow({
             style={[
               erpTableStyles.cell,
               isLastCol && erpTableStyles.cellLast,
+              styles.celdaRecortada,
               { width: colWidth },
               isMoneda && { alignItems: 'flex-end' },
             ]}
           >
-            <Text
-              style={[erpTableStyles.cellText, isMoneda && erpTableStyles.cellTextRight]}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-            >
-              {truncar(valorCelda(producto, col))}
-            </Text>
+            <EtiquetaCampo
+              texto={valorCelda(producto, col)}
+              estiloTexto={isMoneda ? [erpTableStyles.cellText, erpTableStyles.cellTextRight] : erpTableStyles.cellText}
+            />
           </View>
         );
       })}
@@ -299,6 +351,9 @@ export default function ProductosScreen() {
   const { hasPermiso } = useAuth();
   const puedeSincronizar = hasPermiso('productos.sincronizar');
   const puedeEditar = hasPermiso('productos.editar');
+  const [anchosColumna, setAnchosColumna] = useState<Record<string, number>>({});
+  const [columnaEnCurso, setColumnaEnCurso] = useState<string | null>(null);
+  const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
   const [filtroAgoraInput, setFiltroAgoraInput] = useState('');
   const [filtroAgora, setFiltroAgora] = useState('');
   const [pageIndexAgora, setPageIndexAgora] = useState(0);
@@ -483,6 +538,36 @@ export default function ProductosScreen() {
     return familias.filter((f) => f.FamilyName.toLowerCase().includes(q) || f.FamilyId.toLowerCase().includes(q));
   }, [familias, filtroBusquedaFamilias]);
 
+  const anchoColumna = useCallback(
+    (col: string) => anchosColumna[col] ?? getAnchoColumna(col),
+    [anchosColumna],
+  );
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !columnaEnCurso) return;
+    const alMover = (e: MouseEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      const next = Math.max(MIN_COL_WIDTH, r.startWidth + (e.clientX - r.startX));
+      setAnchosColumna((prev) => ({ ...prev, [r.col]: next }));
+    };
+    const alSoltar = () => {
+      resizeRef.current = null;
+      setColumnaEnCurso(null);
+    };
+    document.addEventListener('mousemove', alMover);
+    document.addEventListener('mouseup', alSoltar);
+    return () => {
+      document.removeEventListener('mousemove', alMover);
+      document.removeEventListener('mouseup', alSoltar);
+    };
+  }, [columnaEnCurso]);
+
+  const empezarResize = (col: string, clientX: number) => {
+    resizeRef.current = { col, startX: clientX, startWidth: anchoColumna(col) };
+    setColumnaEnCurso(col);
+  };
+
   const valorCeldaAgora = useCallback((item: Producto, col: string) => {
     const raw = item[col] ?? valorPorColumna(item, col);
     if (raw === undefined || raw === null) return '—';
@@ -495,7 +580,7 @@ export default function ProductosScreen() {
       }).join(', ');
     }
     if (Array.isArray(raw)) return raw.length ? String(raw.join(', ')) : '—';
-    if (typeof raw === 'object') return JSON.stringify(raw).slice(0, MAX_TEXT_LENGTH_TABLE);
+    if (typeof raw === 'object') return JSON.stringify(raw);
     if (col === 'ultimo_iva_compra' || col === 'VatPercent') {
       const n = parseFloat(String(raw));
       if (!Number.isNaN(n)) return n + ' %';
@@ -648,7 +733,7 @@ export default function ProductosScreen() {
   }, []);
 
 
-  const anchoTabla = 32 + 36 + columnasAgora.reduce((w, c) => w + getAnchoColumna(c), 0);
+  const anchoTabla = 32 + 36 + columnasAgora.reduce((w, c) => w + anchoColumna(c), 0);
 
   const opcionesZonaLote = useMemo(
     () => [{ id: '', titulo: 'Quitar zona' }, ...OPCIONES_ZONA.filter((o) => o.id)],
@@ -958,12 +1043,23 @@ export default function ProductosScreen() {
                           style={[
                             erpTableStyles.cellHeader,
                             isLastCol && erpTableStyles.cellHeaderLast,
-                            { width: getAnchoColumna(col) },
+                            styles.celdaRecortada,
+                            { width: anchoColumna(col) },
                           ]}
                         >
-                          <Text style={erpTableStyles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
-                            {labelColumna(col)}
-                          </Text>
+                          <EtiquetaCampo texto={labelColumna(col)} estiloTexto={erpTableStyles.cellHeaderText} />
+                          {Platform.OS === 'web' ? (
+                            <View
+                              style={erpTableStyles.resizeHandle}
+                              {...({
+                                onMouseDown: (e: { preventDefault?: () => void; nativeEvent?: { clientX: number }; clientX?: number }) => {
+                                  e.preventDefault?.();
+                                  const x = e.nativeEvent?.clientX ?? e.clientX ?? 0;
+                                  empezarResize(col, x);
+                                },
+                              } as object)}
+                            />
+                          ) : null}
                         </View>
                       );
                     })}
@@ -979,6 +1075,7 @@ export default function ProductosScreen() {
                         isSelected={rowId ? selectedIds.has(rowId) : false}
                         isLastRow={idx === productosAgoraPagina.length - 1}
                         columnas={columnasAgora}
+                        anchoDe={anchoColumna}
                         onToggleSelect={handleToggleSelect}
                         onToggleIGP={toggleAgoraProductIGP}
                         onEditar={abrirModalEditar}
@@ -1226,6 +1323,17 @@ const styles = StyleSheet.create({
   },
   searchInputFlex: { flex: 1, minWidth: 80, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, paddingVertical: 0 },
   limpiarBusquedaBtn: { padding: SPACING.xs + 2 },
+  textoCelda: { width: '100%', minWidth: 0 },
+  celdaRecortada: { overflow: 'hidden' },
+  etiquetaCampo: {
+    zIndex: 3000,
+    maxWidth: 320,
+    backgroundColor: '#0f172a',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  etiquetaCampoTexto: { color: '#f8fafc', fontSize: 12, lineHeight: 16 },
   editCell: {
     width: 36,
     alignItems: 'center',

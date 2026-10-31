@@ -402,6 +402,7 @@ export default function EscandallosScreen() {
   const [pdfBusy, setPdfBusy] = useState(false);
 
   const [comprasCtx, setComprasCtx] = useState<Record<string, CompraContextoItem>>({});
+  const [comprasCtxListo, setComprasCtxListo] = useState(false);
   const [comprasModal, setComprasModal] = useState<{
     productId: string;
     productName: string;
@@ -747,12 +748,15 @@ export default function EscandallosScreen() {
   useEffect(() => {
     if (!detalleAbierto) {
       setComprasCtx({});
+      setComprasCtxListo(true);
       return;
     }
     if (!ingredientesIdsKey) {
       setComprasCtx({});
+      setComprasCtxListo(true);
       return;
     }
+    setComprasCtxListo(false);
     let cancelled = false;
     const t = setTimeout(() => {
       const qs = new URLSearchParams();
@@ -761,10 +765,16 @@ export default function EscandallosScreen() {
       apiFetch(`/api/escandallos/compras-contexto?${qs.toString()}`)
         .then((r) => r.json())
         .then((data: { items?: Record<string, CompraContextoItem> }) => {
-          if (!cancelled) setComprasCtx(data.items && typeof data.items === 'object' ? data.items : {});
+          if (!cancelled) {
+            setComprasCtx(data.items && typeof data.items === 'object' ? data.items : {});
+            setComprasCtxListo(true);
+          }
         })
         .catch(() => {
-          if (!cancelled) setComprasCtx({});
+          if (!cancelled) {
+            setComprasCtx({});
+            setComprasCtxListo(true);
+          }
         });
     }, 300);
     return () => {
@@ -772,6 +782,19 @@ export default function EscandallosScreen() {
       clearTimeout(t);
     };
   }, [detalleAbierto, ingredientesIdsKey, warehouseId]);
+
+  const compraDe = useCallback((ingredienteId: string) => {
+    const id = ingredienteId.trim();
+    if (!id) return undefined;
+    return comprasCtx[id] || comprasCtx[stripLeadingZerosId(id)];
+  }, [comprasCtx]);
+
+  /** Precio escrito a mano solo si el ingrediente no tiene compras. */
+  const costeManualAplicable = useCallback((ln: LineaForm): number | null => {
+    const id = ln.ingredienteId.trim();
+    if (!id || !comprasCtxListo || compraDe(id)) return null;
+    return costeManualDe(ln.costeManual);
+  }, [compraDe, comprasCtxListo]);
 
   const kpis = useMemo(() => {
     let kgTotal = 0;
@@ -791,7 +814,7 @@ export default function EscandallosScreen() {
 
       const merma = parseDecimal(ln.mermaPct || '0') ?? 0;
       const prod = getProducto(ln.ingredienteId.trim());
-      const manual = costeManualDe(ln.costeManual);
+      const manual = costeManualAplicable(ln);
       const { coste: agoraUnit, origen } = costeUnitarioConOrigen(prod, warehouseId);
       const unit = manual ?? agoraUnit;
       if (unit > 0) lineasConCoste += 1;
@@ -800,7 +823,7 @@ export default function EscandallosScreen() {
     }
 
     return { kgTotal, lTotal, udTotal, coste, lineasConCoste, lineasOtroAlmacen };
-  }, [form.lineas, getProducto, warehouseId]);
+  }, [form.lineas, getProducto, warehouseId, costeManualAplicable]);
 
   const ventaInfo = useMemo(() => {
     const priceListIdRaw = localSeleccionado?.priceListId;
@@ -1133,7 +1156,8 @@ export default function EscandallosScreen() {
         orden: ingredientes.length + 1,
       };
       const rawManual = ln.costeManual.trim();
-      if (rawManual) {
+      const sinCompras = comprasCtxListo && !compraDe(ln.ingredienteId);
+      if (sinCompras && rawManual) {
         const n = parseDecimal(rawManual);
         if (n == null || n < 0) {
           setErrorForm(`Precio manual no válido en la línea ${i + 1} (usa decimales con coma)`);
@@ -1185,7 +1209,7 @@ export default function EscandallosScreen() {
     } finally {
       setGuardando(false);
     }
-  }, [puedeEditar, form, fetchRecetas, cargarImagenUrl]);
+  }, [puedeEditar, form, fetchRecetas, cargarImagenUrl, comprasCtxListo, compraDe]);
 
   const solicitarBorrado = useCallback(
     async (item: RecetaMeta) => {
@@ -1283,13 +1307,13 @@ export default function EscandallosScreen() {
       const cant = parseDecimal(ln.cantidad);
       if (cant == null || cant < 0) return 0;
       const merma = parseDecimal(ln.mermaPct || '0') ?? 0;
-      const manual = costeManualDe(ln.costeManual);
+      const manual = costeManualAplicable(ln);
       const unit =
         manual ??
         costeUnitarioProducto(getProducto(ln.ingredienteId.trim()), warehouseId);
       return cant * (1 + merma / 100) * unit;
     },
-    [getProducto, warehouseId],
+    [getProducto, warehouseId, costeManualAplicable],
   );
 
   const descargarFichaPdf = useCallback(async () => {
@@ -1327,7 +1351,7 @@ export default function EscandallosScreen() {
     const lineasSinPrecio = form.lineas.filter((ln) => {
       const id = ln.ingredienteId.trim();
       if (!id) return false;
-      if (costeManualDe(ln.costeManual) != null) return false;
+      if (costeManualAplicable(ln) != null) return false;
       return costeUnitarioConOrigen(getProducto(id), warehouseId).origen === 'ninguno';
     }).length;
 
@@ -1438,6 +1462,7 @@ export default function EscandallosScreen() {
     margenInfo,
     comprasCtx,
     costeLineaDe,
+    costeManualAplicable,
     getProducto,
     warehouseId,
     localSeleccionado,
@@ -1930,19 +1955,14 @@ export default function EscandallosScreen() {
 
   const renderLinea = (ln: LineaForm, idx: number) => {
     const costeLn = costeLineaDe(ln);
-    const compra =
-      comprasCtx[ln.ingredienteId.trim()] ||
-      comprasCtx[stripLeadingZerosId(ln.ingredienteId.trim())];
+    const compra = compraDe(ln.ingredienteId);
     const webPropsCampo = (campo: 'ing' | 'cant' | 'ud' | 'merma') =>
       Platform.OS === 'web'
         ? ({ dataSet: { escCampo: escCampoId(ln.key, campo) } } as object)
         : {};
     const webNoTab = Platform.OS === 'web' ? ({ tabIndex: -1 } as object) : {};
-    const costeAgora = ln.ingredienteId.trim()
-      ? costeUnitarioProducto(getProducto(ln.ingredienteId.trim()), warehouseId)
-      : 0;
     const mostrarCosteManual =
-      Boolean(ln.ingredienteId.trim()) && (costeAgora <= 0 || ln.costeManual.trim() !== '');
+      Boolean(ln.ingredienteId.trim()) && comprasCtxListo && !compra;
 
     const campoManual = (
       <TextInput
