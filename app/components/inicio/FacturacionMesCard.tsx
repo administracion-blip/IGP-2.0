@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -12,12 +13,12 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Defs, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
 import { tasksUi } from '../../constants/tasksUiTokens';
 import { useLocalesPermitidos, valorEnLocal, type LocalItem } from '../../contexts/LocalesContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { formatId6 } from '../../utils/idFormat';
-import { formatMoneda } from '../../utils/formatMoneda';
 import {
   FiltroFacturacionMes,
   etiquetaFiltroFacturacion,
@@ -27,11 +28,12 @@ import {
 
 const FRANJA = ['#0ea5e9', '#ec4899'] as const;
 const AZUL = '#0ea5e9';
-const RELLENO = 'rgba(14, 165, 233, 0.16)';
 const ALTO_GRAFICO = 120;
 const MARGEN_SUP = 8;
 const MARGEN_INF = 4;
+const BASE_Y = ALTO_GRAFICO - MARGEN_INF;
 const DURACION_ENTRADA = 800;
+const DURACION_CURVA = 1100;
 
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] as const;
 
@@ -96,7 +98,6 @@ function idsPermitidos(solicitados: string[] | undefined, permitidos: LocalFiltr
 }
 
 type Punto = { x: number; y: number; indice: number };
-type Trazo = { clave: string; left: number; top: number; ancho: number; grados: number };
 
 function fechaVisible(iso: string): string {
   const coincidencia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
@@ -108,13 +109,40 @@ function fechaVisible(iso: string): string {
 
 function euros(valor: number | null | undefined): string {
   if (valor == null || !Number.isFinite(valor)) return '—';
-  return formatMoneda(valor);
+  return Math.round(valor).toLocaleString('es-ES', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
 }
 
-function textoRitmo(diferencia: number): string {
+function textoPorcentaje(pct: number): string {
+  return `${pct.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+}
+
+function textoChip(diferencia: number, pct: number | null): string {
   if (!Number.isFinite(diferencia)) return '—';
-  if (diferencia > 0) return `+${formatMoneda(diferencia)}`;
-  return formatMoneda(diferencia);
+  const flecha = diferencia > 0 ? '▲' : diferencia < 0 ? '▼' : '';
+  const importe = euros(Math.abs(diferencia));
+  const base = flecha ? `${flecha} ${importe}` : importe;
+  if (pct == null) return base;
+  return `${base} · ${textoCrecimiento(pct)}`;
+}
+
+/** Crecimiento del facturado respecto al objetivo a hoy. La proyección usa el mismo ritmo. */
+function crecimientoPct(datos: FacturacionMesDatos): number | null {
+  if (!(datos.objetivoAHoy > 0) || !Number.isFinite(datos.totalReal)) return null;
+  return Math.round(((datos.totalReal - datos.objetivoAHoy) / datos.objetivoAHoy) * 1000) / 10;
+}
+
+function textoCrecimiento(pct: number): string {
+  const cuerpo = pct.toLocaleString('es-ES', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+    signDisplay: 'exceptZero',
+  });
+  return `${cuerpo} %`;
 }
 
 function etiquetaRitmo(datos: FacturacionMesDatos): string {
@@ -124,14 +152,7 @@ function etiquetaRitmo(datos: FacturacionMesDatos): string {
       : datos.diferenciaRitmo < 0
         ? 'Por debajo del ritmo'
         : 'Al ritmo';
-  const pct =
-    datos.consecucionPct == null || !Number.isFinite(datos.consecucionPct)
-      ? ''
-      : `. Consecución ${datos.consecucionPct.toLocaleString('es-ES', {
-          minimumFractionDigits: 1,
-          maximumFractionDigits: 1,
-        })} por ciento`;
-  return `${sentido}, ${textoRitmo(datos.diferenciaRitmo)}${pct}`;
+  return `${sentido}. ${textoChip(datos.diferenciaRitmo, crecimientoPct(datos))}`;
 }
 
 function clamp01(valor: number): number {
@@ -177,60 +198,53 @@ function tramos(valores: Array<number | null>, ancho: number, maximo: number): P
   return grupos;
 }
 
-function segmentosDe(puntos: Punto[]): Trazo[] {
-  const salida: Trazo[] = [];
-  for (let i = 0; i < puntos.length - 1; i += 1) {
-    const a = puntos[i];
-    const b = puntos[i + 1];
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const largo = Math.hypot(dx, dy);
-    if (largo < 1) continue;
-    salida.push({
-      clave: `s-${a.indice}`,
-      left: (a.x + b.x) / 2 - largo / 2,
-      top: (a.y + b.y) / 2 - 1,
-      ancho: largo,
-      grados: (Math.atan2(dy, dx) * 180) / Math.PI,
-    });
-  }
-  return salida;
+function coord(valor: number): string {
+  return (Math.round(valor * 10) / 10).toString();
 }
 
-function trazosDe(puntos: Punto[]): Trazo[] {
-  const salida: Trazo[] = [];
-  for (let i = 0; i < puntos.length - 1; i += 1) {
-    const a = puntos[i];
-    const b = puntos[i + 1];
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const largo = Math.hypot(dx, dy);
-    if (largo < 1) continue;
-    const ux = dx / largo;
-    const uy = dy / largo;
-    const grados = (Math.atan2(dy, dx) * 180) / Math.PI;
-    let recorrido = 0;
-    let n = 0;
-    while (recorrido < largo) {
-      const trozo = Math.min(4, largo - recorrido);
-      const cx = a.x + ux * (recorrido + trozo / 2);
-      const cy = a.y + uy * (recorrido + trozo / 2);
-      salida.push({
-        clave: `t-${a.indice}-${n}`,
-        left: cx - trozo / 2,
-        top: cy - 1,
-        ancho: trozo,
-        grados,
-      });
-      recorrido += trozo + 4;
-      n += 1;
-    }
-  }
-  return salida;
+function limitarY(y: number): number {
+  return Math.min(BASE_Y, Math.max(MARGEN_SUP, y));
 }
 
-function useReducirMovimiento(): boolean {
-  const [reducir, setReducir] = useState(false);
+/** Catmull-Rom en bézier cúbico. Un solo día se dibuja como un tramo corto. */
+function curvaSuave(puntos: Punto[]): string {
+  if (puntos.length === 0) return '';
+  if (puntos.length === 1) {
+    const p = puntos[0];
+    return `M ${coord(p.x - 6)} ${coord(p.y)} L ${coord(p.x + 6)} ${coord(p.y)}`;
+  }
+  let d = `M ${coord(puntos[0].x)} ${coord(puntos[0].y)}`;
+  for (let i = 0; i < puntos.length - 1; i += 1) {
+    const p0 = puntos[Math.max(0, i - 1)];
+    const p1 = puntos[i];
+    const p2 = puntos[i + 1];
+    const p3 = puntos[Math.min(puntos.length - 1, i + 2)];
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = limitarY(p1.y + (p2.y - p0.y) / 6);
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = limitarY(p2.y - (p3.y - p1.y) / 6);
+    d += ` C ${coord(c1x)} ${coord(c1y)} ${coord(c2x)} ${coord(c2y)} ${coord(p2.x)} ${coord(p2.y)}`;
+  }
+  return d;
+}
+
+function areaDe(puntos: Punto[]): string {
+  const linea = curvaSuave(puntos);
+  if (!linea || puntos.length === 0) return '';
+  const primero = puntos[0];
+  const ultimo = puntos[puntos.length - 1];
+  const x0 = puntos.length === 1 ? primero.x - 6 : primero.x;
+  const x1 = puntos.length === 1 ? ultimo.x + 6 : ultimo.x;
+  return `${linea} L ${coord(x1)} ${coord(BASE_Y)} L ${coord(x0)} ${coord(BASE_Y)} Z`;
+}
+
+function eurosDelDia(dia: DiaFacturacionMes, ultimo: string | null): string {
+  if (!ultimo || dia.fecha > ultimo) return '—';
+  return euros(dia.real);
+}
+
+function useReducirMovimiento(): boolean | null {
+  const [reducir, setReducir] = useState<boolean | null>(null);
   useEffect(() => {
     let vivo = true;
     AccessibilityInfo.isReduceMotionEnabled()
@@ -249,10 +263,10 @@ function useReducirMovimiento(): boolean {
   return reducir;
 }
 
-function useProgresoEntrada(firma: string, activo: boolean, reducir: boolean) {
-  const progreso = useRef(new Animated.Value(activo && reducir ? 1 : 0)).current;
+function useProgresoEntrada(firma: string, activo: boolean, reducir: boolean | null) {
+  const progreso = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (!activo) return undefined;
+    if (!activo || reducir == null) return undefined;
     if (reducir) {
       progreso.setValue(1);
       return undefined;
@@ -297,16 +311,17 @@ function entradaCaja(progreso: Animated.Value, indice: number) {
 
 function eurosContador(valor: number): string {
   if (!Number.isFinite(valor)) return '—';
-  return euros(Math.round(valor * 100) / 100);
+  return euros(valor);
 }
 
-function GraficoDiario({
+const GraficoDiario = memo(function GraficoDiario({
   dias,
   ultimoDiaConDatos,
 }: {
   dias: DiaFacturacionMes[];
   ultimoDiaConDatos: string | null;
 }) {
+  const gradId = `factMesGrad${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const [ancho, setAncho] = useState(0);
   const [seleccion, setSeleccion] = useState<string | null>(null);
   const maximo = useMemo(() => maximoDe(dias), [dias]);
@@ -318,36 +333,56 @@ function GraficoDiario({
     () => (ancho > 0 ? tramos(dias.map((dia) => dia.objetivo), ancho, maximo) : []),
     [ancho, dias, maximo],
   );
+  const curvasReales = useMemo(
+    () =>
+      reales
+        .map((puntos) => ({
+          clave: String(puntos[0]?.indice ?? 0),
+          linea: curvaSuave(puntos),
+          area: areaDe(puntos),
+        }))
+        .filter((trazo) => trazo.linea.length > 0),
+    [reales],
+  );
+  const curvasObjetivo = useMemo(
+    () =>
+      objetivos
+        .map((puntos) => ({
+          clave: String(puntos[0]?.indice ?? 0),
+          linea: curvaSuave(puntos),
+        }))
+        .filter((trazo) => trazo.linea.length > 0),
+    [objetivos],
+  );
   const diaSel = dias.find((dia) => dia.fecha === seleccion) ?? null;
-  const paso = dias.length > 0 ? ancho / dias.length : 0;
   const firma = `${dias[0]?.fecha ?? ''}:${dias[dias.length - 1]?.fecha ?? ''}:${ultimoDiaConDatos ?? ''}`;
   const reducir = useReducirMovimiento();
-  const mascara = useRef(new Animated.Value(0)).current;
+  const revelado = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     setSeleccion(null);
   }, [firma]);
 
   useEffect(() => {
-    if (ancho <= 0) return undefined;
+    if (ancho <= 0 || reducir == null) return undefined;
     if (reducir) {
-      mascara.setValue(ancho);
+      revelado.setValue(ancho);
       return undefined;
     }
-    mascara.setValue(0);
-    const anim = Animated.timing(mascara, {
+    revelado.setValue(0);
+    const anim = Animated.timing(revelado, {
       toValue: ancho,
-      duration: DURACION_ENTRADA,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
+      duration: DURACION_CURVA,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
+      useNativeDriver: false,
     });
     anim.start();
-    const respaldo = setTimeout(() => mascara.setValue(ancho), DURACION_ENTRADA + 40);
+    const respaldo = setTimeout(() => revelado.setValue(ancho), DURACION_CURVA + 40);
     return () => {
       anim.stop();
       clearTimeout(respaldo);
     };
-  }, [ancho, firma, reducir, mascara]);
+  }, [ancho, firma, reducir, revelado]);
 
   return (
     <View style={styles.graficoBloque}>
@@ -365,59 +400,49 @@ function GraficoDiario({
           accessible={false}
           importantForAccessibility="no-hide-descendants"
         >
-          {reales.flat().map((punto) => (
-            <View
-              key={`relleno-${punto.indice}`}
-              style={{
-                position: 'absolute',
-                left: paso * punto.indice,
-                width: paso,
-                top: punto.y,
-                bottom: 0,
-                backgroundColor: RELLENO,
-              }}
-            />
-          ))}
-          {objetivos.flatMap((tramo) =>
-            trazosDe(tramo).map((trazo) => (
-              <View
-                key={trazo.clave}
-                style={[
-                  styles.trazo,
-                  styles.trazoObjetivo,
-                  {
-                    left: trazo.left,
-                    top: trazo.top,
-                    width: trazo.ancho,
-                    transform: [{ rotate: `${trazo.grados}deg` }],
-                  },
-                ]}
-              />
-            )),
-          )}
-          {reales.flatMap((tramo) =>
-            segmentosDe(tramo).map((trazo) => (
-              <View
-                key={trazo.clave}
-                style={[
-                  styles.trazo,
-                  styles.trazoReal,
-                  {
-                    left: trazo.left,
-                    top: trazo.top,
-                    width: trazo.ancho,
-                    transform: [{ rotate: `${trazo.grados}deg` }],
-                  },
-                ]}
-              />
-            )),
-          )}
-          {reales.flat().map((punto) => (
-            <View
-              key={`punto-${punto.indice}`}
-              style={[styles.punto, { left: punto.x - 3, top: punto.y - 3 }]}
-            />
-          ))}
+          {ancho > 0 ? (
+            <Svg width={ancho} height={ALTO_GRAFICO} style={StyleSheet.absoluteFill}>
+              {curvasObjetivo.map((trazo) => (
+                <Path
+                  key={`obj-${trazo.clave}`}
+                  d={trazo.linea}
+                  stroke="#94a3b8"
+                  strokeWidth={1.5}
+                  strokeDasharray="3 4"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ))}
+            </Svg>
+          ) : null}
+          <Animated.View pointerEvents="none" style={[styles.recorte, { width: revelado }]}>
+            {ancho > 0 ? (
+              <Svg width={ancho} height={ALTO_GRAFICO}>
+                <Defs>
+                  <SvgGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0" stopColor={AZUL} stopOpacity={0.42} />
+                    <Stop offset="0.62" stopColor={AZUL} stopOpacity={0.1} />
+                    <Stop offset="1" stopColor={AZUL} stopOpacity={0} />
+                  </SvgGradient>
+                </Defs>
+                {curvasReales.map((trazo) => (
+                  <Path key={`area-${trazo.clave}`} d={trazo.area} fill={`url(#${gradId})`} />
+                ))}
+                {curvasReales.map((trazo) => (
+                  <Path
+                    key={`linea-${trazo.clave}`}
+                    d={trazo.linea}
+                    stroke={AZUL}
+                    strokeWidth={2.5}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+              </Svg>
+            ) : null}
+          </Animated.View>
           <View style={styles.base} />
         </View>
         <View style={styles.hits}>
@@ -428,19 +453,13 @@ function GraficoDiario({
                 key={dia.fecha}
                 accessibilityRole="button"
                 accessibilityState={{ selected: activo }}
-                accessibilityLabel={`${fechaVisible(dia.fecha)}. Real ${euros(dia.real)}. Objetivo ${euros(dia.objetivo)}`}
+                accessibilityLabel={`${fechaVisible(dia.fecha)}. Real ${eurosDelDia(dia, ultimoDiaConDatos)}. Objetivo ${euros(dia.objetivo)}`}
                 onPress={() => setSeleccion((previo) => (previo === dia.fecha ? null : dia.fecha))}
                 style={[styles.diaHit, activo && styles.diaHitActivo]}
               />
             );
           })}
         </View>
-        {ancho > 0 ? (
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.mascara, { width: ancho, transform: [{ translateX: mascara }] }]}
-          />
-        ) : null}
       </View>
 
       <View style={styles.leyenda}>
@@ -457,15 +476,13 @@ function GraficoDiario({
       {diaSel ? (
         <View style={styles.ficha} accessibilityLiveRegion="polite">
           <Text style={styles.fichaFecha}>{fechaVisible(diaSel.fecha)}</Text>
-          <Text style={styles.fichaReal}>{euros(diaSel.real)}</Text>
+          <Text style={styles.fichaReal}>{eurosDelDia(diaSel, ultimoDiaConDatos)}</Text>
           <Text style={styles.fichaObj}>Objetivo {euros(diaSel.objetivo)}</Text>
         </View>
-      ) : (
-        <Text style={styles.ayuda}>Pulsa un día para ver el detalle.</Text>
-      )}
+      ) : null}
     </View>
   );
-}
+});
 
 function CajaCifra({
   etiqueta,
@@ -473,22 +490,48 @@ function CajaCifra({
   accesible,
   enFila,
   entrada,
+  crecimiento,
+  tono,
 }: {
   etiqueta: string;
   valor: string;
   accesible: string;
   enFila: boolean;
   entrada: StyleProp<ViewStyle>;
+  crecimiento?: string | null;
+  tono?: 'ok' | 'mal' | 'neutro';
 }) {
+  const tonoCaja = tono ?? 'neutro';
   return (
     <Animated.View
       style={[styles.caja, enFila && styles.cajaEnFila, entrada]}
-      accessibilityLabel={`${accesible}: ${valor}`}
+      accessibilityLabel={crecimiento ? `${accesible}: ${valor}. Crecimiento ${crecimiento}` : `${accesible}: ${valor}`}
     >
       <Text style={styles.cajaEtiqueta}>{etiqueta}</Text>
-      <Text style={[styles.cajaValor, tasksUi.tabularNums]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
-        {valor}
-      </Text>
+      <View style={styles.cajaValorFila}>
+        <Text style={[styles.cajaValor, tasksUi.tabularNums]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+          {valor}
+        </Text>
+        {crecimiento ? (
+          <View
+            style={[
+              styles.chip,
+              styles.chipCaja,
+              tonoCaja === 'ok' ? styles.chipOk : tonoCaja === 'mal' ? styles.chipMal : styles.chipNeutro,
+            ]}
+          >
+            <Text
+              style={[
+                styles.chipTexto,
+                styles.chipTextoCaja,
+                tonoCaja === 'ok' ? styles.chipTextoOk : tonoCaja === 'mal' ? styles.chipTextoMal : styles.chipTextoNeutro,
+              ]}
+            >
+              {crecimiento}
+            </Text>
+          </View>
+        ) : null}
+      </View>
     </Animated.View>
   );
 }
@@ -521,8 +564,6 @@ export function FacturacionMesCard({
   const permitidos = useMemo(() => localesDelFiltro(locales), [locales]);
   const [valor, setValor] = useState<ValorFiltroFacturacionMes | null>(null);
   const [abierto, setAbierto] = useState(false);
-  const [anclaje, setAnclaje] = useState<{ x: number; y: number; ancho: number; alto: number } | null>(null);
-  const anclaRef = useRef<View>(null);
   const usuarioAplico = useRef(false);
   const onCambioRef = useRef(onCambioFiltro);
   onCambioRef.current = onCambioFiltro;
@@ -564,29 +605,21 @@ export function FacturacionMesCard({
 
   const abrirFiltro = () => {
     if (!valor) return;
-    if (isPhone) {
-      setAnclaje(null);
-      setAbierto(true);
-      return;
-    }
-    const nodo = anclaRef.current;
-    if (!nodo) {
-      setAbierto(true);
-      return;
-    }
     setAbierto(true);
-    nodo.measureInWindow((x, y, ancho, alto) => {
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      setAnclaje({ x, y, ancho, alto });
-    });
   };
   const listo = estado === 'listo' && datos != null && datos.dias.length > 0;
   const vacio = estado === 'vacio' || (estado === 'listo' && !listo);
   const hayObjetivo = listo && datos != null && datos.objetivoMes > 0;
   const logro = hayObjetivo && datos != null ? clamp01(datos.totalReal / datos.objetivoMes) : 0;
   const ritmo = hayObjetivo && datos != null ? clamp01(datos.objetivoAHoy / datos.objetivoMes) : 0;
+  const hoyPct =
+    hayObjetivo && datos != null ? Math.round((datos.objetivoAHoy / datos.objetivoMes) * 1000) / 10 : null;
+  const mesPct =
+    hayObjetivo && datos != null ? Math.round((datos.totalReal / datos.objetivoMes) * 1000) / 10 : null;
   const diferencia = listo && datos != null ? datos.diferenciaRitmo : 0;
   const tono = diferencia > 0 ? 'ok' : diferencia < 0 ? 'mal' : 'neutro';
+  const pctRitmo = listo && datos ? crecimientoPct(datos) : null;
+  const textoPct = pctRitmo == null ? null : textoCrecimiento(pctRitmo);
   const firmaEntrada =
     listo && datos
       ? `${datos.totalReal}:${datos.objetivoAHoy}:${datos.objetivoMes}:${datos.ultimoDiaConDatos ?? ''}:${datos.dias.length}`
@@ -613,7 +646,11 @@ export function FacturacionMesCard({
   const totalReal = listo && datos ? datos.totalReal : 0;
 
   useEffect(() => {
-    if (!listo || reducirMovimiento) return undefined;
+    if (!listo || reducirMovimiento == null) return undefined;
+    if (reducirMovimiento) {
+      setTotalAnimado(totalReal);
+      return undefined;
+    }
     const animado = new Animated.Value(0);
     const id = animado.addListener(({ value }) => setTotalAnimado(value));
     const anim = Animated.timing(animado, {
@@ -640,8 +677,17 @@ export function FacturacionMesCard({
       />
       <View style={styles.cuerpo}>
         <View style={styles.cabecera}>
-          <Text style={styles.kicker}>Facturación</Text>
-          <View ref={anclaRef} collapsable={false} style={styles.ancla}>
+          <View style={styles.tituloFila}>
+            <Text style={styles.kicker}>Facturación</Text>
+            {listo && datos ? (
+              <Text style={styles.pie} numberOfLines={1}>
+                {datos.ultimoDiaConDatos
+                  ? `Cajas hasta ${fechaVisible(datos.ultimoDiaConDatos)}`
+                  : 'Sin cajas en este mes'}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.ancla}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Filtro de facturación: ${etiqueta}`}
@@ -711,7 +757,7 @@ export function FacturacionMesCard({
                     tono === 'ok' ? styles.chipTextoOk : tono === 'mal' ? styles.chipTextoMal : styles.chipTextoNeutro,
                   ]}
                 >
-                  {textoRitmo(datos.diferenciaRitmo)}
+                  {textoChip(datos.diferenciaRitmo, pctRitmo)}
                 </Text>
               </View>
             </View>
@@ -723,10 +769,25 @@ export function FacturacionMesCard({
                 accessibilityValue={{ min: 0, max: 100, now: Math.round(logro * 100) }}
                 accessibilityLabel={
                   hayObjetivo
-                    ? `Facturado ${euros(datos.totalReal)} de un objetivo mensual de ${euros(datos.objetivoMes)}. La marca está en el objetivo a hoy, ${euros(datos.objetivoAHoy)}.`
+                    ? `Facturado ${euros(datos.totalReal)}, ${mesPct == null ? '' : textoPorcentaje(mesPct)} del mes. Hoy ${hoyPct == null ? '' : textoPorcentaje(hoyPct)}. Objetivo del mes ${euros(datos.objetivoMes)}.`
                     : 'Sin objetivo del mes'
                 }
               >
+                {hayObjetivo && hoyPct != null ? (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.hoyAncla,
+                      ritmo < 0.14
+                        ? styles.hoyAnclaIzq
+                        : ritmo > 0.86
+                          ? styles.hoyAnclaDer
+                          : { left: `${ritmo * 100}%` },
+                    ]}
+                  >
+                    <Text style={styles.hoyTexto}>{`Hoy ${textoPorcentaje(hoyPct)}`}</Text>
+                  </View>
+                ) : null}
                 <View style={styles.pista}>
                   {logro > 0 ? (
                     <Animated.View
@@ -746,7 +807,12 @@ export function FacturacionMesCard({
                 </View>
                 {hayObjetivo ? <View style={[styles.marca, { left: `${ritmo * 100}%` }]} /> : null}
               </View>
-              <Text style={styles.ayuda}>La marca es el objetivo a hoy.</Text>
+              <View style={styles.barraPie}>
+                <Text style={styles.barraPieTexto}>
+                  {mesPct == null ? '— del mes' : `${textoPorcentaje(mesPct)} del mes`}
+                </Text>
+                <Text style={styles.barraPieTexto}>Obj. mes {euros(datos.objetivoMes)}</Text>
+              </View>
             </View>
 
             <View style={[styles.cajas, isPhone && styles.cajasPhone]}>
@@ -770,16 +836,12 @@ export function FacturacionMesCard({
                 valor={euros(datos.proyeccionFinMes)}
                 enFila={isPhone}
                 entrada={entradasCaja[2]}
+                crecimiento={textoPct}
+                tono={tono}
               />
             </View>
 
             <GraficoDiario dias={datos.dias} ultimoDiaConDatos={datos.ultimoDiaConDatos} />
-
-            <Text style={styles.pie}>
-              {datos.ultimoDiaConDatos
-                ? `Cajas hasta ${fechaVisible(datos.ultimoDiaConDatos)}`
-                : 'Sin cajas en este mes'}
-            </Text>
           </View>
         ) : null}
       </View>
@@ -788,7 +850,6 @@ export function FacturacionMesCard({
       <FiltroFacturacionMes
         visible={abierto}
         movil={isPhone}
-        anclaje={anclaje}
         year={valor.year}
         month={valor.month}
         localIds={valor.localIds}
@@ -809,21 +870,31 @@ export function FacturacionMesCard({
   );
 }
 
+const sombraTarjeta: ViewStyle =
+  Platform.OS === 'web'
+    ? ({ boxShadow: '0 4px 16px rgba(15, 23, 42, 0.06)' } as ViewStyle)
+    : {
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 16,
+        elevation: 3,
+      };
+
 const styles = StyleSheet.create({
   tarjeta: {
     width: '100%',
     alignSelf: 'stretch',
     backgroundColor: tasksUi.color.superficie,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
     borderRadius: tasksUi.radius.contenedor,
     overflow: 'hidden',
+    ...sombraTarjeta,
   },
   franja: {
     height: 4,
   },
   cuerpo: {
-    padding: SPACING.lg,
+    padding: SPACING.xl,
     gap: SPACING.md,
   },
   cabecera: {
@@ -833,9 +904,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: SPACING.sm,
   },
+  tituloFila: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    flexShrink: 1,
+    minWidth: 0,
+    gap: SPACING.sm,
+  },
   kicker: {
-    ...tasksUi.tipo.etiqueta,
-    textTransform: 'uppercase',
+    ...tasksUi.tipo.tituloSeccion,
     flexShrink: 0,
   },
   ancla: {
@@ -876,15 +954,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: SPACING.sm,
+    justifyContent: 'flex-start',
+    gap: SPACING.md,
   },
   heroPhone: {
     flexDirection: 'column',
     alignItems: 'flex-start',
   },
   total: {
-    ...tasksUi.tipo.tituloPantalla,
+    fontSize: 36,
+    fontWeight: '700',
+    lineHeight: 42,
+    color: tasksUi.color.textoPrimario,
     ...tasksUi.tabularNums,
     flexShrink: 1,
     minWidth: 0,
@@ -894,6 +975,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.xs,
     alignSelf: 'flex-start',
+  },
+  chipCaja: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 2,
   },
   chipOk: { backgroundColor: tasksUi.color.exitoSuave },
   chipMal: { backgroundColor: tasksUi.color.peligroSuave },
@@ -905,15 +990,41 @@ const styles = StyleSheet.create({
   chipTextoOk: { color: tasksUi.color.exito },
   chipTextoMal: { color: tasksUi.color.peligro },
   chipTextoNeutro: { color: tasksUi.color.textoSecundario },
+  chipTextoCaja: {
+    ...tasksUi.tipo.micro,
+  },
   barraBloque: {
     gap: SPACING.xs,
   },
   pistaCaja: {
-    height: 16,
-    justifyContent: 'center',
+    position: 'relative',
+    height: 32,
+    justifyContent: 'flex-end',
+  },
+  hoyAncla: {
+    position: 'absolute',
+    top: 0,
+    width: 96,
+    marginLeft: -48,
+    alignItems: 'center',
+  },
+  hoyAnclaIzq: {
+    left: 0,
+    marginLeft: 0,
+    alignItems: 'flex-start',
+  },
+  hoyAnclaDer: {
+    right: 0,
+    marginLeft: 0,
+    alignItems: 'flex-end',
+  },
+  hoyTexto: {
+    ...tasksUi.tipo.micro,
+    color: tasksUi.color.textoPrimario,
+    fontWeight: '600',
   },
   pista: {
-    height: 8,
+    height: 10,
     borderRadius: tasksUi.radius.pildora,
     backgroundColor: tasksUi.color.superficieHundida,
     overflow: 'hidden',
@@ -925,11 +1036,22 @@ const styles = StyleSheet.create({
   marca: {
     position: 'absolute',
     width: 2,
-    height: 14,
+    height: 16,
     marginLeft: -1,
-    top: 1,
+    bottom: -3,
     borderRadius: 1,
     backgroundColor: tasksUi.color.textoPrimario,
+  },
+  barraPie: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  barraPieTexto: {
+    ...tasksUi.tipo.micro,
+    ...tasksUi.tabularNums,
+    flexShrink: 1,
   },
   cajas: {
     flexDirection: 'row',
@@ -958,9 +1080,17 @@ const styles = StyleSheet.create({
   cajaEtiqueta: {
     ...tasksUi.tipo.micro,
   },
+  cajaValorFila: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    minWidth: 0,
+  },
   cajaValor: {
     ...tasksUi.tipo.dato,
     color: tasksUi.color.textoPrimario,
+    flexShrink: 1,
   },
   graficoBloque: {
     gap: SPACING.sm,
@@ -971,31 +1101,12 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  mascara: {
+  recorte: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
     left: 0,
-    backgroundColor: tasksUi.color.superficie,
-  },
-  trazo: {
-    position: 'absolute',
-    height: 2,
-    borderRadius: 1,
-    transformOrigin: 'center',
-  },
-  trazoReal: {
-    backgroundColor: AZUL,
-  },
-  trazoObjetivo: {
-    backgroundColor: tasksUi.color.textoTerciario,
-  },
-  punto: {
-    position: 'absolute',
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: AZUL,
+    top: 0,
+    height: ALTO_GRAFICO,
+    overflow: 'hidden',
   },
   base: {
     position: 'absolute',
@@ -1069,11 +1180,9 @@ const styles = StyleSheet.create({
     ...tasksUi.tipo.micro,
     ...tasksUi.tabularNums,
   },
-  ayuda: {
-    ...tasksUi.tipo.micro,
-  },
   pie: {
     ...tasksUi.tipo.micro,
+    flexShrink: 1,
   },
   aviso: {
     alignItems: 'flex-start',
