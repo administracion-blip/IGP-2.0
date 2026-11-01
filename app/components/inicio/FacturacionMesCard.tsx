@@ -17,6 +17,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
 import { tasksUi } from '../../constants/tasksUiTokens';
 import { useLocalesPermitidos, valorEnLocal, type LocalItem } from '../../contexts/LocalesContext';
+import { useAgrupacionesObjetivos } from '../../hooks/useAgrupacionesObjetivos';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { formatId6 } from '../../utils/idFormat';
 import {
@@ -782,6 +783,7 @@ export function FacturacionMesCard({
 }: Props) {
   const { isPhone } = useBreakpoint();
   const { locales, loading: cargandoLocales, error: errorLocales, refresh } = useLocalesPermitidos();
+  const { agrupaciones } = useAgrupacionesObjetivos();
   const permitidos = useMemo(() => localesDelFiltro(locales), [locales]);
   const [valor, setValor] = useState<ValorFiltroFacturacionMes | null>(null);
   const [abierto, setAbierto] = useState(false);
@@ -825,6 +827,7 @@ export function FacturacionMesCard({
         localIds: valor.localIds,
         locales: permitidos,
         movil: false,
+        agrupaciones,
       });
   const etiquetaCorta = !valor
     ? 'Cargando…'
@@ -834,6 +837,7 @@ export function FacturacionMesCard({
         localIds: valor.localIds,
         locales: permitidos,
         movil: true,
+        agrupaciones,
       });
 
   const abrirFiltro = () => {
@@ -1144,6 +1148,7 @@ export function FacturacionMesCard({
         month={valor.month}
         localIds={valor.localIds}
         locales={permitidos}
+        agrupaciones={agrupaciones}
         errorLocales={errorLocales}
         onReintentarLocales={() => {
           void refresh();

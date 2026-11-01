@@ -14,6 +14,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
 import { tasksUi } from '../../constants/tasksUiTokens';
+import { formatId6 } from '../../utils/idFormat';
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'] as const;
 const MESES_LARGOS = [
@@ -43,6 +44,14 @@ export type ValorFiltroFacturacionMes = {
   localIds: string[];
 };
 
+/** Agrupación de Objetivos: solo se ofrecen los locales que este filtro ya enseña. */
+export type AgrupacionFiltroMes = {
+  id: string;
+  nombre: string;
+  localIds: string[];
+  color: string;
+};
+
 type Props = {
   visible: boolean;
   movil: boolean;
@@ -50,6 +59,7 @@ type Props = {
   month: number;
   localIds: string[];
   locales: LocalFiltroMes[];
+  agrupaciones?: AgrupacionFiltroMes[];
   errorLocales?: string | null;
   onReintentarLocales?: () => void;
   onCerrar: () => void;
@@ -62,23 +72,55 @@ export function etiquetaFiltroFacturacion(opciones: {
   localIds: string[];
   locales: LocalFiltroMes[];
   movil: boolean;
+  agrupaciones?: AgrupacionFiltroMes[];
 }): string {
   const mes = MESES[opciones.month - 1] ?? '';
   const fecha = opciones.movil ? `${mes} ${String(opciones.year).slice(-2)}` : `${mes} ${opciones.year}`;
   return `${fecha} · ${etiquetaLocales(opciones)}`;
 }
 
+/** Locales de la agrupación que están en la lista del filtro, con el mismo id de 6 dígitos. */
+function idsDeAgrupacion(agrupacion: AgrupacionFiltroMes, locales: LocalFiltroMes[]): string[] {
+  const validos = new Set(locales.map((local) => local.id));
+  const salida: string[] = [];
+  const vistos = new Set<string>();
+  for (const bruto of agrupacion.localIds) {
+    const id = formatId6(bruto);
+    if (id === '000000' || !validos.has(id) || vistos.has(id)) continue;
+    vistos.add(id);
+    salida.push(id);
+  }
+  return salida;
+}
+
+function mismosIds(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((id) => set.has(id));
+}
+
+function nombreMes(mes: number): string {
+  const nombre = MESES_LARGOS[mes - 1] ?? '';
+  return nombre ? nombre.charAt(0).toUpperCase() + nombre.slice(1) : '';
+}
+
 function etiquetaLocales(opciones: {
   localIds: string[];
   locales: LocalFiltroMes[];
   movil: boolean;
+  agrupaciones?: AgrupacionFiltroMes[];
 }): string {
-  const { locales, localIds, movil } = opciones;
+  const { locales, localIds, movil, agrupaciones } = opciones;
   if (locales.length === 1) return locales[0].nombre;
   const elegidos = locales.filter((local) => localIds.includes(local.id));
-  if (elegidos.length === 1) return elegidos[0].nombre;
   const todos = locales.length > 0 && locales.every((local) => localIds.includes(local.id));
   if (todos) return movil ? 'Paripe' : 'Grupo Paripe';
+  const grupo = agrupaciones?.find((agrupacion) => {
+    const ids = idsDeAgrupacion(agrupacion, locales);
+    return ids.length > 0 && mismosIds(ids, elegidos.map((local) => local.id));
+  });
+  if (grupo?.nombre.trim()) return grupo.nombre.trim();
+  if (elegidos.length === 1) return elegidos[0].nombre;
   if (elegidos.length === 0) return 'Sin locales';
   return `${elegidos.length} locales`;
 }
@@ -116,6 +158,7 @@ export function FiltroFacturacionMes({
   month,
   localIds,
   locales,
+  agrupaciones = [],
   errorLocales = null,
   onReintentarLocales,
   onCerrar,
@@ -129,6 +172,7 @@ export function FiltroFacturacionMes({
   const [draftYear, setDraftYear] = useState(year);
   const [draftMonth, setDraftMonth] = useState(month);
   const [draftIds, setDraftIds] = useState<string[]>(localIds);
+  const [mesAbierto, setMesAbierto] = useState(false);
   const fueVisible = useRef(false);
   const ahora = new Date();
   const anioTope = ahora.getFullYear();
@@ -142,6 +186,7 @@ export function FiltroFacturacionMes({
       setDraftYear(year);
       setDraftMonth(month);
       setDraftIds(localIds.filter((id) => permitidos.has(id)));
+      setMesAbierto(false);
     }
     fueVisible.current = visible;
   }, [visible, year, month, localIds, locales]);
@@ -203,23 +248,42 @@ export function FiltroFacturacionMes({
   const margen = SPACING.lg;
   const anchoPanel = Math.max(0, Math.min(360, ventana - margen * 2));
   const altoMax = Math.max(320, altoVentana - margen * 2);
-  const altoCromo = SPACING.md * 2 + MIN_TOUCH + SPACING.sm + MIN_TOUCH * 3 + SPACING.sm + 22 + MIN_TOUCH + SPACING.sm;
+  const hayAgrupaciones = agrupaciones.some((agrupacion) => idsDeAgrupacion(agrupacion, locales).length > 0);
+  const altoCromo =
+    SPACING.md * 2 +
+    MIN_TOUCH +
+    SPACING.sm +
+    MIN_TOUCH +
+    SPACING.sm +
+    MIN_TOUCH +
+    (hayAgrupaciones ? MIN_TOUCH : 0) +
+    MIN_TOUCH +
+    SPACING.sm;
   const altoLista = Math.max(96, Math.min(200, altoMax - altoCromo));
 
   const cambiarAnio = (delta: number) => {
-    setDraftYear((previo) => {
-      const siguiente = previo + delta;
-      if (siguiente < ANIO_MIN || siguiente > anioTope) return previo;
-      return siguiente;
-    });
+    const siguiente = draftYear + delta;
+    if (siguiente < ANIO_MIN || siguiente > anioTope) return;
+    setMesAbierto(false);
+    setDraftYear(siguiente);
+    if (mesFuturo(siguiente, draftMonth)) setDraftMonth(new Date().getMonth() + 1);
   };
 
   const alternar = (id: string) => {
+    setMesAbierto(false);
     setDraftIds((previo) => (previo.includes(id) ? previo.filter((item) => item !== id) : [...previo, id]));
+  };
+
+  const limpiar = () => setDraftIds([]);
+
+  const aplicarAgrupacion = (ids: string[]) => {
+    setMesAbierto(false);
+    setDraftIds(ids);
   };
 
   const restablecer = () => {
     const hoy = new Date();
+    setMesAbierto(false);
     setDraftYear(hoy.getFullYear());
     setDraftMonth(hoy.getMonth() + 1);
     setDraftIds(locales.map((local) => local.id));
@@ -260,36 +324,106 @@ export function FiltroFacturacionMes({
         </Pressable>
       </View>
 
-      <View style={styles.meses}>
-        {MESES.map((nombre, indice) => {
-          const mes = indice + 1;
-          const activo = mes === draftMonth;
-          const bloqueado = mesFuturo(draftYear, mes);
-          return (
-            <View key={nombre} style={styles.mesCelda}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={MESES_LARGOS[indice]}
-                accessibilityState={{ selected: activo, disabled: bloqueado }}
-                disabled={bloqueado}
-                onPress={() => setDraftMonth(mes)}
-                style={({ pressed }) => [
-                  styles.mesBoton,
-                  activo && styles.mesActivo,
-                  bloqueado && styles.inhabilitado,
-                  pressed && !bloqueado && styles.pulsado,
-                ]}
-              >
-                <Text style={[styles.mesTexto, activo && styles.mesTextoActivo]}>{nombre}</Text>
-              </Pressable>
-            </View>
-          );
-        })}
+      <View style={[styles.mesBloque, mesAbierto && styles.mesBloqueAbierta]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Mes ${nombreMes(draftMonth)}`}
+          accessibilityState={{ expanded: mesAbierto }}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            setMesAbierto((abierto) => !abierto);
+          }}
+          style={({ pressed }) => [styles.mesTrigger, pressed && styles.pulsado]}
+        >
+          <Text style={styles.mesTriggerTexto}>{nombreMes(draftMonth)}</Text>
+          <MaterialIcons name={mesAbierto ? 'expand-less' : 'expand-more'} size={22} color={tasksUi.color.textoPrimario} />
+        </Pressable>
+        {mesAbierto ? (
+          <View style={styles.mesMenu}>
+            <ScrollView style={styles.mesLista} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+              {MESES_LARGOS.map((nombre, indice) => {
+                const mes = indice + 1;
+                const activo = mes === draftMonth;
+                const bloqueado = mesFuturo(draftYear, mes);
+                return (
+                  <Pressable
+                    key={nombre}
+                    accessibilityRole="button"
+                    accessibilityLabel={nombre}
+                    accessibilityState={{ selected: activo, disabled: bloqueado }}
+                    disabled={bloqueado}
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      if (bloqueado) return;
+                      setDraftMonth(mes);
+                      setMesAbierto(false);
+                    }}
+                    style={({ pressed }) => [
+                      styles.mesOpcion,
+                      activo && styles.mesActivo,
+                      bloqueado && styles.inhabilitado,
+                      pressed && !bloqueado && styles.pulsado,
+                    ]}
+                  >
+                    <Text style={[styles.mesTexto, activo && styles.mesTextoActivo]}>{nombreMes(mes)}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
       </View>
 
       {unSoloLocal ? null : (
         <View style={styles.localesBloque}>
-          <Text style={styles.rotulo}>Locales</Text>
+          <View style={styles.rotuloFila}>
+            <Text style={styles.rotulo}>Locales</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Limpiar selección de locales"
+              disabled={draftIds.length === 0}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                limpiar();
+              }}
+              style={({ pressed }) => [styles.limpiar, draftIds.length === 0 && styles.inhabilitado, pressed && draftIds.length > 0 && styles.pulsado]}
+            >
+              <Text style={styles.limpiarTexto}>Limpiar</Text>
+            </Pressable>
+          </View>
+          {hayAgrupaciones ? (
+            <View style={styles.agrupaciones}>
+              {agrupaciones.map((agrupacion) => {
+                const ids = idsDeAgrupacion(agrupacion, locales);
+                const activa = ids.length > 0 && mismosIds(ids, draftIds);
+                const vacia = ids.length === 0;
+                return (
+                  <Pressable
+                    key={agrupacion.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={vacia ? `${agrupacion.nombre}, sin locales en este filtro` : agrupacion.nombre}
+                    accessibilityState={{ selected: activa, disabled: vacia }}
+                    disabled={vacia}
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      aplicarAgrupacion(ids);
+                    }}
+                    style={({ pressed }) => [
+                      styles.agrupacion,
+                      activa && { backgroundColor: agrupacion.color, borderColor: agrupacion.color },
+                      vacia && styles.inhabilitado,
+                      pressed && !vacia && styles.pulsado,
+                    ]}
+                  >
+                    {activa ? null : <View style={[styles.agrupacionPunto, { backgroundColor: agrupacion.color }]} />}
+                    <Text style={[styles.agrupacionTexto, activa && styles.agrupacionTextoActiva]} numberOfLines={1}>
+                      {agrupacion.nombre}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           {errorLocales ? (
             <View style={styles.aviso}>
               <Text style={styles.avisoTexto}>No se han podido cargar los locales.</Text>
@@ -406,7 +540,7 @@ const styles = StyleSheet.create({
     backgroundColor: tasksUi.color.superficie,
     padding: SPACING.md,
     gap: SPACING.sm,
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   desplegable: {
     borderRadius: tasksUi.radius.contenedor,
@@ -435,27 +569,57 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: tasksUi.color.textoPrimario,
   },
-  meses: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  mesBloque: {
+    position: 'relative',
+    zIndex: 1,
   },
-  mesCelda: {
-    flexBasis: '25%',
-    maxWidth: '25%',
-    padding: 2,
+  mesBloqueAbierta: {
+    zIndex: 2,
+    elevation: 12,
   },
-  mesBoton: {
+  mesTrigger: {
     minHeight: MIN_TOUCH,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
     borderRadius: tasksUi.radius.control,
+    borderWidth: 1,
+    borderColor: tasksUi.color.bordeFuerte,
+    backgroundColor: tasksUi.color.superficie,
+  },
+  mesTriggerTexto: {
+    ...tasksUi.tipo.dato,
+    color: tasksUi.color.textoPrimario,
+  },
+  mesMenu: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: SPACING.xs,
+    zIndex: 3,
+    elevation: 13,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.control,
+    borderWidth: 1,
+    borderColor: tasksUi.color.bordeSutil,
+    ...tasksUi.sombraFlotante,
+  },
+  mesLista: {
+    maxHeight: 220,
+  },
+  mesOpcion: {
+    minHeight: MIN_TOUCH,
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.md,
   },
   mesActivo: {
     backgroundColor: tasksUi.color.acentoSuave,
   },
   mesTexto: {
     ...tasksUi.tipo.dato,
-    color: tasksUi.color.textoSecundario,
+    color: tasksUi.color.textoPrimario,
   },
   mesTextoActivo: {
     color: tasksUi.color.acentoTexto,
@@ -464,9 +628,56 @@ const styles = StyleSheet.create({
     gap: SPACING.xs,
     flexShrink: 1,
     minHeight: 0,
+    position: 'relative',
+    zIndex: 0,
+  },
+  rotuloFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
   },
   rotulo: {
     ...tasksUi.tipo.etiqueta,
+  },
+  limpiar: {
+    minHeight: MIN_TOUCH,
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.sm,
+  },
+  limpiarTexto: {
+    ...tasksUi.tipo.dato,
+    color: tasksUi.color.acentoTexto,
+  },
+  agrupaciones: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
+  },
+  agrupacion: {
+    minHeight: MIN_TOUCH,
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: tasksUi.radius.pildora,
+    borderWidth: 1,
+    borderColor: tasksUi.color.bordeFuerte,
+    backgroundColor: tasksUi.color.superficie,
+  },
+  agrupacionPunto: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  agrupacionTexto: {
+    ...tasksUi.tipo.dato,
+    flexShrink: 1,
+    color: tasksUi.color.textoPrimario,
+  },
+  agrupacionTextoActiva: {
+    color: '#ffffff',
   },
   lista: {
     flexGrow: 0,
