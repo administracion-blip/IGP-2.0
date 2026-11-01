@@ -144,6 +144,13 @@ Sin cambios: `GET /agora/products` (lo carga `ProductosCache` en el layout globa
 - No se tocan `expo` ni `expo-router` (salto mayor fuera del SDK 54). `xlsx` y `nodemailer` de la raíz se tratan aparte.
 - **Riesgo:** revisar a mano los PDF (factura, recibo de cashflow, acta de activos, informe diario).
 
+**Hecho (2026-11-01):**
+
+- `api/`: `dompurify` 3.4.17, `multer` 2.5.0, `body-parser` 1.20.9, `qs` 6.16.2, `nodemailer` 10.3.1 y `npm audit fix` sin `--force`. Queda 0 críticas, 0 altas, 13 moderadas (exceljs y nodemon, sin corrección compatible).
+- Raíz: `jspdf` 4.2.1 (con `dompurify` 3.4.17), `concurrently` 9.2.5, `shell-quote` 1.12.0, `tar` 7.5.22; `multer` y `nodemailer` eliminados de la raíz (no se usaban fuera de `api/`). Queda 0 críticas, 23 altas, 18 moderadas (Expo, `xlsx`). En la raíz hay que instalar con `--legacy-peer-deps` por un conflicto previo entre `@types/react` ~19.1 y `@types/react-dom` 19.2.
+- `npx expo install --check` ya avisaba de versiones de parche de paquetes Expo y de `@types/react-dom`; no se han tocado.
+- Pendiente: revisión manual de los PDF (factura, recibo de cashflow, acta de activos, informe diario), un envío de correo y que la web compila.
+
 ### 4.2 `trust proxy`
 
 - Solo tras confirmar cuántos proxies hay delante de la API.
