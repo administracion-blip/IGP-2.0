@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import type { ActivoFicha, PreviewEtiquetaActivo } from '../types/activos';
+import { escapeHtml } from '../utils/escapeHtml';
 
 export function previewDesdeFicha(item: ActivoFicha): PreviewEtiquetaActivo {
   return {
@@ -20,14 +21,15 @@ export function urlQrEtiqueta(qrUrl: string, size = 160): string {
 
 export function imprimirEtiquetaEnNavegador(et: PreviewEtiquetaActivo): boolean {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
-  const qr = urlQrEtiqueta(et.qr_url, 200);
-  const modelo = [et.marca, et.nombre_modelo].filter(Boolean).join(' ');
-  const serie = et.numero_serie ? `S/N ${et.numero_serie}` : '';
+  const qr = escapeHtml(urlQrEtiqueta(et.qr_url, 200));
+  const etiqueta = escapeHtml(et.etiqueta_legible);
+  const modelo = escapeHtml([et.marca, et.nombre_modelo].filter(Boolean).join(' '));
+  const serie = et.numero_serie ? escapeHtml(`S/N ${et.numero_serie}`) : '';
   const minima = et.formato_etiqueta === 'minima';
   const reducida = et.formato_etiqueta === 'reducida';
   const w = window.open('', '_blank', 'width=420,height=320');
   if (!w) return false;
-  w.document.write(`<!doctype html><html><head><title>${et.etiqueta_legible}</title>
+  w.document.write(`<!doctype html><html><head><title>${etiqueta}</title>
 <style>
   body{margin:16px;font-family:system-ui,Segoe UI,sans-serif;color:#0f172a}
   .tag{display:flex;gap:12px;align-items:center;border:2px solid #0f172a;padding:10px 12px;width:320px}
@@ -37,7 +39,7 @@ export function imprimirEtiquetaEnNavegador(et: PreviewEtiquetaActivo): boolean 
 <div class="tag">
   ${minima ? '' : `<img src="${qr}" width="96" height="96" alt="QR" />`}
   <div>
-    <div class="id">${et.etiqueta_legible}</div>
+    <div class="id">${etiqueta}</div>
     ${!minima && !reducida && modelo ? `<div class="meta">${modelo}</div>` : ''}
     ${!minima && !reducida && serie ? `<div class="meta">${serie}</div>` : ''}
   </div>

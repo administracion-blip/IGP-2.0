@@ -3,6 +3,7 @@
  * Un PDF y una firma para toda la cesta.
  */
 
+import { escapeHtml } from '../seguridad/escapeHtml.js';
 import { CUERPO_PLANTILLA_DEFAULT, renderCuerpoPlantilla, sanitizarHtmlPlantilla } from './plantillaTexto.js';
 
 export function componerCuerpoActa(cuerpos) {
@@ -27,10 +28,11 @@ export function htmlActaATexto(html) {
     .replace(/<li[^>]*>/gi, '• ')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/gi, '&')
     .replace(/\n{3,}/g, '\n\n')
     .split(PLACEHOLDER_ITEMS).join(MARCADOR_ITEMS)
     .trim();
@@ -48,6 +50,22 @@ export async function thumbJpeg(buffer) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Huecos del acta ya escapados para HTML. `items` es el único que lleva marcado:
+ * cada línea se escapa por separado y se unen con <br>.
+ * @param {{ fecha: string, locales: string[], trabajador?: string, entregadoPor?: string, items: string[], firma?: string }} p
+ */
+export function datosActaEntrega({ fecha, locales, trabajador, entregadoPor, items, firma }) {
+  return {
+    fecha: escapeHtml(fecha),
+    local: escapeHtml((locales || []).join(', ') || '—'),
+    trabajador: escapeHtml(trabajador),
+    entregado_por: escapeHtml(entregadoPor || '—'),
+    items: (items || []).map(escapeHtml).join('<br>'),
+    firma: escapeHtml(firma),
+  };
 }
 
 export function renderActa(cuerpo, datos) {

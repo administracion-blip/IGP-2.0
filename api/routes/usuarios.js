@@ -3,7 +3,7 @@ import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib
 import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
 import { puedeGestionarRol, validarRolUsuario } from '../lib/roles.js';
-import { hashPassword } from '../lib/password.js';
+import { hashPassword, MIN_PASSWORD_LENGTH } from '../lib/password.js';
 import { emailEnUsoPorOtroUsuario } from '../lib/dynamo/usuarios.js';
 import { invalidarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acceso.js';
 import { revocarSesionesUsuario } from '../lib/sesiones.js';
@@ -89,6 +89,10 @@ function errorEmailEnUso(email) {
   return `Ya existe otro usuario con el email ${email}. Cada usuario debe tener un email distinto.`;
 }
 
+function errorPasswordCorta() {
+  return `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`;
+}
+
 function normalizeLocal(val) {
   if (Array.isArray(val)) return val.filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim());
   if (val != null && String(val).trim() !== '') return [String(val).trim()];
@@ -101,6 +105,9 @@ router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) =
   const body = req.body || {};
   if (!body.Email || !body.Password) {
     return res.status(400).json({ error: 'Email y Password son obligatorios' });
+  }
+  if (String(body.Password).length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({ error: errorPasswordCorta() });
   }
   const valRol = await validarRolUsuario(body.Rol);
   if (!valRol.ok) {
@@ -180,6 +187,10 @@ router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) =
   }
   if (!body.Email || !body.Email.trim()) {
     return res.status(400).json({ error: 'Email es obligatorio' });
+  }
+  const passNueva = body.Password != null ? String(body.Password).trim() : '';
+  if (passNueva && passNueva.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({ error: errorPasswordCorta() });
   }
   if (body.Rol !== undefined) {
     const valRol = await validarRolUsuario(body.Rol);

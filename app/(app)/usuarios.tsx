@@ -26,7 +26,7 @@ import {
   SPACING,
 } from '../constants/theme';
 import { EstadoVacio } from '../components/ui/EstadoVacio';
-import { emailValido } from '../utils/validation';
+import { emailValido, MIN_PASSWORD_LENGTH } from '../utils/validation';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth, UserSession } from '../contexts/AuthContext';
 import { useLocales } from '../contexts/LocalesContext';
@@ -363,6 +363,12 @@ export default function UsuariosScreen() {
       setErrorForm('El email debe contener @');
       return;
     }
+    // En edición el backend recorta la contraseña y vacía = mantener la actual; en alta no recorta.
+    const passwordNueva = isEdit ? (formNuevo.Password ?? '').trim() : formNuevo.Password ?? '';
+    if (passwordNueva && passwordNueva.length < MIN_PASSWORD_LENGTH) {
+      setErrorForm(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
+      return;
+    }
     const original = isEdit ? usuarios.find((u) => String(u.id_usuario) === editingUsuarioId) : undefined;
     if (original && String(original.Rol) === 'Administrador' && formNuevo.Rol !== 'Administrador') {
       const admins = usuarios.filter((u) => String(u.Rol) === 'Administrador');
@@ -376,7 +382,7 @@ export default function UsuariosScreen() {
     const esPropiaFicha = isEdit && editingUsuarioId === user?.id_usuario;
     const cierraPropiaSesion =
       esPropiaFicha &&
-      (!!formNuevo.Password ||
+      (!!passwordNueva ||
         String(original?.Rol ?? '').trim() !== (formNuevo.Rol ?? '').trim());
     if (cierraPropiaSesion) {
       const ok = await confirmar(

@@ -57,6 +57,22 @@ export function cuerpoAHtml(cuerpo: string): string {
   return sanitizarHtmlPlantilla(`<p>${s.replace(/\n/g, '<br>')}</p>`);
 }
 
+/** Texto plano para nativo: saltos en <br>/</p>, sin etiquetas y con entidades decodificadas (&amp; al final). */
+export function htmlPlantillaATexto(html: string): string {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export function renderCuerpoPlantilla(
   cuerpo: string,
   datos: Record<string, string> = DATOS_PREVIEW_PLANTILLA,

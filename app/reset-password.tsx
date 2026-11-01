@@ -11,8 +11,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { apiFetch, errorMessage } from './utils/api';
-
-const MIN_PASSWORD_LENGTH = 8;
+import { MIN_PASSWORD_LENGTH } from './utils/validation';
 
 export default function ResetPasswordScreen() {
   const router = useRouter();

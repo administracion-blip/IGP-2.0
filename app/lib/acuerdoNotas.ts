@@ -3,6 +3,8 @@
  * Comparten timeline, modal y vista resumida en la ficha.
  */
 
+import { escapeHtml } from '../utils/escapeHtml';
+
 /** Tamaño de fuente común para el contenido de notas. */
 export const NOTAS_CONTENIDO_FONT_SIZE = 11;
 
@@ -137,14 +139,7 @@ export function resumenNotas(plain: string): {
   };
 }
 
-/** Escapa entidades HTML básicas (sin terceras dependencias). */
-export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+export { escapeHtml };
 
 /**
  * @deprecated Editor monolítico sustituido por timeline; se mantiene por compatibilidad.

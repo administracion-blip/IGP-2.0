@@ -15,6 +15,8 @@ import { logger } from './logger.js';
  */
 const REQUIRED = ['JWT_SECRET', 'AWS_REGION', 'INTERNAL_SYNC_SECRET'];
 
+const MIN_INTERNAL_SYNC_SECRET = 32;
+
 const RECOMMENDED = [
   'S3_BUCKET',
   'SMTP_HOST',
@@ -31,6 +33,12 @@ export function validateEnv() {
       'Variables de entorno requeridas no definidas. Abortando.',
     );
     process.exit(1);
+  }
+
+  if (String(process.env.INTERNAL_SYNC_SECRET).length < MIN_INTERNAL_SYNC_SECRET) {
+    logger.warn(
+      `[seguridad] INTERNAL_SYNC_SECRET es demasiado corto: usa al menos ${MIN_INTERNAL_SYNC_SECRET} caracteres aleatorios`,
+    );
   }
 
   const missingRecommended = RECOMMENDED.filter((k) => !process.env[k]);

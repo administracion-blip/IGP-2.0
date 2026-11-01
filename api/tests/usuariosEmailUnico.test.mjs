@@ -112,3 +112,30 @@ test('un duplicado que ya existiera no impide editar el resto de la ficha', asyn
   assert.equal(r.status, 200, r.body?.error);
   assert.equal(db.obtener(tables.usuarios, { id_usuario: '000008' }).Nombre, 'Ana B');
 });
+
+test('alta con contraseña de menos de 8 caracteres: 400 y no se crea', async () => {
+  const db = montar();
+  const r = await api('POST', '/api/usuarios', { id_usuario: '70', Email: 'corta@grupo.test', Password: '1234567', Rol: 'Local' }, GESTOR);
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /al menos 8 caracteres/);
+  assert.equal(db.obtener(tables.usuarios, { id_usuario: '000070' }), null);
+});
+
+test('editar con contraseña nueva corta: 400 y conserva la actual', async () => {
+  const db = montar();
+  const r = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Password: 'abc' }, GESTOR);
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /al menos 8 caracteres/);
+  assert.equal(db.obtener(tables.usuarios, { id_usuario: '000007' }).Password, 'hash-ana');
+});
+
+test('editar sin contraseña (vacía o ausente) mantiene la actual y no se bloquea', async () => {
+  const db = montar();
+  const vacia = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Password: '', Nombre: 'Ana C' }, GESTOR);
+  assert.equal(vacia.status, 200, vacia.body?.error);
+  const sin = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Telefono: '611' }, GESTOR);
+  assert.equal(sin.status, 200, sin.body?.error);
+  const ana = db.obtener(tables.usuarios, { id_usuario: '000007' });
+  assert.equal(ana.Password, 'hash-ana');
+  assert.equal(ana.Nombre, 'Ana C');
+});

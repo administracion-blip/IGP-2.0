@@ -2,7 +2,7 @@ import { createElement, useEffect, useRef, type ComponentProps } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { colors, inputCursorProps, radius } from '../../constants/theme';
-import { cuerpoAHtml, HUECOS_PLANTILLA, sanitizarHtmlPlantilla } from '../../lib/activosPlantilla';
+import { cuerpoAHtml, HUECOS_PLANTILLA, htmlPlantillaATexto, sanitizarHtmlPlantilla } from '../../lib/activosPlantilla';
 
 const COLORES = [
   { id: 'negro', hex: '#0f172a' },
@@ -118,10 +118,10 @@ export function EditorPlantilla({ html, onChange, revision }: Props) {
 
 export function VistaHtmlPlantilla({ html }: { html: string }) {
   if (Platform.OS !== 'web') {
-    return <Text style={styles.previewPlano}>{html.replace(/<[^>]+>/g, ' ')}</Text>;
+    return <Text style={styles.previewPlano}>{htmlPlantillaATexto(html)}</Text>;
   }
   return createElement('div', {
-    dangerouslySetInnerHTML: { __html: html },
+    dangerouslySetInnerHTML: { __html: sanitizarHtmlPlantilla(html) },
     style: {
       fontSize: 14,
       color: colors.textPrimary,

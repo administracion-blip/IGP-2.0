@@ -1,7 +1,15 @@
 import test from 'node:test';
 import { strict as assert } from 'node:assert';
 import sharp from 'sharp';
-import { componerCuerpoActa, generarPdfActa, generarPdfInventarioCustodia, htmlActaATexto, renderActa } from '../lib/activos/actaEntrega.js';
+import {
+  componerCuerpoActa,
+  datosActaEntrega,
+  generarPdfActa,
+  generarPdfInventarioCustodia,
+  htmlActaATexto,
+  renderActa,
+} from '../lib/activos/actaEntrega.js';
+import { CUERPO_PLANTILLA_DEFAULT, DATOS_PREVIEW_PLANTILLA, renderCuerpoPlantilla } from '../lib/activos/plantillaTexto.js';
 import { bufferFirmaBase64 } from '../lib/activos/firma.js';
 
 test('sin plantillas usa el acta por defecto', () => {
@@ -40,6 +48,41 @@ test('render rellena huecos', () => {
   });
   assert.match(html, /Ana/);
   assert.match(html, /CAMI-1/);
+});
+
+test('acta: datos de usuario con HTML se escapan y items conserva el <br>', () => {
+  const xss = '<img src=x onerror=alert(1)>';
+  const linea1 = [`ETQ${xss}`, `Marca"${xss} Modelo'${xss}`, '1 ud.'].join(' · ');
+  const linea2 = 'CAMI-2 · Camiseta & Co · 1 ud.';
+  const datos = datosActaEntrega({
+    fecha: '01/11/2026',
+    locales: [`Local "${xss}"`],
+    trabajador: `Ana ${xss}`,
+    entregadoPor: `Jefe '${xss}'`,
+    items: [linea1, linea2],
+    firma: '(pendiente de firma)',
+  });
+  const html = renderActa(CUERPO_PLANTILLA_DEFAULT, datos);
+  assert.doesNotMatch(html, /<img/i);
+  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.ok(datos.items.includes('<br>'));
+  assert.equal(datos.items.split('<br>').length, 2);
+
+  const texto = htmlActaATexto(html);
+  assert.ok(texto.includes(`Ana ${xss}`));
+  assert.ok(texto.includes(`Local "${xss}"`));
+  assert.ok(texto.includes(`Jefe '${xss}'`));
+  assert.ok(texto.includes(linea1));
+  assert.ok(texto.includes(linea2));
+});
+
+test('htmlActaATexto decodifica &amp; al final (no genera etiquetas)', () => {
+  assert.equal(htmlActaATexto('<p>&amp;lt;b&amp;gt; &#39;x&#39;</p>'), "&lt;b&gt; 'x'");
+});
+
+test('preview de plantilla mantiene el <br> de los items de ejemplo', () => {
+  const html = renderCuerpoPlantilla(CUERPO_PLANTILLA_DEFAULT, DATOS_PREVIEW_PLANTILLA);
+  assert.match(html, /5 ud\.<br>PDA-00012/);
 });
 
 test('firmaBase64: data URL y crudo dan el mismo PNG', () => {

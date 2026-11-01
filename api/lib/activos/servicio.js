@@ -82,7 +82,7 @@ import {
   urlsFirmadasDeFotos,
 } from './s3.js';
 import { CUERPO_PLANTILLA_DEFAULT, DATOS_PREVIEW_PLANTILLA, renderCuerpoPlantilla, sanitizarHtmlPlantilla } from './plantillaTexto.js';
-import { componerCuerpoActa, generarPdfActa, generarPdfInventarioCustodia, renderActa, thumbJpeg } from './actaEntrega.js';
+import { componerCuerpoActa, datosActaEntrega, generarPdfActa, generarPdfInventarioCustodia, renderActa, thumbJpeg } from './actaEntrega.js';
 import { lineasDisponibles, tallaDe, tallasDesdeMapa, unidadesDe } from './stockDisponible.js';
 import { agruparCustodiaPorArticulo } from './custodiaArticulos.js';
 import { agregarActasDesdeEventos } from './custodiaDocumentos.js';
@@ -1595,14 +1595,14 @@ async function armarActaEntrega(user, lineas, empleado, actor) {
     foto_s3_key: fotoGeneralDe(origen)?.s3_key || fotosModelo.get(origen.modelo_id) || null,
   }));
   const cuerpo = componerCuerpoActa(cuerpos);
-  const datos = {
+  const datos = datosActaEntrega({
     fecha: new Date().toLocaleDateString('es-ES'),
-    local: [...locales].join(', ') || '—',
+    locales: [...locales],
     trabajador: empleado.nombre,
-    entregado_por: actor.nombre || actor.email || actor.id || '—',
-    items: itemsHtml.join('<br>'),
+    entregadoPor: actor.nombre || actor.email || actor.id,
+    items: itemsHtml,
     firma: '(pendiente de firma)',
-  };
+  });
   return {
     cuerpo,
     datos,

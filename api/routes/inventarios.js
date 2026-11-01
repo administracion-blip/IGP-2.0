@@ -314,7 +314,7 @@ router.post('/inventarios/:id/fotos/preparar', ver, async (req, res) => {
   try {
     const actual = await obtenerInventario(req.params.id);
     if (!(await conAlmacen(req, res, actual.warehouseId))) return;
-    const foto = await prepararFoto({ inventarioId: req.params.id, ...req.body });
+    const foto = await prepararFoto({ ...req.body, inventarioId: req.params.id });
     return res.status(201).json(foto);
   } catch (err) {
     return atrapar(res, err, 'Error preparando la foto');
