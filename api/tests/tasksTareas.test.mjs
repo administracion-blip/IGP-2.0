@@ -1058,6 +1058,21 @@ test('permisos_fila dice lo que cada persona puede hacer con la tarea', async ()
   });
 });
 
+test('borrar una tarea exige proyectos.borrar y además poder editarla (desde 2026-11-01)', async () => {
+  const db = montar();
+  // Dora la ve por `tareas.ver_todas`; con `proyectos.borrar` antes le bastaba.
+  db.sembrar(tables.rolesPermisos, { PK: 'ROL#Auditora', SK: 'PERMISO#proyectos.borrar' });
+  const tarea = await crear({ titulo: 'Colocar la barra', proyecto_id: OBRA, responsable_id: BEA.sub });
+
+  const ficha = await api('GET', `/api/tareas/${tarea.id_tarea}`, undefined, DORA);
+  assert.equal(ficha.body.tarea.permisos_fila.borrar, false);
+  const r = await api('DELETE', `/api/tareas/${tarea.id_tarea}`, undefined, DORA);
+  assert.equal(r.status, 403);
+  assert.ok(db.obtener(tables.tareas, { PK: `TAREA#${tarea.id_tarea}`, SK: 'META' }), 'la tarea sigue');
+
+  assert.equal((await api('DELETE', `/api/tareas/${tarea.id_tarea}`)).status, 200);
+});
+
 test('crear_subtarea coincide con lo que acepta POST /api/tareas', async () => {
   // La regla que fija esta prueba es de coherencia: el permiso de fila y el
   // autorizador tienen que decir lo mismo, porque si no la interfaz ofrece

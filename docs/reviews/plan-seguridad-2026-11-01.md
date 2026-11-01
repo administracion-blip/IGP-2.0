@@ -123,6 +123,26 @@ salvo petición expresa. Cada fase pasa los tests de `api/tests` y revisión de 
 
 ---
 
+## Estado
+
+- **Fase 1:** hecha (`ac40e3d`). La 1.5 pasa a bloquear el arranque en la fase 2, tras confirmar que el secreto de producción tiene más de 32 caracteres.
+- **Fase 2:** hecha. Solo el rol Administrador usaba los permisos `usuarios.*`.
+
+### Notas de despliegue de la fase 2
+
+- Asignar `festivos.editar` en Permisos a los roles que deban editar festivos; hasta entonces solo puede el Administrador.
+- Un `INTERNAL_SYNC_SECRET` de menos de 32 caracteres impide arrancar la API, también en los `.env.local` de desarrollo.
+- Las subidas nuevas de marketing llevan `.u<id_usuario>` en el nombre (lo genera el servidor). Un no gestor solo puede guardar claves de imagen que ya estaban en el registro o que subió él.
+- `rappel-preview` sigue el modo de lecturas: en «observar» solo avisa, hasta la 3.2.
+- `ignorar` en conciliación: un movimiento sin cuenta asignada da 404 a los usuarios restringidos a algunas sociedades.
+
+### Pendientes detectados en la revisión de la fase 2
+
+- `getUserLocales` (`api/routes/marketing.js`) trata `usuarios.Local` como ids, pero guarda nombres: los no gestores con locales asignados no ven propuestas ni estilos (ya pasaba antes). Resolver con `alcanceDelUsuario` / `permiteLocal`.
+- Conciliación: `aplicar` y `DELETE /banca/conciliacion` no comprueban la sociedad del movimiento, y `GET /sugerencias` puede devolver movimientos de otras sociedades.
+- `POST /locales` sigue aceptando `usuarios.crear` / `usuarios.editar`.
+- `GET /locales` devuelve `estilo_visual_imagen_keys` de todos los locales.
+
 ## Fuera de este plan
 
 - Token fuera de `localStorage` (cookie `httpOnly` + CSRF): proyecto aparte.

@@ -21,6 +21,7 @@ import * as XLSX from 'xlsx';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
 import { apiFetch } from '../../utils/api';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   colors,
   fontFamily,
@@ -68,6 +69,8 @@ function valorPorColumna(item: Registro, col: string): unknown {
 
 export default function ComparativaFechasCajasScreen() {
   const router = useRouter();
+  const { hasPermiso } = useAuth();
+  const puedeEditarFestivos = hasPermiso('festivos.editar');
   const [registros, setRegistros] = useState<Registro[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -570,9 +573,10 @@ export default function ComparativaFechasCajasScreen() {
         onEditar={(item) => abrirModalEditar(item)}
         onBorrar={borrarSeleccionado}
         guardando={guardando}
+        hideToolbarActions={!puedeEditarFestivos}
         showExport
         onExportClick={exportarExcel}
-        showImport
+        showImport={puedeEditarFestivos}
         onImportClick={importarExcel}
         importing={importing}
         extraToolbarLeft={
@@ -598,6 +602,7 @@ export default function ComparativaFechasCajasScreen() {
           </View>
         }
         extraToolbarRight={
+          puedeEditarFestivos ? (
           <View style={styles.toolbarRightGroup}>
             <TouchableOpacity
               style={[styles.btnEdicion, modoEdicion && styles.btnEdicionActivo]}
@@ -614,6 +619,7 @@ export default function ComparativaFechasCajasScreen() {
               <Text style={styles.btnGenerarText}>Generar registros</Text>
             </TouchableOpacity>
           </View>
+          ) : undefined
         }
         renderCell={renderCeldaEditable}
         paginacion={{
@@ -629,7 +635,7 @@ export default function ComparativaFechasCajasScreen() {
             setSelectedRowIndex(null);
           },
         }}
-        emptyMessage="No hay registros. Pulsa Crear para añadir."
+        emptyMessage={puedeEditarFestivos ? 'No hay registros. Pulsa Crear para añadir.' : 'No hay registros.'}
         emptyFilterMessage="Ningún resultado con el filtro"
         getRowStyle={getRowStyle}
         getColumnCellStyle={(col) =>

@@ -304,17 +304,18 @@ export function salidaFilaHija(item) {
  * copias de la misma decisión —una aquí y otra en la interfaz— divergen, y el
  * síntoma es un botón escondido a quien sí puede pulsarlo.
  *
- * `borrar` refleja el permiso global y la visibilidad, que es exactamente lo que
- * comprueba `borrarTarea`. **No** dice si el borrado acabará en `409` por tener
+ * `borrar` refleja el permiso global y la edición de la fila, que es exactamente
+ * lo que comprueba `borrarTarea`. **No** dice si el borrado acabará en `409` por tener
  * subtareas abiertas: eso exige contarlas y no merece una lectura por fila.
  *
  * @param {import('./acceso.js').ContextoTarea} [aux]
  */
 function permisosFilaTarea(ctx, tarea, aux = {}) {
+  const editar = puedeEditarTarea(ctx, tarea, aux);
   return {
-    editar: puedeEditarTarea(ctx, tarea, aux),
+    editar,
     reasignar: puedeReasignarTarea(ctx, tarea, aux),
-    borrar: tienePermiso(ctx, PERMISOS.proyectosBorrar) && puedeVerTarea(ctx, tarea, aux),
+    borrar: tienePermiso(ctx, PERMISOS.proyectosBorrar) && editar,
     crear_subtarea: puedeCrearSubtarea(ctx, tarea, aux),
   };
 }
@@ -2409,7 +2410,8 @@ async function borrarObjetosDeS3(filas) {
  * @returns {Promise<{ ok: true } | Fallo>}
  */
 export async function borrarTarea({ ctx, idTarea, alcance } = {}) {
-  const acceso = await cargarParaVer(ctx, idTarea);
+  // `proyectos.borrar` (en la ruta) no basta: además hay que poder editar la fila.
+  const acceso = await cargarParaEscribir(ctx, idTarea);
   if (!acceso.ok) return acceso;
   const id = texto(idTarea);
   if (texto(acceso.meta.recurrencia_id)) {

@@ -23,6 +23,7 @@ const ADMINISTRACION = { sub: '000002', email: 'admon@grupo.test', rol: 'Adminis
 const ENCARGADO = { sub: '000009', email: 'encargado@grupo.test', rol: 'Local' };
 const GESTOR_USUARIOS = { sub: '000010', email: 'gestor@grupo.test', rol: 'Gestor' };
 const CAJAS = { sub: '000011', email: 'cajas@grupo.test', rol: 'Cajas' };
+const FESTIVOS = { sub: '000012', email: 'festivos@grupo.test', rol: 'Festivos' };
 
 let usuarioActual = ADMINISTRACION;
 let servidor = null;
@@ -74,6 +75,7 @@ function montar() {
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Local', SK: 'PERMISO#almacenes.ver' });
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Gestor', SK: 'PERMISO#usuarios.crear' });
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Cajas', SK: 'PERMISO#comparativa.ver' });
+  db.sembrar(tables.rolesPermisos, { PK: 'ROL#Festivos', SK: 'PERMISO#festivos.editar' });
   db.sembrar(tables.locales, { id_Locales: '000010', nombre: 'Bar Centro', agoraCode: '7', empresa: 'Norte' });
   db.sembrar(tables.almacenes, { Id: '000001', Nombre: 'General' });
   db.sembrar(tables.gestionFestivos, { PK: 'GLOBAL', SK: 'f1', FechaComparativa: '2026-12-25', Festivo: true, NombreFestivo: 'Navidad' });
@@ -199,22 +201,24 @@ test('PUT de un almacén inexistente devuelve 404 y no lo crea (almacenes.editar
 
 // ─── Festivos ───
 
-test('sin comparativa.ver no se escriben festivos', async () => {
+test('sin festivos.editar no se escriben festivos (ni con comparativa.ver)', async () => {
   const db = montar();
-  assert.equal((await api('POST', '/api/gestion-festivos', { FechaComparativa: '2026-01-01' }, ENCARGADO)).status, 403);
-  assert.equal((await api('PUT', '/api/gestion-festivos', { id: 'GLOBAL#f1', FechaComparativa: '2026-12-25', Festivo: false }, ENCARGADO)).status, 403);
-  assert.equal((await api('DELETE', '/api/gestion-festivos?id=GLOBAL%23f1', undefined, ENCARGADO)).status, 403);
-  assert.equal((await api('POST', '/api/gestion-festivos/generar-rango', { dateFrom: '2026-01-01', dateTo: '2026-01-02' }, ENCARGADO)).status, 403);
+  for (const usuario of [ENCARGADO, CAJAS]) {
+    assert.equal((await api('POST', '/api/gestion-festivos', { FechaComparativa: '2026-01-01' }, usuario)).status, 403);
+    assert.equal((await api('PUT', '/api/gestion-festivos', { id: 'GLOBAL#f1', FechaComparativa: '2026-12-25', Festivo: false }, usuario)).status, 403);
+    assert.equal((await api('DELETE', '/api/gestion-festivos?id=GLOBAL%23f1', undefined, usuario)).status, 403);
+    assert.equal((await api('POST', '/api/gestion-festivos/generar-rango', { dateFrom: '2026-01-01', dateTo: '2026-01-02' }, usuario)).status, 403);
+    assert.equal((await api('GET', '/api/gestion-festivos', undefined, usuario)).status, 200);
+  }
   assert.equal(db.obtener(tables.gestionFestivos, { PK: 'GLOBAL', SK: 'f1' }).Festivo, true);
   assert.equal(db.listar(tables.gestionFestivos).length, 1);
-  assert.equal((await api('GET', '/api/gestion-festivos', undefined, ENCARGADO)).status, 200);
 });
 
-test('con comparativa.ver (pantalla Comparativa fechas) se escriben festivos', async () => {
+test('con festivos.editar se escriben festivos', async () => {
   const db = montar();
-  const editar = await api('PUT', '/api/gestion-festivos', { id: 'GLOBAL#f1', FechaComparativa: '2026-12-25', Festivo: false }, CAJAS);
+  const editar = await api('PUT', '/api/gestion-festivos', { id: 'GLOBAL#f1', FechaComparativa: '2026-12-25', Festivo: false }, FESTIVOS);
   assert.equal(editar.status, 200);
   assert.equal(db.obtener(tables.gestionFestivos, { PK: 'GLOBAL', SK: 'f1' }).Festivo, false);
-  assert.equal((await api('POST', '/api/gestion-festivos/generar-rango', { dateFrom: '2026-01-01', dateTo: '2026-01-02' }, CAJAS)).status, 200);
-  assert.equal((await api('DELETE', '/api/gestion-festivos?id=GLOBAL%23f1', undefined, CAJAS)).status, 200);
+  assert.equal((await api('POST', '/api/gestion-festivos/generar-rango', { dateFrom: '2026-01-01', dateTo: '2026-01-02' }, FESTIVOS)).status, 200);
+  assert.equal((await api('DELETE', '/api/gestion-festivos?id=GLOBAL%23f1', undefined, FESTIVOS)).status, 200);
 });

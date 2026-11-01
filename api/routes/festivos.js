@@ -7,9 +7,9 @@ import { requirePermission } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Los festivos solo se escriben desde Cajas → Comparativa fechas, que la app abre con
-// comparativa.ver y no distingue crear/editar/borrar.
-const puedeEscribirFestivos = requirePermission('comparativa.ver');
+// Crear, editar y borrar festivos exige `festivos.editar` (desde 2026-11-01; antes bastaba
+// comparativa.ver). La lectura sigue abierta a cualquier usuario autenticado.
+const puedeEscribirFestivos = requirePermission('festivos.editar');
 
 // GET /gestion-festivos
 router.get('/gestion-festivos', async (req, res) => {

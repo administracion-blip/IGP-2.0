@@ -443,13 +443,97 @@ async function assertAccesoEstiloLocal(req, idLocalNorm) {
   }
 }
 
-async function scanAllMarketing(filterExpr, exprValues, exprNames) {
+/** `.u<id_usuario>` en el nombre del objeto: quién lo subió (lo genera siempre el servidor). */
+function marcaSubidaPor(userId) {
+  const id = String(userId ?? '').trim();
+  return /^[a-zA-Z0-9_-]+$/.test(id) ? `.u${id}` : '';
+}
+
+function subidaPorUsuario(key, userId) {
+  const marca = marcaSubidaPor(userId);
+  if (!marca) return false;
+  const nombre = key.split('/').pop() || '';
+  return nombre.includes(`${marca}.`);
+}
+
+/**
+ * Un no gestor solo guarda en un registro claves de S3 que ya estaban en ese
+ * registro o que subió él: si no, copiando una clave de otro local (GET /locales
+ * las devuelve todas) `imagen-url` acabaría firmándosela. Las URL externas no son
+ * claves de S3 y no se miran.
+ */
+function asegurarClavesPropias(req, esGestor, claves, previas = []) {
+  if (esGestor) return;
+  const yaEstaban = new Set((previas || []).map((k) => String(k ?? '').trim()).filter(Boolean));
+  for (const bruta of claves || []) {
+    const key = String(bruta ?? '').trim();
+    if (!key.startsWith('marketing/') || yaEstaban.has(key)) continue;
+    if (!subidaPorUsuario(key, req.user?.sub)) {
+      throw badRequest('Una o más imágenes no son válidas: usa imágenes subidas por ti o las que ya tenía el registro');
+    }
+  }
+}
+
+/**
+ * ¿Puede el usuario pedir una URL firmada para esta clave de `marketing/`?
+ * - Gestor (o Administrador): todas, como hasta ahora.
+ * - Resto: la imagen que subió él mismo (aún sin guardar en ningún registro), las
+ *   imágenes de estilo de sus locales y las de referencia/final de las
+ *   propuestas de sus locales. Los locales salen de `getUserLocales`, igual que
+ *   la visibilidad de propuestas y estilos de este router.
+ */
+async function puedeVerImagenMarketing(req, key) {
+  if (key.includes('..') || key.includes('//')) return false;
+  if (await hasGestionPermission(req)) return true;
+  if (subidaPorUsuario(key, req.user?.sub)) return true;
+  const userLocales = await getUserLocales(req.user?.sub);
+  if (userLocales.length === 0) return false;
+
+  if (key.startsWith(PREFIX_ESTILO_LOCAL_KEY)) {
+    for (const idLocal of userLocales) {
+      const r = await docClient.send(new GetCommand({
+        TableName: tables.locales,
+        Key: { id_Locales: idLocal },
+        ProjectionExpression: 'estilo_visual_imagen_keys',
+      }));
+      if (normalizeEstiloImagenKeysFromItem(r.Item?.estilo_visual_imagen_keys).includes(key)) return true;
+    }
+    return false;
+  }
+
+  const contieneClave = (p) =>
+    String(p?.imagen_referencia_url ?? '').trim() === key || String(p?.imagen_final_url ?? '').trim() === key;
+  if (isMarketingLocalEstadoReady()) {
+    for (const idLocal of userLocales) {
+      let lastKey = null;
+      do {
+        const r = await docClient.send(new QueryCommand({
+          TableName: TABLE_MARKETING,
+          IndexName: GSI_LOCAL_ESTADO_NAME,
+          KeyConditionExpression: '#pk = :pk',
+          ProjectionExpression: 'imagen_referencia_url, imagen_final_url',
+          ExpressionAttributeNames: { '#pk': 'id_local' },
+          ExpressionAttributeValues: { ':pk': idLocal },
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+        if ((r.Items || []).some(contieneClave)) return true;
+        lastKey = r.LastEvaluatedKey || null;
+      } while (lastKey);
+    }
+    return false;
+  }
+  const items = await scanAllMarketing(undefined, undefined, undefined, 'id_local, imagen_referencia_url, imagen_final_url');
+  return items.some((p) => userLocales.includes(formatId6(String(p.id_local || ''))) && contieneClave(p));
+}
+
+async function scanAllMarketing(filterExpr, exprValues, exprNames, projection) {
   const items = [];
   let lastKey = null;
   do {
     const params = {
       TableName: TABLE_MARKETING,
       ...(lastKey && { ExclusiveStartKey: lastKey }),
+      ...(projection && { ProjectionExpression: projection }),
       ...(filterExpr && { FilterExpression: filterExpr }),
       ...(exprValues && { ExpressionAttributeValues: exprValues }),
       ...(exprNames && { ExpressionAttributeNames: exprNames }),
@@ -785,6 +869,7 @@ router.post('/marketing/propuestas', requirePermission('marketing.proponer'), as
   const now = new Date().toISOString();
   const promptInicial = String(body.prompt_generado ?? '').trim();
   const imagenReferencia = sanitizePropuestaRefImagenValor(body.imagen_referencia_url);
+  asegurarClavesPropias(req, esGestor, [imagenReferencia]);
   const item = {
     id_propuesta: crypto.randomUUID(),
     id_local: idLocal,
@@ -902,6 +987,7 @@ router.patch('/marketing/propuestas/:id', requirePermission('marketing.proponer'
   }
   if ('imagen_referencia_url' in updates) {
     updates.imagen_referencia_url = sanitizePropuestaRefImagenValor(updates.imagen_referencia_url);
+    asegurarClavesPropias(req, esGestor, [updates.imagen_referencia_url], [prev.imagen_referencia_url, prev.imagen_final_url]);
   }
   if ('estado' in updates) {
     const e = String(updates.estado || '').trim();
@@ -1239,7 +1325,7 @@ router.post(
     if (tipoRaw === 'final') subfolder = 'final';
     else if (tipoRaw === 'estilo_local') subfolder = 'estilo-local';
     const ext = EXT_POR_MIME[mime];
-    const key = `marketing/${subfolder}/${crypto.randomUUID()}.${ext}`;
+    const key = `marketing/${subfolder}/${crypto.randomUUID()}${marcaSubidaPor(req.user?.sub)}.${ext}`;
 
     await s3.send(new PutObjectCommand({
       Bucket: S3_BUCKET,
@@ -1265,6 +1351,9 @@ router.get(
     if (!key) throw badRequest('key es obligatorio');
     if (!key.startsWith('marketing/')) {
       throw badRequest('key fuera del namespace de marketing');
+    }
+    if (!(await puedeVerImagenMarketing(req, key))) {
+      throw forbidden('No tienes acceso a esta imagen');
     }
     const url = await getSignedUrl(
       s3,
@@ -1299,6 +1388,7 @@ router.patch('/marketing/locales/:id/estilo', requirePermission('marketing.propo
     body.estilo_visual_imagen_keys !== undefined && body.estilo_visual_imagen_keys !== null
       ? sanitizeEstiloImagenKeysFromBody(body.estilo_visual_imagen_keys)
       : prevKeys;
+  asegurarClavesPropias(req, await hasGestionPermission(req), keys, prevKeys);
 
   const web = sanitizeEstiloWebUrl(body.web, prevWeb);
 

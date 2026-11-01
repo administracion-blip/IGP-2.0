@@ -36,9 +36,11 @@ export function validateEnv() {
   }
 
   if (String(process.env.INTERNAL_SYNC_SECRET).length < MIN_INTERNAL_SYNC_SECRET) {
-    logger.warn(
-      `[seguridad] INTERNAL_SYNC_SECRET es demasiado corto: usa al menos ${MIN_INTERNAL_SYNC_SECRET} caracteres aleatorios`,
+    logger.error(
+      { minimo: MIN_INTERNAL_SYNC_SECRET },
+      'INTERNAL_SYNC_SECRET es demasiado corto: usa al menos 32 caracteres aleatorios. Abortando.',
     );
+    process.exit(1);
   }
 
   const missingRecommended = RECOMMENDED.filter((k) => !process.env[k]);

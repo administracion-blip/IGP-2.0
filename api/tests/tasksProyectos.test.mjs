@@ -916,16 +916,17 @@ test('permisos_fila deja editar al responsable del proyecto aunque no tenga proy
   const mios = await api('GET', '/api/proyectos/mios', undefined, CARLOS);
   assert.deepEqual(mios.body.proyectos[0].permisos_fila, { editar: true, borrar: false });
 
-  // La observadora no edita, aunque tenga `proyectos.editar`; y sí puede borrar,
-  // porque eso es exactamente lo que `borrarProyecto` deja hacer a quien tiene
-  // `proyectos.borrar` y ve el proyecto.
+  // La observadora no edita, aunque tenga `proyectos.editar`; y desde 2026-11-01
+  // tampoco borra: `proyectos.borrar` exige además poder editar la fila.
   const observando = await api('GET', '/api/proyectos/p1', undefined, BEA);
-  assert.deepEqual(observando.body.proyecto.permisos_fila, { editar: false, borrar: true });
+  assert.deepEqual(observando.body.proyecto.permisos_fila, { editar: false, borrar: false });
   assert.equal(
     (await api('PATCH', '/api/proyectos/p1', { nombre: 'Otro' }, BEA)).status,
     403,
     'lo que dice permisos_fila es lo que responde la escritura',
   );
+  assert.equal((await api('DELETE', '/api/proyectos/p1', undefined, BEA)).status, 403);
+  assert.ok(meta(db, 'p1'), 'el proyecto sigue');
 });
 
 test('permisos_fila en el listado no cuesta ninguna lectura extra', async () => {

@@ -308,7 +308,7 @@ router.patch('/activaciones/sesiones/:id_sesion', requireAnyPermission('activaci
     if (cambiaHorario && !(await hasPermission(req.user, 'activaciones.gestionar'))) {
       return res.status(403).json({ error: 'Permiso insuficiente para cambiar fecha u horario' });
     }
-    if (!cambiaHorario && !(await usuarioPuedeAccederLocal(req.user, existente.Item.id_local))) {
+    if (!(await usuarioPuedeAccederLocal(req.user, existente.Item.id_local))) {
       return res.status(403).json({ error: 'No tienes acceso a este local' });
     }
 
@@ -344,6 +344,9 @@ router.patch('/activaciones/sesiones/:id_sesion', requireAnyPermission('activaci
       }
       const idLocal = formatId6(String(body.id_local).trim());
       if (!idLocal || idLocal === '000000') return res.status(400).json({ error: 'id_local inválido' });
+      if (!(await usuarioPuedeAccederLocal(req.user, idLocal))) {
+        return res.status(403).json({ error: 'No tienes acceso a este local' });
+      }
       const loc = await docClient.send(
         new GetCommand({ TableName: tables.locales, Key: { id_Locales: idLocal } }),
       );
@@ -370,9 +373,17 @@ router.patch('/activaciones/sesiones/:id_sesion', requireAnyPermission('activaci
 
 router.delete('/activaciones/sesiones/:id_sesion', requirePermission('activaciones.gestionar'), async (req, res) => {
   try {
+    const idSesion = String(req.params.id_sesion);
+    const existente = await docClient.send(
+      new GetCommand({ TableName: tableSesiones, Key: { id_sesion: idSesion } })
+    );
+    if (!existente.Item) return res.status(404).json({ error: 'Sesión no encontrada' });
+    if (!(await usuarioPuedeAccederLocal(req.user, existente.Item.id_local))) {
+      return res.status(403).json({ error: 'No tienes acceso a este local' });
+    }
     await docClient.send(new DeleteCommand({
       TableName: tableSesiones,
-      Key: { id_sesion: String(req.params.id_sesion) },
+      Key: { id_sesion: idSesion },
     }));
     return res.json({ ok: true });
   } catch (err) {
@@ -559,6 +570,9 @@ router.post('/activaciones/:id_activacion/sesiones', requirePermission('activaci
       }
 
       if (!nombresLocales.has(idLocal)) {
+        if (!(await usuarioPuedeAccederLocal(req.user, idLocal))) {
+          return res.status(403).json({ error: 'No tienes acceso a este local' });
+        }
         const loc = await docClient.send(
           new GetCommand({ TableName: tables.locales, Key: { id_Locales: idLocal } })
         );

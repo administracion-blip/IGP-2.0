@@ -1121,7 +1121,7 @@ export default function ProgramacionScreen() {
   }
 
   async function conflictoMoverAqui() {
-    if (!form.id_actuacion || !conflictoOtro || !form.id_artista) return;
+    if (!form.id_actuacion || !conflictoOtro?.id_actuacion || !form.id_artista) return;
     setSaving(true);
     try {
       const r = await apiFetch('/api/actuaciones/mover-artista-aqui', {
@@ -2418,7 +2418,9 @@ export default function ProgramacionScreen() {
                 <Text style={styles.conflictoDetail}>{conflictoOtro.artista_nombre_snapshot || conflictoOtro.id_artista}</Text>
                 <Text style={styles.conflictoDetail}>{formatFecha(conflictoOtro.fecha)} · {conflictoOtro.hora_inicio}</Text>
                 <Text style={styles.conflictoDetail}>{conflictoOtro.local_nombre_snapshot || conflictoOtro.id_local}</Text>
-                <Text style={styles.conflictoDetail}>Estado: {conflictoOtro.estado} · id: {conflictoOtro.id_actuacion.slice(0, 8)}…</Text>
+                {conflictoOtro.id_actuacion ? (
+                  <Text style={styles.conflictoDetail}>Estado: {conflictoOtro.estado} · id: {conflictoOtro.id_actuacion.slice(0, 8)}…</Text>
+                ) : null}
               </View>
             ) : null}
             {form.fecha ? (
@@ -2446,11 +2448,13 @@ export default function ProgramacionScreen() {
                   Guardar igualmente
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.cbMover, styles.conflictoBtnCol]} onPress={conflictoMoverAqui}>
-                <Text style={styles.cbMoverText} numberOfLines={2}>
-                  Mover artista aquí
-                </Text>
-              </TouchableOpacity>
+              {conflictoOtro?.id_actuacion ? (
+                <TouchableOpacity style={[styles.cbMover, styles.conflictoBtnCol]} onPress={conflictoMoverAqui}>
+                  <Text style={styles.cbMoverText} numberOfLines={2}>
+                    Mover artista aquí
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
         </View>

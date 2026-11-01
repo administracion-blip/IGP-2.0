@@ -41,10 +41,11 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   'usuarios.ver':
     'Permite ver el listado de usuarios de la aplicación y ver los nombres de las personas en proyectos, tareas y reuniones.',
   'usuarios.crear':
-    'Permite dar de alta usuarios de la aplicación. También permite el alta rápida de un local desde el formulario de usuario.',
+    'Permite dar de alta usuarios de la aplicación. También permite el alta rápida de un local desde el formulario de usuario. (Sin efecto desde 2026-11: solo Administrador.)',
   'usuarios.editar':
-    'Permite modificar usuarios existentes (datos, rol y locales). También permite el alta rápida de un local desde el formulario de usuario.',
-  'usuarios.borrar': 'Permite borrar usuarios de la aplicación.',
+    'Permite modificar usuarios existentes (datos, rol y locales) y cerrar sus sesiones. También permite el alta rápida de un local desde el formulario de usuario. (Sin efecto desde 2026-11: solo Administrador.)',
+  'usuarios.borrar':
+    'Permite borrar usuarios de la aplicación. (Sin efecto desde 2026-11: solo Administrador.)',
   'locales.ver': 'Muestra la tarjeta Locales en Base de datos.',
   'locales.crear': 'Permite dar de alta locales nuevos en Base de datos.',
   'locales.editar': 'Permite modificar los datos de los locales en Base de datos.',
@@ -130,7 +131,9 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   'formas_pago.editar':
     'Permite modificar el maestro de formas de pago y sincronizarlas desde Ágora.',
   'comparativa.ver':
-    'Permite entrar en la Comparativa de fechas de cajas y editar los festivos de la comparativa.',
+    'Permite entrar en la Comparativa de fechas de cajas y consultar los festivos. Editarlos requiere «Festivos · Editar».',
+  'festivos.editar':
+    'Permite crear, modificar, borrar y generar por rango los festivos de la Comparativa de fechas de cajas.',
   'comparativa.crear': SIN_EFECTO,
   'comparativa.editar': SIN_EFECTO,
   'comparativa.borrar': SIN_EFECTO,

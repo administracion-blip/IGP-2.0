@@ -1,7 +1,7 @@
 import express from 'express';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
-import { requirePermission } from '../middleware/auth.js';
+import { requirePermission, requireRole } from '../middleware/auth.js';
 import { puedeGestionarRol, validarRolUsuario } from '../lib/roles.js';
 import { hashPassword, MIN_PASSWORD_LENGTH } from '../lib/password.js';
 import { emailEnUsoPorOtroUsuario } from '../lib/dynamo/usuarios.js';
@@ -13,6 +13,11 @@ import {
 } from '../lib/tasks/departamentos.js';
 
 const router = express.Router();
+
+// Desde 2026-11-01 las escrituras de usuarios son solo del Administrador
+// (`requireRole()` sin roles extra). `usuarios.crear/editar/borrar` siguen en
+// el catálogo sin efecto, para poder volver atrás.
+const soloAdministrador = requireRole();
 
 // Formato mínimo 6 dígitos para campos id_ (000001, 000002, ...).
 function formatId6(val) {
@@ -101,7 +106,7 @@ function normalizeLocal(val) {
 
 // Crear usuario (guardar en DynamoDB). Solo se escriben atributos de TABLE_USUARIOS_ATTRS.
 // [SEC S-05]
-router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) => {
+router.post('/usuarios', soloAdministrador, async (req, res) => {
   const body = req.body || {};
   if (!body.Email || !body.Password) {
     return res.status(400).json({ error: 'Email y Password son obligatorios' });
@@ -179,7 +184,7 @@ router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) =
 
 // Actualizar usuario (por id_usuario). Si Password viene vacío, se mantiene el actual.
 // [SEC S-05]
-router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) => {
+router.put('/usuarios', soloAdministrador, async (req, res) => {
   const body = req.body || {};
   const idUsuario = body.id_usuario != null ? String(body.id_usuario) : '';
   if (!idUsuario) {
@@ -287,7 +292,7 @@ router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) =
 });
 
 // Invalida todos los tokens emitidos al usuario (tendrá que volver a iniciar sesión).
-router.post('/usuarios/:id/cerrar-sesiones', requirePermission('usuarios.editar'), async (req, res) => {
+router.post('/usuarios/:id/cerrar-sesiones', soloAdministrador, async (req, res) => {
   const idUsuario = String(req.params.id ?? '').trim();
   const got = await docClient.send(new GetCommand({
     TableName: tables.usuarios,
@@ -311,7 +316,7 @@ router.post('/usuarios/:id/cerrar-sesiones', requirePermission('usuarios.editar'
 
 // Borrar usuario por id_usuario (clave de la tabla).
 // [SEC S-05]
-router.delete('/usuarios', requirePermission('usuarios.borrar'), async (req, res) => {
+router.delete('/usuarios', soloAdministrador, async (req, res) => {
   const idUsuario = req.body?.id_usuario != null ? String(req.body.id_usuario) : req.query?.id_usuario != null ? String(req.query.id_usuario) : '';
   if (!idUsuario) {
     return res.status(400).json({ error: 'id_usuario es obligatorio para borrar' });

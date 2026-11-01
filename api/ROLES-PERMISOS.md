@@ -105,6 +105,11 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `usuarios.crear` | Usuarios · Crear |
 | `usuarios.editar` | Usuarios · Editar |
 | `usuarios.borrar` | Usuarios · Borrar |
+
+> Desde 2026-11-01 crear, editar, borrar usuarios y cerrar sus sesiones es **solo Administrador** (backend con `requireRole()`). `usuarios.crear`, `usuarios.editar` y `usuarios.borrar` se conservan en el catálogo **sin efecto**, para poder volver atrás. `usuarios.ver` sigue controlando el listado.
+
+| Código | Descripción |
+|--------|-------------|
 | `locales.ver` | Locales · Ver |
 | `locales.crear` | Locales · Crear |
 | `locales.editar` | Locales · Editar |
@@ -151,6 +156,7 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `comparativa.borrar` | Comparativa fechas · Borrar |
 | `comparativa.importar` | Comparativa fechas · Importar |
 | `comparativa.exportar` | Comparativa fechas · Exportar |
+| `festivos.editar` | Festivos · Crear, editar y borrar (`api/routes/festivos.js`; la lectura no lo exige) |
 | `objetivos.ver` | Objetivos · Ver |
 | `objetivos.compartir` | Objetivos · Compartir |
 | `franjas.editar` | Plantillas de franjas horarias · Crear, editar y borrar (son globales del grupo) |

@@ -1274,13 +1274,10 @@ router.get('/pedidos/:pedidoId/rappel-preview', async (req, res) => {
   if (!pedidoId) return res.status(400).json({ error: 'pedidoId obligatorio' });
   if (!productId) return res.status(400).json({ error: 'productId obligatorio' });
   try {
-    const got = await docClient.send(new GetCommand({
-      TableName: tables.pedidos,
-      Key: { Id: pedidoId },
-      ProjectionExpression: 'Fecha',
-    }));
-    if (!got.Item) return res.status(404).json({ error: 'Pedido no encontrado' });
-    const fechaPedido = String(got.Item.Fecha ?? '').trim();
+    const cabecera = await getCabeceraPedido(pedidoId);
+    if (!cabecera) return res.status(404).json({ error: 'Pedido no encontrado' });
+    if (!(await permiteLecturaPedido(req, cabecera))) return sinAccesoLocal(res);
+    const fechaPedido = String(cabecera.Fecha ?? '').trim();
     const totalAportacionUnitaria = await resolveTotalAportacionUnitaria(productId, fechaPedido);
     const totalRappel = cantidad * totalAportacionUnitaria;
     res.json({

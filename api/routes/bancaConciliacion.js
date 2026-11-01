@@ -30,6 +30,7 @@ import { sugerirConciliaciones } from '../lib/banca/conciliacion/motor.js';
 import { centimosAEuro } from '../lib/banca/conciliacion/estado.js';
 import {
   getFactura,
+  getMovimiento,
   listarFacturasElegibles,
   listarMovimientosAbiertos,
   normalizarLimiteBarrido,
@@ -83,6 +84,24 @@ async function depsConAlcance(req) {
     async getFactura(idFactura) {
       const factura = await getFactura(idFactura);
       return factura && facturaEmisorPermitido(factura, empresasOk) ? factura : null;
+    },
+  };
+}
+
+/**
+ * [SEC S-08] Para `ignorar` y `descartar`, que escriben sobre el movimiento: la
+ * sociedad que se comprueba es la de la cuenta del movimiento (`empresaId`). Fuera de alcance —o sin cuenta
+ * asignada— el movimiento no existe para un usuario restringido (404).
+ */
+async function depsMovimientoConAlcance(req) {
+  const empresasOk = await empresasPermitidasDelUsuario(req.user);
+  if (empresasOk == null) return {};
+  return {
+    async getMovimiento(...args) {
+      const movimiento = await getMovimiento(...args);
+      return movimiento && facturaEmisorPermitido({ emisor_id: movimiento.empresaId }, empresasOk)
+        ? movimiento
+        : null;
     },
   };
 }
@@ -231,11 +250,20 @@ router.post(
     const identidad = movimientoDeBody(req.body);
     if (faltaMovimiento(res, identidad)) return;
 
+    // [SEC S-08] Mismo control de sociedad que `aplicar`: la factura descartada
+    // tiene que ser visible para el usuario.
+    const deps = await depsConAlcance(req);
+    const idFactura = String(req.body?.id_factura || '').trim();
+    if (deps.getFactura && idFactura && !(await deps.getFactura(idFactura))) {
+      return responder(res, { ok: false, code: 'FACTURA_NO_ENCONTRADA', mensaje: 'Factura no encontrada' });
+    }
+
+    // Y, como `ignorar`, el movimiento tiene que ser de una sociedad suya.
     const resultado = await descartarSugerenciaMovimiento({
       ...identidad,
       id_factura: req.body?.id_factura,
       usuario: usuarioDeReq(req),
-    });
+    }, { ...deps, ...(await depsMovimientoConAlcance(req)) });
     return responder(res, resultado);
   },
 );
@@ -256,7 +284,7 @@ router.post(
       ...identidad,
       ignorar: req.body?.ignorar === undefined ? true : esVerdadero(req.body.ignorar),
       usuario: usuarioDeReq(req),
-    });
+    }, await depsMovimientoConAlcance(req));
     return responder(res, resultado);
   },
 );

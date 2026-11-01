@@ -223,7 +223,7 @@ test('POST /usuarios/:id/cerrar-sesiones revoca; el login posterior vuelve a ent
   assert.equal((await api('GET', '/api/ping', { token: nuevo })).status, 200);
 });
 
-test('cerrar-sesiones: sin usuarios.editar 403, un no admin no cierra las de un Administrador, 404 si no existe', async () => {
+test('cerrar-sesiones: solo el Administrador (desde 2026-11-01, aunque se tenga usuarios.editar), 404 si no existe', async () => {
   await montar();
   const victimaToken = await login(VICTIMA);
   const gestorToken = await login(GESTOR);
@@ -236,7 +236,11 @@ test('cerrar-sesiones: sin usuarios.editar 403, un no admin no cierra las de un 
   assert.equal(contraAdmin.status, 403);
   assert.equal((await api('GET', '/api/ping', { token: adminToken })).status, 200);
 
-  const ok = await api('POST', `/api/usuarios/${VICTIMA.id_usuario}/cerrar-sesiones`, { token: gestorToken });
+  const gestor = await api('POST', `/api/usuarios/${VICTIMA.id_usuario}/cerrar-sesiones`, { token: gestorToken });
+  assert.equal(gestor.status, 403);
+  assert.equal((await api('GET', '/api/ping', { token: victimaToken })).status, 200);
+
+  const ok = await api('POST', `/api/usuarios/${VICTIMA.id_usuario}/cerrar-sesiones`, { token: adminToken });
   assert.equal(ok.status, 200);
 
   const noExiste = await api('POST', '/api/usuarios/999999/cerrar-sesiones', { token: adminToken });

@@ -290,14 +290,14 @@ export async function emailsDeUsuarios(ids) {
  * implementaciones de la misma decisión divergen, y el síntoma es un botón
  * escondido a quien sí puede pulsarlo.
  *
- * `borrar` refleja el permiso global y la visibilidad, que es lo que comprueba
- * `borrarProyecto`. Si el proyecto tiene tareas, el borrado las lleva consigo.
+ * `borrar` refleja el permiso global y la edición de la fila, que es lo que
+ * comprueba `borrarProyecto`. Si el proyecto tiene tareas, el borrado las lleva consigo.
  */
 function permisosFilaProyecto(ctx, proyecto, miembros = []) {
+  const editar = puedeEditarProyecto(ctx, proyecto, miembros);
   return {
-    editar: puedeEditarProyecto(ctx, proyecto, miembros),
-    borrar:
-      tienePermiso(ctx, PERMISOS.proyectosBorrar) && puedeVerProyecto(ctx, proyecto, miembros),
+    editar,
+    borrar: tienePermiso(ctx, PERMISOS.proyectosBorrar) && editar,
   };
 }
 
@@ -957,7 +957,8 @@ export async function actualizarProyecto(ctx, idProyecto, body = {}) {
 export async function borrarProyecto(ctx, idProyecto) {
   const leido = await leerProyectoCompleto(idProyecto);
   if (!leido) return rechazar(404, 'El proyecto no existe');
-  const denegado = comprobarAcceso(ctx, leido);
+  // `proyectos.borrar` (en la ruta) no basta: además hay que poder editar la fila.
+  const denegado = comprobarAcceso(ctx, leido, { editar: true });
   if (denegado) return denegado;
 
   const { borrarTareasDeProyecto } = await import('./tareas.js');

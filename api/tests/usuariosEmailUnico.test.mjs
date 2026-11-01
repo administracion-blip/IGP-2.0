@@ -70,9 +70,19 @@ function montar() {
 
 const conEmail = (db, email) => db.listar(tables.usuarios).filter((u) => u.Email === email);
 
+test('un no-admin con usuarios.crear/editar recibe 403 (escrituras solo Administrador)', async () => {
+  const db = montar();
+  const alta = await api('POST', '/api/usuarios', { id_usuario: '50', Email: 'libre@grupo.test', Password: 'secreta123', Rol: 'Local' }, GESTOR);
+  assert.equal(alta.status, 403);
+  assert.equal(db.obtener(tables.usuarios, { id_usuario: '000050' }), null);
+  const ed = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana.nueva@grupo.test' }, GESTOR);
+  assert.equal(ed.status, 403);
+  assert.equal(db.obtener(tables.usuarios, { id_usuario: '000007' }).Email, 'ana@grupo.test');
+});
+
 test('alta con el email de un Administrador (aunque cambien mayúsculas y espacios): 409 y no se crea', async () => {
   const db = montar();
-  const r = await api('POST', '/api/usuarios', { id_usuario: '50', Email: '  JEFE@Grupo.test ', Password: 'secreta123', Rol: 'Local' }, GESTOR);
+  const r = await api('POST', '/api/usuarios', { id_usuario: '50', Email: '  JEFE@Grupo.test ', Password: 'secreta123', Rol: 'Local' }, ADMIN);
   assert.equal(r.status, 409);
   assert.match(r.body.error, /Ya existe otro usuario con el email jefe@grupo\.test/);
   assert.equal(db.obtener(tables.usuarios, { id_usuario: '000050' }), null);
@@ -81,7 +91,7 @@ test('alta con el email de un Administrador (aunque cambien mayúsculas y espaci
 
 test('editar otra ficha poniéndole el email de un Administrador: 409 y no cambia', async () => {
   const db = montar();
-  const r = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'Jefe@grupo.test' }, GESTOR);
+  const r = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'Jefe@grupo.test' }, ADMIN);
   assert.equal(r.status, 409);
   assert.equal(db.obtener(tables.usuarios, { id_usuario: '000007' }).Email, 'ana@grupo.test');
   assert.equal(conEmail(db, 'jefe@grupo.test').length, 1);
@@ -89,7 +99,7 @@ test('editar otra ficha poniéndole el email de un Administrador: 409 y no cambi
 
 test('editar una ficha conservando su propio email sigue funcionando', async () => {
   const db = montar();
-  const r = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: ' ANA@grupo.test', Telefono: '600' }, GESTOR);
+  const r = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: ' ANA@grupo.test', Telefono: '600' }, ADMIN);
   assert.equal(r.status, 200, r.body?.error);
   const ana = db.obtener(tables.usuarios, { id_usuario: '000007' });
   assert.equal(ana.Email, 'ana@grupo.test');
@@ -98,9 +108,9 @@ test('editar una ficha conservando su propio email sigue funcionando', async () 
 
 test('cambiar a un email libre y crear con email libre siguen funcionando', async () => {
   const db = montar();
-  assert.equal((await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana.nueva@grupo.test' }, GESTOR)).status, 200);
+  assert.equal((await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana.nueva@grupo.test' }, ADMIN)).status, 200);
   assert.equal(db.obtener(tables.usuarios, { id_usuario: '000007' }).Email, 'ana.nueva@grupo.test');
-  const alta = await api('POST', '/api/usuarios', { id_usuario: '60', Email: 'Nuevo@Grupo.test', Password: 'secreta123', Rol: 'Local' }, GESTOR);
+  const alta = await api('POST', '/api/usuarios', { id_usuario: '60', Email: 'Nuevo@Grupo.test', Password: 'secreta123', Rol: 'Local' }, ADMIN);
   assert.equal(alta.status, 200, alta.body?.error);
   assert.equal(db.obtener(tables.usuarios, { id_usuario: '000060' }).Email, 'nuevo@grupo.test');
 });
@@ -108,14 +118,14 @@ test('cambiar a un email libre y crear con email libre siguen funcionando', asyn
 test('un duplicado que ya existiera no impide editar el resto de la ficha', async () => {
   const db = montar();
   db.sembrar(tables.usuarios, { id_usuario: '000008', Email: 'ana@grupo.test', Password: 'h', Rol: 'Local' });
-  const r = await api('PUT', '/api/usuarios', { id_usuario: '000008', Email: 'ana@grupo.test', Nombre: 'Ana B' }, GESTOR);
+  const r = await api('PUT', '/api/usuarios', { id_usuario: '000008', Email: 'ana@grupo.test', Nombre: 'Ana B' }, ADMIN);
   assert.equal(r.status, 200, r.body?.error);
   assert.equal(db.obtener(tables.usuarios, { id_usuario: '000008' }).Nombre, 'Ana B');
 });
 
 test('alta con contraseña de menos de 8 caracteres: 400 y no se crea', async () => {
   const db = montar();
-  const r = await api('POST', '/api/usuarios', { id_usuario: '70', Email: 'corta@grupo.test', Password: '1234567', Rol: 'Local' }, GESTOR);
+  const r = await api('POST', '/api/usuarios', { id_usuario: '70', Email: 'corta@grupo.test', Password: '1234567', Rol: 'Local' }, ADMIN);
   assert.equal(r.status, 400);
   assert.match(r.body.error, /al menos 8 caracteres/);
   assert.equal(db.obtener(tables.usuarios, { id_usuario: '000070' }), null);
@@ -123,7 +133,7 @@ test('alta con contraseña de menos de 8 caracteres: 400 y no se crea', async ()
 
 test('editar con contraseña nueva corta: 400 y conserva la actual', async () => {
   const db = montar();
-  const r = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Password: 'abc' }, GESTOR);
+  const r = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Password: 'abc' }, ADMIN);
   assert.equal(r.status, 400);
   assert.match(r.body.error, /al menos 8 caracteres/);
   assert.equal(db.obtener(tables.usuarios, { id_usuario: '000007' }).Password, 'hash-ana');
@@ -131,9 +141,9 @@ test('editar con contraseña nueva corta: 400 y conserva la actual', async () =>
 
 test('editar sin contraseña (vacía o ausente) mantiene la actual y no se bloquea', async () => {
   const db = montar();
-  const vacia = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Password: '', Nombre: 'Ana C' }, GESTOR);
+  const vacia = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Password: '', Nombre: 'Ana C' }, ADMIN);
   assert.equal(vacia.status, 200, vacia.body?.error);
-  const sin = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Telefono: '611' }, GESTOR);
+  const sin = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Telefono: '611' }, ADMIN);
   assert.equal(sin.status, 200, sin.body?.error);
   const ana = db.obtener(tables.usuarios, { id_usuario: '000007' });
   assert.equal(ana.Password, 'hash-ana');

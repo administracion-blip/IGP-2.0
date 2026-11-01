@@ -161,6 +161,25 @@ function actuacionResumenConflicto(x) {
 }
 
 /**
+ * Resumen del conflicto para quien pregunta. Si la otra actuación es de un local
+ * fuera de su alcance se sigue avisando del conflicto (artista, fecha y hora),
+ * pero sin id, local ni estado de esa actuación.
+ */
+async function resumenConflictoVisible(req, x) {
+  const resumen = actuacionResumenConflicto(x);
+  if (!resumen) return null;
+  const alcance = await cargarAlcance(req);
+  if (permiteLocal(alcance, { idLocal: x.id_local })) return resumen;
+  return {
+    ...resumen,
+    id_actuacion: '',
+    id_local: '',
+    local_nombre_snapshot: 'Otro local (sin acceso)',
+    estado: '',
+  };
+}
+
+/**
  * Lanza un Error con status 404 y mensaje custom cuando la tabla de artistas
  * no existe en DynamoDB. Para el resto de errores, los re-lanza tal cual y los
  * gestiona el middleware central.
@@ -674,7 +693,7 @@ router.post('/actuaciones/conflicto-artista', requireAnyPermission('actuaciones.
     hora_inicio: hora_inicio != null ? hora_inicio : '22:00',
   });
   if (!otro) return res.json({ conflicto: false });
-  return res.json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
+  return res.json({ conflicto: true, otro: await resumenConflictoVisible(req, otro) });
 });
 
 /** Quita artista del registro conflicto y lo asigna al registro destino. */
@@ -893,7 +912,7 @@ router.post('/actuaciones', async (req, res) => {
       hora_inicio: item.hora_inicio,
     });
     if (otro) {
-      return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
+      return res.status(409).json({ conflicto: true, otro: await resumenConflictoVisible(req, otro) });
     }
   }
   const errorLocal = await errorLocalEscritura(req, item.id_local);
@@ -986,7 +1005,7 @@ router.put('/actuaciones/item/:id', async (req, res) => {
       hora_inicio: horaFinal,
     });
     if (otro) {
-      return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
+      return res.status(409).json({ conflicto: true, otro: await resumenConflictoVisible(req, otro) });
     }
   }
   if (!(await putActuacionLeida(prev, item))) return res.status(409).json({ error: MENSAJE_ACTUACION_CAMBIADA });

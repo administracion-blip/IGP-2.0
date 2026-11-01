@@ -76,7 +76,6 @@ test('un no-admin con usuarios.editar no puede subirse a Administrador', async (
   const db = montar();
   const r = await api('PUT', '/api/usuarios', { id_usuario: '000005', Email: 'gestor@grupo.test', Rol: 'Administrador' }, GESTOR);
   assert.equal(r.status, 403);
-  assert.match(r.body.error, /Administrador/);
   assert.equal(ficha(db, '000005').Rol, 'Gestor');
 });
 
@@ -134,31 +133,59 @@ test('un Administrador puede editar y borrar a otro Administrador', async () => 
   assert.equal(ficha(db, '000002'), null);
 });
 
-test('un no-admin sigue pudiendo gestionar usuarios normales', async () => {
+test('desde 2026-11-01 un no-admin con usuarios.crear/editar/borrar no gestiona ni usuarios normales', async () => {
   const db = montar();
+  const antes = { ...ficha(db, '000007') };
   const ed = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Telefono: '611' }, GESTOR);
+  assert.equal(ed.status, 403);
+  assert.deepEqual(ficha(db, '000007'), antes);
+
+  const alta = await api('POST', '/api/usuarios', { id_usuario: '60', Email: 'b@grupo.test', Password: 'secreta123', Rol: 'Local' }, GESTOR);
+  assert.equal(alta.status, 403);
+  assert.equal(ficha(db, '000060'), null);
+
+  const del = await api('DELETE', '/api/usuarios', { id_usuario: '000007' }, GESTOR);
+  assert.equal(del.status, 403);
+  assert.ok(ficha(db, '000007'));
+
+  const cerrar = await api('POST', '/api/usuarios/000007/cerrar-sesiones', {}, GESTOR);
+  assert.equal(cerrar.status, 403);
+  assert.equal(ficha(db, '000007').tokenVersion, antes.tokenVersion);
+});
+
+test('un no-admin con usuarios.ver sigue pudiendo listar usuarios', async () => {
+  montar();
+  const r = await api('GET', '/api/usuarios', undefined, GESTOR);
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body.usuarios));
+});
+
+test('el Administrador gestiona usuarios normales y cierra sus sesiones', async () => {
+  const db = montar();
+  const ed = await api('PUT', '/api/usuarios', { id_usuario: '000007', Email: 'ana@grupo.test', Telefono: '611' }, ADMIN);
   assert.equal(ed.status, 200);
   assert.equal(ed.body.usuario.Telefono, '611');
   assert.equal(ed.body.usuario.Rol, 'Local');
   assert.equal(ed.body.usuario.Password, undefined);
 
-  const alta = await api('POST', '/api/usuarios', { id_usuario: '60', Email: 'b@grupo.test', Password: 'secreta123', Rol: 'Local' }, GESTOR);
+  const cerrar = await api('POST', '/api/usuarios/000007/cerrar-sesiones', {}, ADMIN);
+  assert.equal(cerrar.status, 200);
+
+  const alta = await api('POST', '/api/usuarios', { id_usuario: '60', Email: 'b@grupo.test', Password: 'secreta123', Rol: 'Local' }, ADMIN);
   assert.equal(alta.status, 200);
   assert.equal(ficha(db, '000060').Rol, 'Local');
 
-  const del = await api('DELETE', '/api/usuarios', { id_usuario: '000060' }, GESTOR);
+  const del = await api('DELETE', '/api/usuarios', { id_usuario: '000060' }, ADMIN);
   assert.equal(del.status, 200);
   assert.equal(ficha(db, '000060'), null);
 });
 
-test('PUT de un usuario inexistente devuelve 404 y no lo crea (usuarios.editar no sirve para crear)', async () => {
+test('PUT de un usuario inexistente devuelve 404 y no lo crea', async () => {
   const db = montar();
-  db.sembrar(tables.rolesPermisos, { PK: 'ROL#Editor', SK: 'PERMISO#usuarios.editar' });
-  const EDITOR = { sub: '000006', email: 'editor@grupo.test', rol: 'Editor' };
   const antes = db.listar(tables.usuarios).length;
   const r = await api('PUT', '/api/usuarios', {
     id_usuario: '000099', Email: 'colado@grupo.test', Password: 'secreta123', Rol: 'Local',
-  }, EDITOR);
+  }, ADMIN);
   assert.equal(r.status, 404);
   assert.equal(r.body.error, 'Usuario no encontrado');
   assert.equal(ficha(db, '000099'), null);

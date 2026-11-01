@@ -102,7 +102,7 @@ function truncar(val: string): string {
 
 export default function UsuariosScreen() {
   const router = useRouter();
-  const { hasPermiso, user, setUser, logout } = useAuth();
+  const { user, setUser, logout } = useAuth();
   const { refresh: refreshLocalesCompartidos } = useLocales();
   const { confirmar, ConfirmarView } = useConfirmar();
   const { isPhone, isDesktop, shouldStackPanels } = useBreakpoint();
@@ -524,9 +524,11 @@ export default function UsuariosScreen() {
     setSelectedRowIndex((prev) => (prev === idx ? null : idx));
   };
 
-  const puedeCrear = hasPermiso('usuarios.crear');
-  const puedeEditar = hasPermiso('usuarios.editar');
-  const puedeBorrar = hasPermiso('usuarios.borrar');
+  // El backend solo admite altas, ediciones, borrados y cierre de sesiones al rol Administrador.
+  const esAdmin = user?.Rol === 'Administrador';
+  const puedeCrear = esAdmin;
+  const puedeEditar = esAdmin;
+  const puedeBorrar = esAdmin;
 
   const toolbarSecundarios = [
     puedeEditar && { id: 'editar' as const, label: 'Editar', icon: ICONS.edit as ComponentProps<typeof MaterialIcons>['name'] },
