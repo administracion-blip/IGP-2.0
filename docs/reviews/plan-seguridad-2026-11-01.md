@@ -92,8 +92,39 @@ salvo petición expresa. Cada fase pasa los tests de `api/tests` y revisión de 
 
 ### 3.1 Permisos en lecturas de Ágora
 
-- Rutas: `agora/purchases`, `agora/purchases/por-producto`, `cajas/top`, `agora/closeouts/dashboard-home`, `totals-by-local-ytd`, `totals-by-month`, `agora/users`.
-- **Antes de tocar código se entrega el mapa ruta → permiso → pantalla/widget que la usa**, y no se cambia nada hasta su aprobación. Es lo que más fácil puede ocultar algo del inicio.
+- En `api/routes/agora.js` hay 17 lecturas que solo exigen sesión.
+- **Decisión (2026-11-01):** deja de estar vigente el criterio «datos de grupo visibles para todos»; el comentario de `agora.js` se actualiza con el nuevo criterio.
+
+**Mapa aprobado**
+
+| Ruta | Quién la llama | Permiso |
+|---|---|---|
+| `GET /agora/closeouts/dashboard-home` | Inicio `/` (todos, solo `totalsTicker`); `FacturacionYtdWidget` en el hub de Cajas (`cajas.ver`) | Sin permiso. `totalsTicker` filtrado en servidor por los locales del usuario; acumulados YTD y por meses solo con `cajas.ver` |
+| `GET /cajas/top` | Cajas → Top (`top.ver`) | `top.ver` |
+| `totals-by-local-ytd`, `totals-by-month` | Ninguna pantalla | `cajas.ver` |
+| `GET /agora/purchases` | Compras a proveedor, resumen, último precio, conciliación de facturas | `compras_proveedor.ver` |
+| `GET /agora/purchases/por-producto` | Modal de compras en acuerdos y escandallos | Uno de `compras_proveedor.ver`, `acuerdos.ver`, `escandallos.ver` |
+| `GET /agora/users` | Usuarios Ágora | `usuarios_agora.ver` |
+| `GET /agora/test-connection` | Ninguna pantalla | Solo Administrador |
+| `GET /agora/payment-methods` | Ninguna lectura | `cierres.ver` |
+| `GET /agora/formas-pago` | Cierres teóricos, maestro de formas de pago | `cierres.ver` |
+| `GET /agora/sale-centers` | Pantallas de cajas; Puntos de venta | Uno de `cierres.ver`, `puntos_venta.ver` |
+| `GET /agora/centros-venta`, `GET /agora/locales-tarifa` | Puntos de venta | `puntos_venta.ver` |
+| `GET /agora/franjas-plantillas` | Franjas y objetivos, previsión, RRHH → horas por facturación | Uno de `objetivos.ver`, `prevision.ver`, `rrhh.horas` |
+
+Sin cambios: `GET /agora/products` (lo carga `ProductosCache` en el layout global para pedidos, almacén, acuerdos, etc.), `GET /agora/closeouts-ready` (estado, sin datos) y `GET /agora/closeouts/totals-by-local` (ya filtra por local).
+
+**Comprobaciones previas**
+
+- `ComprasProveedorCache` (layout global) no pide compras al arrancar: no tiene `useEffect`; solo carga cuando una pantalla de compras llama a `recargar`.
+- `GET /agora/products` **sí devuelve precios de coste** a cualquier usuario con sesión: `CostPrice` y `CostPrices` por almacén (`api/lib/dynamo/agoraProducts.js`, `ALLOWED_FIELDS`). Además, `?source=agora` lanza una consulta en vivo a Ágora para cualquier usuario. Solo se informa; queda pendiente decidir.
+
+**Pendientes de la revisión de la 3.1**
+
+- `dashboard-home` sigue consultando los cierres de todos los locales desde el 1 de enero del año anterior aunque el usuario no tenga `cajas.ver`; se podría consultar solo `dateTo`, `datePrev` y los locales del usuario.
+- Con `cajas.ver`, los acumulados mensuales de `FacturacionYtdWidget` son de todo el grupo (el widget no los filtra por local, a diferencia de los YTD). Revisar en la 3.2.
+
+**Pruebas:** por cada ruta, 403 sin el permiso y 200 con él (y con Administrador); en `dashboard-home`, que `totalsTicker` solo trae locales del usuario y que los acumulados no vienen sin `cajas.ver`.
 
 ### 3.2 Bloqueo de lecturas por local
 

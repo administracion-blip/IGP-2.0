@@ -63,6 +63,10 @@ db.instalar(docClient);
 let servidor;
 const app = express();
 app.use(express.json());
+app.use((req, _res, next) => {
+  req.user = { sub: '000001', rol: 'Administrador' };
+  next();
+});
 app.use('/api', agoraRouter);
 servidor = http.createServer(app);
 await new Promise((listo) => servidor.listen(0, '127.0.0.1', listo));

@@ -171,13 +171,14 @@ test('totals-by-local: observar devuelve los dos locales; bloquear solo el propi
   assert.deepEqual(r.body.totals.map((t) => t.workplaceId), ['101']);
 });
 
-test('totales anuales de grupo (ytd y por mes) no se recortan ni en bloquear', async () => {
+test('totales anuales de grupo (ytd y por mes) piden cajas.ver y no se recortan ni en bloquear', async () => {
   montar();
   modo('bloquear');
-  const ytd = await get('/api/agora/closeouts/totals-by-local-ytd?year=2026', LOCAL_PARIPE);
+  assert.equal((await get('/api/agora/closeouts/totals-by-local-ytd?year=2026', LOCAL_PARIPE)).status, 403);
+  const ytd = await get('/api/agora/closeouts/totals-by-local-ytd?year=2026', SUPER_PARIPE);
   assert.equal(ytd.status, 200);
   assert.deepEqual(ytd.body.totals.map((t) => t.workplaceId).sort(), ['101', '202']);
-  const mes = await get('/api/agora/closeouts/totals-by-month?year=2026', LOCAL_PARIPE);
+  const mes = await get('/api/agora/closeouts/totals-by-month?year=2026', SUPER_PARIPE);
   assert.equal(mes.body.months[9].total, 30);
 });
 

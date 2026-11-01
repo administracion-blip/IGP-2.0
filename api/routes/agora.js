@@ -80,10 +80,10 @@ import {
   listFormasPago,
   upsertFormasFromAgora,
 } from '../lib/agora/formasPago.js';
-import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
+import { requirePermission, requireAnyPermission, requireRole, hasPermission } from '../middleware/auth.js';
 import { requireLocal, requireLocales, requireAlcanceGlobal, requireLocalLectura, desde } from '../middleware/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal, workplacesLectura } from '../lib/alcanceLecturas.js';
-import { MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, cargarAlcance, modoLecturas } from '../lib/alcance.js';
+import { MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, cargarAlcance, modoLecturas, filtrarPorLocal } from '../lib/alcance.js';
 import { invalidarMapaAlmacenes } from '../lib/alcanceAlmacenes.js';
 import { buildObjetivoMensualCard, loadFestivosByFecha } from '../lib/agora/objetivoMensual.js';
 import { buildFacturacionMesDiaria } from '../lib/agora/facturacionMesDiaria.js';
@@ -1028,10 +1028,13 @@ router.get('/agora/closeouts/totals-by-local', async (req, res) => {
   res.json({ businessDay, totals });
 });
 
-// Sin alcance a propósito: el resumen anual (totals-by-local-ytd, totals-by-month,
-// dashboard-home) y /cajas/top son datos de grupo que cualquier usuario ve completos.
+// Datos de grupo (desde 2026-11-01 exigen permiso): el resumen anual
+// (totals-by-local-ytd, totals-by-month y los acumulados de dashboard-home) pide
+// cajas.ver y /cajas/top pide top.ver. El totalsTicker de dashboard-home no pide
+// permiso pero se filtra siempre por los locales del usuario, en cualquier modo
+// de ALCANCE_MODO_LECTURAS.
 
-router.get('/agora/closeouts/totals-by-local-ytd', async (req, res) => {
+router.get('/agora/closeouts/totals-by-local-ytd', requirePermission('cajas.ver'), async (req, res) => {
   const year = (req.query.year && String(req.query.year).trim()) || '';
   const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
   if (!year || !/^\d{4}$/.test(year)) {
@@ -1077,7 +1080,7 @@ router.get('/agora/closeouts/totals-by-local-ytd', async (req, res) => {
   res.json({ year, dateTo: useDateTo ? dateTo : null, totals: result });
 });
 
-router.get('/agora/closeouts/totals-by-month', async (req, res) => {
+router.get('/agora/closeouts/totals-by-month', requirePermission('cajas.ver'), async (req, res) => {
   const year = (req.query.year && String(req.query.year).trim()) || '';
   const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
   if (!year || !/^\d{4}$/.test(year)) {
@@ -1223,17 +1226,24 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
       });
     }
 
+    const ticker = Object.entries(totalsTickerPk)
+      .filter(([, total]) => total > 0)
+      .map(([workplaceId, total]) => ({
+        local: pkToNombre[workplaceId] ?? workplaceId,
+        total: Math.round(total * 100) / 100,
+        totalAnterior: Math.round((totalsPrevPk[workplaceId] || 0) * 100) / 100,
+        workplaceId,
+      }))
+      .sort((a, b) => b.total - a.total);
+    const totalsTicker = filtrarPorLocal(await cargarAlcance(req), ticker, (r) => ({ workplaceId: r.workplaceId }));
+
+    if (!(await hasPermission(req.user, 'cajas.ver'))) {
+      return res.json({ dateTo, totalsTicker });
+    }
+
     res.json({
       dateTo,
-      totalsTicker: Object.entries(totalsTickerPk)
-        .filter(([, total]) => total > 0)
-        .map(([workplaceId, total]) => ({
-          local: pkToNombre[workplaceId] ?? workplaceId,
-          total: Math.round(total * 100) / 100,
-          totalAnterior: Math.round((totalsPrevPk[workplaceId] || 0) * 100) / 100,
-          workplaceId,
-        }))
-        .sort((a, b) => b.total - a.total),
+      totalsTicker,
       ytdCurrent: {
         year: curYear,
         dateTo: useDateToCur ? dateTo : null,
@@ -1620,7 +1630,7 @@ router.get('/agora/invoices/payments-review', requirePermission('cierres.ver'), 
 // USUARIOS ÁGORA — maestro cacheado en DynamoDB (Igp_AgoraUsuarios)
 // =========================================================================
 
-router.get('/agora/users', async (req, res) => {
+router.get('/agora/users', requirePermission('usuarios_agora.ver'), async (req, res) => {
   const forceAgora =
     String(req.query.source || '').toLowerCase() === 'agora' ||
     String(req.query.force || '') === '1';
@@ -1980,8 +1990,8 @@ function sumInvoiceAmount(inv) {
   return 0;
 }
 
-// Sin alcance a propósito: ranking de todo el grupo, visible para cualquier usuario.
-router.get('/cajas/top', async (req, res) => {
+// Sin alcance por local a propósito: ranking de todo el grupo, solo con top.ver.
+router.get('/cajas/top', requirePermission('top.ver'), async (req, res) => {
   const dateFromRaw = String(req.query.dateFrom || '').trim();
   const dateToRaw = String(req.query.dateTo || '').trim();
   const workplaceIdsRaw = req.query.workplaceIds ?? req.query['workplaceIds[]'];
@@ -2357,7 +2367,7 @@ router.get('/cajas/top', async (req, res) => {
   });
 });
 
-router.get('/agora/test-connection', async (req, res) => {
+router.get('/agora/test-connection', requireRole('Administrador'), async (req, res) => {
   const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
   const token = (AGORA_API_TOKEN || '').trim();
@@ -2413,7 +2423,7 @@ router.get('/agora/test-connection', async (req, res) => {
 // Si la caché está fresca, no se llama a Ágora. Si está expirada o vacía, se recarga.
 // Si Ágora falla y hay caché previa se devuelve marcada como stale; si no hay caché,
 // se sirve el fallback inicial hardcodeado.
-router.get('/agora/payment-methods', async (req, res) => {
+router.get('/agora/payment-methods', requirePermission('cierres.ver'), async (req, res) => {
   const force = String(req.query.force || '').toLowerCase() === 'true';
   if (force) {
     paymentMethodsCache.fetchedAt = 0;
@@ -2429,7 +2439,7 @@ router.get('/agora/payment-methods', async (req, res) => {
 // --- Maestro persistente de formas de pago (tabla Igp_FormasPago) ---
 
 // GET /api/agora/formas-pago — catálogo persistente (para arqueo, cierres y maestro)
-router.get('/agora/formas-pago', async (_req, res) => {
+router.get('/agora/formas-pago', requirePermission('cierres.ver'), async (_req, res) => {
   try {
     const formas = await listFormasPago();
     res.json({ ok: true, formas });
@@ -2993,7 +3003,7 @@ router.patch('/agora/products/:id', requirePermission('productos.editar'), async
 });
 
 /** Puntos de venta / TPV (PK='GLOBAL'). Las tarifas viven en los centros de venta. */
-router.get('/agora/sale-centers', async (req, res) => {
+router.get('/agora/sale-centers', requireAnyPermission('cierres.ver', 'puntos_venta.ver'), async (req, res) => {
   const items = await listSaleCenters(docClient, tableSaleCentersName);
   items.sort((a, b) => String(a.SK ?? '').localeCompare(String(b.SK ?? '')));
   const saleCenters = items.map((i) => ({
@@ -3218,7 +3228,7 @@ router.post('/agora/sale-centers/sync', requirePermission('puntos_venta.editar')
  * Entidad distinta de los puntos de venta: el export no trae local ni workplace,
  * por eso hace falta el mapa manual local → centro de venta.
  */
-router.get('/agora/centros-venta', async (_req, res) => {
+router.get('/agora/centros-venta', requirePermission('puntos_venta.ver'), async (_req, res) => {
   const items = await listCentrosVenta(docClient, tableSaleCentersName);
   const centros = items
     .map((i) => ({
@@ -3232,7 +3242,7 @@ router.get('/agora/centros-venta', async (_req, res) => {
 });
 
 /** Asignaciones manuales local → centro de venta (de aquí sale la tarifa de venta). */
-router.get('/agora/locales-tarifa', async (_req, res) => {
+router.get('/agora/locales-tarifa', requirePermission('puntos_venta.ver'), async (_req, res) => {
   const [asignaciones, centros] = await Promise.all([
     listLocalesTarifa(docClient, tableSaleCentersName),
     listCentrosVenta(docClient, tableSaleCentersName),
@@ -3335,7 +3345,7 @@ function normalizarFranjas(raw) {
   return franjas;
 }
 
-router.get('/agora/franjas-plantillas', async (_req, res) => {
+router.get('/agora/franjas-plantillas', requireAnyPermission('objetivos.ver', 'prevision.ver', 'rrhh.horas'), async (_req, res) => {
   const items = [];
   let lastKey = null;
   do {
@@ -4318,7 +4328,7 @@ router.delete('/agora/closeouts', requirePermission('cierres.borrar'), requireLo
 // Compras a Proveedor (Purchases)
 // ──────────────────────────────────────────
 
-router.get('/agora/purchases/por-producto', async (req, res) => {
+router.get('/agora/purchases/por-producto', requireAnyPermission('compras_proveedor.ver', 'acuerdos.ver', 'escandallos.ver'), async (req, res) => {
   const { productId, fechaInicio, fechaFin } = req.query;
   if (!productId) return res.status(400).json({ error: 'productId es obligatorio' });
 
@@ -4410,7 +4420,7 @@ function resolverRangoPurchases(query) {
   return { dateFrom, dateTo };
 }
 
-router.get('/agora/purchases', async (req, res) => {
+router.get('/agora/purchases', requirePermission('compras_proveedor.ver'), async (req, res) => {
   {
     const forceRefresh = req.query.refresh === '1';
     const rango = resolverRangoPurchases(req.query);
