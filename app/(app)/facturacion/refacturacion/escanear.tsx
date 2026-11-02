@@ -363,6 +363,7 @@ export default function RefacturacionEscanearScreen() {
           if (!res.ok) throw new Error(data.error ?? 'Error OCR');
           let datos = (data.datos || {}) as Record<string, unknown>;
           let iaSaltada = false;
+          let avisoIa = 'No se ha podido leer la factura con IA. Complétala a mano.';
           try {
             const rIa = await apiFetch('/api/facturacion/ocr/enriquecer-ia', {
               method: 'POST',
@@ -378,20 +379,21 @@ export default function RefacturacionEscanearScreen() {
               datos = j.datos as Record<string, unknown>;
             } else {
               iaSaltada = true;
+              avisoIa =
+                typeof j.error === 'string' && j.error
+                  ? j.error
+                  : 'Capa IA no disponible: revisa/completa las líneas a mano (configure OPENAI_API_KEY).';
             }
           } catch (iaErr) {
             console.warn('[Refacturación escanear] IA enriquecimiento:', iaErr);
             iaSaltada = true;
+            avisoIa = 'No se ha podido leer la factura con IA. Complétala a mano.';
           }
           const { lineas: lineasOcr } = mapLineasDesdeOcrConMeta(datos);
           const avisos: string[] = [];
           if (iaSaltada) {
             avisos.push('IA no disponible');
-            showToast(
-              'Aviso OCR',
-              'Capa IA no disponible: revisa/completa las líneas a mano (configure OPENAI_API_KEY).',
-              'warning',
-            );
+            showToast('Aviso OCR', avisoIa, 'warning');
           }
           /** Importes a 0: el usuario introduce precio; OCR solo aporta descripción e IVA. */
           const lineasDoc: LineaLocal[] = lineasOcr.length > 0

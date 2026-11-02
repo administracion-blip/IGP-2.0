@@ -62,6 +62,7 @@ import { listarProductosInventario } from '../lib/inventarios/productos.js';
 import { parsearDictado, partirCantidad } from '../lib/inventarios/dictado/parser.js';
 import { emparejarProducto, filtrarCandidatosParecidos, normalizarAlias, prepararIndice } from '../lib/inventarios/dictado/matcher.js';
 import { confirmarTrasElegir, motivosTrasElegir, resolverRespuesta } from '../lib/inventarios/dictado/respuestaVoz.js';
+import { AVISO_DICTADO } from '../lib/ia/ajustes.js';
 import { debeConsultarIa, esContinuacion, proponerInterpretacion } from '../lib/inventarios/dictado/interpretarIa.js';
 import { aliasAceptable, borrarAlias, guardarAlias, listarAlias, sumarUso } from '../lib/inventarios/dictado/alias.js';
 import {
@@ -492,7 +493,9 @@ async function interpretar(req, inventario, texto, idEnvio) {
         anterior: sigue ? textoAnterior : null,
         productos: plantilla,
       });
-      if (propuesta) {
+      if (propuesta?.falloModelo) {
+        aviso = AVISO_DICTADO;
+      } else if (propuesta) {
         if (propuesta.productId) {
           productId = propuesta.productId;
           productoNombre = propuesta.nombre;
@@ -928,6 +931,11 @@ export function crearRouterDictado({ exportStocks = exportStocksAgora } = {}) {
       if (!texto) return res.status(200).json({ texto, ...resultado, aviso: AVISO_AUDIO_VACIO });
       return res.status(resultado.lineas.length === 0 ? 200 : 201).json({ texto, ...resultado });
     } catch (err) {
+      // Modelo rechazado o transcripción sin configurar: aviso y ninguna línea.
+      // Un 200 no reintenta el trozo. Un corte de red sigue siendo 502 y sí reintenta.
+      if (err?.modelo || (err?.expose && err.status === 503)) {
+        return res.status(200).json({ texto: '', lineas: [], aviso: AVISO_DICTADO });
+      }
       return atrapar(res, err, 'Error transcribiendo el dictado');
     } finally {
       if (file) file.buffer = null;

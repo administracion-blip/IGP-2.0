@@ -720,9 +720,18 @@ export default function RegistroMasivoScreen() {
               const j = await rIa.json();
               if (rIa.ok && j.ok && j.datos && !j.skipped) {
                 d = j.datos;
+              } else if (!j.skipped) {
+                showToast(
+                  'Aviso OCR',
+                  typeof j.error === 'string' && j.error
+                    ? j.error
+                    : 'No se ha podido leer la factura con IA. Complétala a mano.',
+                  'warning',
+                );
               }
             } catch (iaErr) {
               console.warn('[Registro masivo] IA enriquecimiento:', iaErr);
+              showToast('Aviso OCR', 'No se ha podido leer la factura con IA. Complétala a mano.', 'warning');
             }
           }
 
@@ -809,7 +818,7 @@ export default function RegistroMasivoScreen() {
         await checkDuplicadosPorIdx(b.idx, { force: true });
       }
     },
-    [alertMsg, usarEnriquecimientoIa, checkDuplicadosPorIdx],
+    [alertMsg, usarEnriquecimientoIa, checkDuplicadosPorIdx, showToast],
   );
 
   const intentarProcesarArchivos = useCallback(

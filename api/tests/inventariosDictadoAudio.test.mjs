@@ -171,6 +171,7 @@ beforeEach(async () => {
   db.crearTabla(tables.agoraProducts, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.locales, { hashKey: 'id_Locales' });
   db.crearTabla(tables.almacenes, { hashKey: 'Id' });
+  db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(T(), {
     hashKey: 'PK',
     rangeKey: 'SK',
@@ -405,8 +406,10 @@ test('error del transcriptor → 502 en español, sin líneas; el reintento con 
 
   fallo = Object.assign(new Error('La transcripción no está configurada.'), { status: 503, expose: true });
   const n = await enviarAudio(id, { idEnvio: 'grab-err' });
-  assert.equal(n.status, 503);
-  assert.equal(n.body.error, 'La transcripción no está configurada.');
+  assert.equal(n.status, 200);
+  assert.equal(n.body.aviso, 'El dictado no está disponible ahora, cuenta a mano');
+  assert.equal(n.body.lineas.length, 0);
+  assert.equal(JSON.stringify(n.body).includes('configurada'), false);
 
   fallo = null;
   const ok = await enviarAudio(id, { idEnvio: 'grab-err' });
@@ -414,6 +417,32 @@ test('error del transcriptor → 502 en español, sin líneas; el reintento con 
   assert.equal(ok.body.repetido, undefined);
   assert.equal(ok.body.lineas.length, 1);
   assert.equal(llamadas.length, 3);
+});
+
+test('si no se pueden leer los ajustes, el audio responde 502 y el reintento transcribe', async () => {
+  const id = await nuevoInventario();
+  db.interceptar('GetCommand', tables.ajustes, () => {
+    throw new Error('throttle');
+  });
+  const r = await enviarAudio(id, { idEnvio: 'grab-ajustes' });
+  assert.equal(r.status, 502);
+  assert.equal(lineasDictado().length, 0);
+  assert.equal(JSON.stringify(r.body).includes('throttle'), false);
+  const ok = await enviarAudio(id, { idEnvio: 'grab-ajustes' });
+  assert.equal(ok.status, 201);
+  assert.equal(ok.body.lineas.length, 1);
+});
+
+test('modelo de transcripción rechazado → aviso claro, sin líneas y sin el error técnico', async () => {
+  const id = await nuevoInventario();
+  fallo = Object.assign(new Error('OpenAI HTTP 404 model_not_found'), { status: 502, expose: true, modelo: true });
+  const r = await enviarAudio(id, { idEnvio: 'grab-modelo' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.aviso, 'El dictado no está disponible ahora, cuenta a mano');
+  assert.equal(r.body.lineas.length, 0);
+  assert.equal(lineasDictado().length, 0);
+  assert.equal(JSON.stringify(r.body).includes('OpenAI'), false);
+  assert.equal(JSON.stringify(r.body).includes('404'), false);
 });
 
 test('texto vacío → 200 con lineas [] y aviso; libera el idEnvio', async () => {

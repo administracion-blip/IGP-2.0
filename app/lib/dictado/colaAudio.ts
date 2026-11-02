@@ -74,7 +74,7 @@ const ESPERA_BASE_MS = 2000;
 const ESPERA_MAX_MS = 60000;
 const MAX_INTENTOS = 5;
 const MAX_EDAD_MS = 7 * 24 * 60 * 60 * 1000;
-const MENSAJE_AGOTADO = 'No se ha podido transcribir este trozo.';
+const MENSAJE_AGOTADO = 'El dictado no está disponible ahora, cuenta a mano';
 
 let cola: Trozo[] = [];
 let carga: Promise<void> | null = null;

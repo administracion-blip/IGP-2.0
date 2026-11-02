@@ -4,10 +4,10 @@
  * El modelo solo ve id y nombre de la plantilla de este conteo. Nunca stock.
  */
 
+import { getAjustesIa } from '../../ia/ajustes.js';
 import { chatCompletion } from '../../ia/openaiClient.js';
 import { normalizarTexto } from './matcher.js';
 
-const MODELO = 'gpt-4o-mini';
 const MAX_CANTIDAD = 100000;
 const TIMEOUT_MS = 15000;
 
@@ -119,16 +119,22 @@ function validar(raw, lista) {
 }
 
 async function llamarModelo(mensaje) {
-  const { text } = await chatCompletion({
-    system: SISTEMA,
-    user: mensaje,
-    model: MODELO,
-    temperature: 0,
-    timeoutMs: TIMEOUT_MS,
-    maxTokens: 200,
-    responseFormat: 'json_object',
-  });
-  return text;
+  const { modeloInterpretacion } = await getAjustesIa();
+  try {
+    const { text } = await chatCompletion({
+      system: SISTEMA,
+      user: mensaje,
+      model: modeloInterpretacion,
+      temperature: 0,
+      timeoutMs: TIMEOUT_MS,
+      maxTokens: 200,
+      responseFormat: 'json_object',
+    });
+    return text;
+  } catch (err) {
+    console.warn('[dictado/ia]', err?.message || err);
+    throw Object.assign(new Error('modelo'), { falloModelo: true });
+  }
 }
 
 /**
@@ -146,9 +152,16 @@ export async function proponerInterpretacion({ texto, anterior = null, productos
     const fn = interpretarFn;
     if (!fn) {
       if (enPrueba()) return null;
-      return validar(await llamarModelo(mensaje), lista);
+      try {
+        return validar(await llamarModelo(mensaje), lista);
+      } catch (err) {
+        if (err?.falloModelo) return { falloModelo: true };
+        return null;
+      }
     }
-    return validar(await fn({ texto, anterior, productos: lista, mensaje }), lista);
+    const crudo = await fn({ texto, anterior, productos: lista, mensaje });
+    if (crudo?.falloModelo) return { falloModelo: true };
+    return validar(crudo, lista);
   } catch {
     return null;
   }

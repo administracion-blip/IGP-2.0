@@ -11,6 +11,7 @@ import {
   averageOcrConfidenceFromLevels,
   degradarConfianzaSiImportesIncoherentes,
 } from './ocrFacturaValidacion.js';
+import { AVISO_OCR, getAjustesIa } from './ia/ajustes.js';
 import {
   agregarResumenDesdeDesglose,
   debeUsarAgregadosDesglose,
@@ -19,7 +20,15 @@ import {
 } from './ocrFacturaDesglose.js';
 
 const MAX_TEXT_CHARS = 14000;
-const DEFAULT_MODEL = process.env.OCR_IA_MODEL || 'gpt-4o-mini';
+
+function falloOcr(detalle) {
+  console.error('[OCR IA]', detalle);
+  return Object.assign(new Error(AVISO_OCR), {
+    status: 502,
+    expose: true,
+    detalle: String(detalle).slice(0, 500),
+  });
+}
 
 /** Umbral campos críticos (CIF, nº factura, fecha, total): solo sustituir si confianza IA >= esto */
 const UMBRAL_CRITICO = 0.78;
@@ -49,8 +58,9 @@ function averageOcrConfidence(conf) {
 export async function enriquecerFacturaOcrConOpenAI(datos, textoExtraido) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || String(apiKey).trim() === '') {
-    throw new Error('OPENAI_API_KEY no configurada');
+    throw falloOcr('OPENAI_API_KEY no configurada');
   }
+  const modelo = (await getAjustesIa()).modeloOcr;
 
   const text = String(textoExtraido || '').slice(0, MAX_TEXT_CHARS);
   const payload = {
@@ -133,7 +143,7 @@ No inventes CIFs ni importes que no puedas fundamentar en el texto.`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: DEFAULT_MODEL,
+        model: modelo,
         temperature: 0.05,
         response_format: { type: 'json_object' },
         messages: [
@@ -143,29 +153,36 @@ No inventes CIFs ni importes que no puedas fundamentar en el texto.`;
       }),
       signal: controller.signal,
     });
+  } catch (err) {
+    throw falloOcr(err?.message || err);
   } finally {
     clearTimeout(timeout);
   }
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`OpenAI HTTP ${res.status}: ${errText.slice(0, 500)}`);
+    throw falloOcr(`OpenAI HTTP ${res.status}: ${errText.slice(0, 500)}`);
   }
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch (err) {
+    throw falloOcr(err?.message || err);
+  }
   const content = data?.choices?.[0]?.message?.content;
   if (!content || typeof content !== 'string') {
-    throw new Error('Respuesta OpenAI vacía');
+    throw falloOcr('Respuesta OpenAI vacía');
   }
 
   let parsed;
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new Error('JSON inválido en respuesta IA');
+    throw falloOcr('JSON inválido en respuesta IA');
   }
 
-  return normalizeIaResponse(parsed);
+  return { ...normalizeIaResponse(parsed), modelo_usado: modelo };
 }
 
 /** IBAN normalizado si supera el módulo 97; cadena vacía en cualquier otro caso. */
@@ -493,7 +510,7 @@ export function mergeExtraccionConIa(datosOriginales, ia) {
 
   base.ia_meta = {
     aplicada: true,
-    modelo: DEFAULT_MODEL,
+    modelo: ia.modelo_usado || process.env.OCR_IA_MODEL || 'gpt-4o-mini',
     enriquecido_en: ts,
     tipo_documento: ia.tipo_documento,
     tiene_desglose_multiple: debeUsarAgregadosDesglose(lineasPost),

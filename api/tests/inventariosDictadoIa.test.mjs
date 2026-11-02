@@ -429,6 +429,18 @@ test('un alias de cuenta que ya existía no suma usos al confirmar', async () =>
   assert.equal((await listarAlias())[0].usos, 4);
 });
 
+test('si el modelo de interpretación falla, la línea sigue y el aviso no es técnico', async () => {
+  responder = () => ({ falloModelo: true });
+  const id = await nuevoInventario([['566', 'COCA COLA']]);
+  const r = await dictar(id, 'Phantom 3');
+  assert.equal(r.body.aviso, 'El dictado no está disponible ahora, cuenta a mano');
+  assert.equal(r.body.lineas.length, 1);
+  assert.equal(r.body.lineas[0].productId ?? null, null);
+  assert.equal(JSON.stringify(r.body).includes('falloModelo'), false);
+  assert.equal(JSON.stringify(r.body).includes('OpenAI'), false);
+  assert.equal(lineaConteo(id, '566').stockReal ?? null, null);
+});
+
 test('debeConsultarIa no se dispara en un acierto ni en una marca ambigua', () => {
   const limpio = parsearDictado('Legendario, cinco').ordenes[0];
   assert.equal(debeConsultarIa({ orden: limpio, productId: '749', motivos: [] }), false);

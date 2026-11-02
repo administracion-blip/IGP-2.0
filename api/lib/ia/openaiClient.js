@@ -6,9 +6,9 @@
  *
  * Envs:
  * - OPENAI_API_KEY: clave (misma que usa OCR).
- * - IA_INFORMES_MODEL: modelo para informes (default gpt-4o-mini). Independiente
- *   de OCR_IA_MODEL para no interferir con el OCR.
- * - OPENAI_TRANSCRIBE_MODEL: modelo de transcribirAudio (default gpt-4o-mini-transcribe).
+ * - IA_INFORMES_MODEL, OCR_IA_MODEL, IA_INVENTARIO_MODEL y OPENAI_TRANSCRIBE_MODEL
+ *   son el segundo escalón: solo se usan si en Ajustes de IA no hay modelo guardado
+ *   para ese uso. Quien llama debe pasar `model` / `modelo` con el valor ya resuelto.
  */
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
@@ -137,8 +137,8 @@ export function modeloTranscripcion() {
  * Error publicable (`expose`): el mensaje es español y seguro; `detalle` solo va al log y nunca
  * lleva el audio.
  */
-function errorTranscripcion(status, mensaje, detalle) {
-  return Object.assign(new Error(mensaje), { status, expose: true, ...(detalle && { detalle }) });
+function errorTranscripcion(status, mensaje, detalle, extra) {
+  return Object.assign(new Error(mensaje), { status, expose: true, ...(detalle && { detalle }), ...extra });
 }
 
 /**
@@ -197,7 +197,15 @@ export async function transcribirAudio(buffer, {
     }
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw errorTranscripcion(502, MENSAJE_TRANSCRIPCION_FALLIDA, `OpenAI HTTP ${res.status}: ${errText.slice(0, 500)}`);
+      // 4xx (modelo desconocido, clave rechazada): no es un fallo de red. Quien llama
+      // puede avisar al momento en vez de reintentar.
+      const modelo = res.status >= 400 && res.status < 500;
+      throw errorTranscripcion(
+        502,
+        MENSAJE_TRANSCRIPCION_FALLIDA,
+        `OpenAI HTTP ${res.status}: ${errText.slice(0, 500)}`,
+        modelo ? { modelo: true } : {},
+      );
     }
     let data;
     try {

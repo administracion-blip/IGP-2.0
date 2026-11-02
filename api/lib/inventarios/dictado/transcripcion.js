@@ -4,6 +4,7 @@
  * stock (teórico ni contado) ni cantidades.
  */
 
+import { getAjustesIa } from '../../ia/ajustes.js';
 import {
   MAX_PROMPT_TRANSCRIPCION,
   MENSAJE_TRANSCRIPCION_FALLIDA,
@@ -93,6 +94,7 @@ export async function transcribir(file, { productos = [], alias = [] } = {}) {
   const prompt = prepararPrompt(productos, alias);
   let salida;
   try {
+    const { modeloTranscripcion } = await getAjustesIa();
     // transcribirAudio crea el Blob (una copia) antes de su primer await: en cuanto vuelve la
     // promesa se suelta el buffer de multer para no tener el audio dos veces en memoria.
     const enCurso = transcribirFn(file.buffer, {
@@ -100,15 +102,17 @@ export async function transcribir(file, { productos = [], alias = [] } = {}) {
       tipo: file.mimetype,
       prompt,
       idioma: 'es',
+      modelo: modeloTranscripcion,
     });
     file.buffer = null;
     salida = await enCurso;
   } catch (err) {
-    if (err?.expose && (err.status === 502 || err.status === 503)) throw err;
+    if (err?.modelo || (err?.expose && (err.status === 502 || err.status === 503))) throw err;
     throw Object.assign(new Error(MENSAJE_TRANSCRIPCION_FALLIDA), {
       status: 502,
       expose: true,
       detalle: String(err?.message || err).slice(0, 500),
+      ...(err?.modelo && { modelo: true }),
     });
   }
   const texto = String(salida?.texto ?? '').trim();

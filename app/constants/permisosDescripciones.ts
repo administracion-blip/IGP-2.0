@@ -173,7 +173,7 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   'ia.informe_ventas_articulo':
     'Da acceso a la fuente de datos «Ventas por artículo» en los informes IA.',
   'ia.prompts_gestionar': 'Permite crear, modificar y borrar las plantillas de prompt de los informes IA.',
-  'ia.ajustes': 'Permite modificar los ajustes de la IA.',
+  'ia.ajustes': 'Permite modificar los ajustes de IA (modelo de cada uso).',
 
   // Actuaciones
   'actuaciones.ver':
