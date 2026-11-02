@@ -27,6 +27,8 @@ import { pkCuenta, queryMovimientosEmpresa, queryMovimientosEstado, skMovimiento
 /** Tope de movimientos que entran en un barrido de sugerencias. */
 const LIMITE_MOVIMIENTOS = 300;
 const LIMITE_MOVIMIENTOS_MAXIMO = 1000;
+/** Páginas por estado que lee como mucho el barrido filtrado de un usuario restringido. */
+export const MAX_PAGINAS_BARRIDO_RESTRINGIDO = 20;
 
 /**
  * Antigüedad máxima de movimientos en el barrido de sugerencias cuando el
@@ -327,22 +329,45 @@ export async function listarFacturasElegibles(tipo, { empresaId } = {}) {
  * no están en el índice de empresa: solo aparecen en el barrido sin filtro de
  * sociedad. Es la contrapartida conocida de no indexar `empresaId: ''`.
  *
- * @param {{ empresaId?: string, desde?: string, hasta?: string, limite?: number }} filtros
+ * Con `permitido` (usuario restringido por sociedad) y sin `empresaId`, el tope
+ * se aplica a los movimientos que pasan el filtro: se pagina el índice de estado
+ * hasta llenarlo, agotar el rango o llegar a `MAX_PAGINAS_BARRIDO_RESTRINGIDO`
+ * páginas por estado, para que los movimientos ajenos no ocupen el cupo. Si se
+ * corta por páginas quedando índice por leer, se llama a `alTruncar()`. Con
+ * `empresaId` el tope se sigue aplicando antes de filtrar.
+ *
+ * @param {{ empresaId?: string, desde?: string, hasta?: string, limite?: number,
+ *   permitido?: (movimiento: Record<string, any>) => boolean, alTruncar?: () => void }} filtros
  * @returns {Promise<Array<Record<string, any>>>}
  */
-export async function listarMovimientosAbiertos({ empresaId, desde, hasta, limite } = {}) {
+export async function listarMovimientosAbiertos({ empresaId, desde, hasta, limite, permitido, alTruncar } = {}) {
   const tope = normalizarLimiteBarrido(limite);
   const sociedad = texto(empresaId);
 
   if (sociedad) {
     const { movimientos } = await queryMovimientosEmpresa(sociedad, { desde, hasta, limite: tope });
-    return movimientos.filter((m) => m.estadoConciliacion === ESTADO_PENDIENTE
-      || m.estadoConciliacion === ESTADO_PARCIAL);
+    return movimientos.filter((m) => (m.estadoConciliacion === ESTADO_PENDIENTE
+      || m.estadoConciliacion === ESTADO_PARCIAL) && (!permitido || permitido(m)));
   }
 
-  const pendientes = await queryMovimientosEstado(ESTADO_PENDIENTE, { desde, hasta, limite: tope });
-  const parciales = await queryMovimientosEstado(ESTADO_PARCIAL, { desde, hasta, limite: tope });
-  return [...pendientes.movimientos, ...parciales.movimientos]
+  const porEstado = async (estado) => {
+    if (!permitido) return (await queryMovimientosEstado(estado, { desde, hasta, limite: tope })).movimientos;
+    const encontrados = [];
+    let cursor = null;
+    let paginas = 0;
+    do {
+      const pagina = await queryMovimientosEstado(estado, { desde, hasta, limite: tope, cursor });
+      paginas += 1;
+      encontrados.push(...pagina.movimientos.filter((m) => permitido(m)));
+      cursor = pagina.cursor;
+    } while (cursor && encontrados.length < tope && paginas < MAX_PAGINAS_BARRIDO_RESTRINGIDO);
+    if (cursor && encontrados.length < tope) alTruncar?.();
+    return encontrados.slice(0, tope);
+  };
+
+  const pendientes = await porEstado(ESTADO_PENDIENTE);
+  const parciales = await porEstado(ESTADO_PARCIAL);
+  return [...pendientes, ...parciales]
     .sort((a, b) => String(b.fechaOperacion || '').localeCompare(String(a.fechaOperacion || '')))
     .slice(0, tope);
 }

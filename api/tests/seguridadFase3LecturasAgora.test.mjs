@@ -68,6 +68,14 @@ db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' }, [
   { PK: 'ROL#Camarero', SK: 'PERMISO#pedidos.ver' },
   { PK: 'ROL#Camarero', SK: 'PERMISO#planning_dia.arqueo' },
   ...[...new Set(RUTAS.flatMap(([, permisos]) => permisos))].map((p) => ({ PK: `ROL#Rol_${p}`, SK: `PERMISO#${p}` })),
+  { PK: 'ROL#Rol_productos.sincronizar', SK: 'PERMISO#productos.sincronizar' },
+  {
+    PK: 'ROL#Rol_ajustes.sincronizaciones.agora_productos',
+    SK: 'PERMISO#ajustes.sincronizaciones.agora_productos',
+  },
+]);
+db.crearTabla(tables.agoraProducts, { hashKey: 'PK', rangeKey: 'SK' }, [
+  { PK: 'GLOBAL', SK: '10', Id: 10, Name: 'Caña' },
 ]);
 db.crearTabla(tables.salesCloseOuts, { hashKey: 'PK', rangeKey: 'SK' }, [
   { PK: '101', SK: '2026-10-12#1#1', InvoicePayments: [{ Amount: 10 }] },
@@ -161,6 +169,49 @@ test('test-connection: solo Administrador (ni con todos los permisos de lectura)
   assert.equal((await get('/api/agora/test-connection', SIN_PERMISOS)).status, 403);
   const admin = await get('/api/agora/test-connection', ADMIN);
   assert.notEqual(admin.status, 403);
+});
+
+// ─── agora/products en vivo ───
+
+test('agora/products?source=agora (o force=agora) sin productos.sincronizar: 403 sin llamar a Ágora', async () => {
+  let llamadasAgora = 0;
+  const stub = globalThis.fetch;
+  globalThis.fetch = async (url, opciones) => {
+    if (String(url).startsWith('http://agora.falso')) llamadasAgora += 1;
+    return stub(url, opciones);
+  };
+  try {
+    for (const ruta of ['/api/agora/products?source=agora', '/api/agora/products?force=agora']) {
+      for (const usuario of [SIN_PERMISOS, conPermiso('cierres.ver')]) {
+        const r = await get(ruta, usuario);
+        assert.equal(r.status, 403, `${ruta} ${usuario.rol}`);
+        assert.match(r.body.error, /productos\.sincronizar o ajustes\.sincronizaciones\.agora_productos/);
+      }
+    }
+    assert.equal(llamadasAgora, 0);
+  } finally {
+    globalThis.fetch = stub;
+  }
+});
+
+test('agora/products?source=agora con productos.sincronizar, ajustes.sincronizaciones.agora_productos o Administrador: no 403', async () => {
+  for (const usuario of [
+    conPermiso('productos.sincronizar'),
+    conPermiso('ajustes.sincronizaciones.agora_productos'),
+    ADMIN,
+  ]) {
+    for (const ruta of ['/api/agora/products?source=agora', '/api/agora/products?force=agora']) {
+      const r = await get(ruta, usuario);
+      assert.notEqual(r.status, 403, `${ruta} ${usuario.rol}: ${JSON.stringify(r.body)}`);
+      assert.equal(r.status, 200, `${ruta} ${usuario.rol}: ${JSON.stringify(r.body)}`);
+    }
+  }
+});
+
+test('agora/products sin source=agora: lectura desde Dynamo sigue 200 sin permiso', async () => {
+  const r = await get('/api/agora/products', SIN_PERMISOS);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.productos.length, 1);
 });
 
 // ─── dashboard-home ───

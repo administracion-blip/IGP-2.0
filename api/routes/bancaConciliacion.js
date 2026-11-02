@@ -25,7 +25,7 @@
 import { Router } from 'express';
 import { requireAnyPermission, requirePermission } from '../middleware/auth.js';
 import { limpiarIban } from '../lib/remesas/iban.js';
-import { empresasPermitidasDelUsuario, facturaEmisorPermitido } from '../lib/usuarioLocales.js';
+import { empresasPermitidasDelUsuario, facturaEmisorPermitido, formatId6 } from '../lib/usuarioLocales.js';
 import { sugerirConciliaciones } from '../lib/banca/conciliacion/motor.js';
 import { centimosAEuro } from '../lib/banca/conciliacion/estado.js';
 import {
@@ -91,21 +91,37 @@ async function depsConAlcance(req) {
 /**
  * [SEC S-08] Para los cuatro endpoints de escritura, que escriben sobre el
  * movimiento: la sociedad que se comprueba es la de la cuenta del movimiento
- * (`empresaId`). Fuera de alcance —o sin cuenta asignada— el movimiento no existe
- * para un usuario restringido (404). En `aplicar` y en el DELETE se combina con
+ * (`empresaId`). De otra sociedad, el movimiento no existe para un usuario
+ * restringido (404). Si existe pero su cuenta no tiene sociedad, se anota en
+ * `alcance.sinSociedad` para que `responderMovimiento` conteste 403 con un
+ * mensaje accionable. En `aplicar` y en el DELETE se combina con
  * `depsConAlcance`, que hace lo mismo con la factura.
  */
-async function depsMovimientoConAlcance(req) {
+async function depsMovimientoConAlcance(req, alcance = {}) {
   const empresasOk = await empresasPermitidasDelUsuario(req.user);
   if (empresasOk == null) return {};
   return {
     async getMovimiento(...args) {
       const movimiento = await getMovimiento(...args);
-      return movimiento && facturaEmisorPermitido({ emisor_id: movimiento.empresaId }, empresasOk)
-        ? movimiento
-        : null;
+      if (!movimiento) return null;
+      if (facturaEmisorPermitido({ emisor_id: movimiento.empresaId }, empresasOk)) return movimiento;
+      if (formatId6(movimiento.empresaId) === '000000') alcance.sinSociedad = true;
+      return null;
     },
   };
+}
+
+/** `responder`, cambiando el 404 de movimiento por 403 cuando la causa es que no tiene sociedad. */
+function responderMovimiento(res, resultado, alcance) {
+  if (alcance?.sinSociedad && resultado?.code === 'MOVIMIENTO_NO_ENCONTRADO') {
+    return responder(res, {
+      ok: false,
+      code: 'MOVIMIENTO_SIN_SOCIEDAD',
+      status: 403,
+      mensaje: 'Este movimiento no tiene una cuenta con sociedad asignada; pide a un administrador que lo revise.',
+    });
+  }
+  return responder(res, resultado);
 }
 
 /** Identificación del movimiento, común a los cuatro endpoints de escritura. */
@@ -185,24 +201,40 @@ router.get('/banca/conciliacion/sugerencias', requirePermission('banca.ver'), as
   const empresaId = String(req.query.empresaId || '').trim();
   const limite = normalizarLimiteBarrido(req.query.limite ?? req.query.limit);
 
-  const [facturas, movimientos] = await Promise.all([
-    listarFacturasElegibles(tipo, { empresaId }),
-    listarMovimientosAbiertos({ empresaId, desde, hasta, limite }),
-  ]);
-
   // [SEC S-08] Las facturas se filtran por sociedad emisora permitida, igual que
   // en facturación: si no, la conciliación sería una puerta de atrás para ver
   // facturas de sociedades a las que el usuario no tiene acceso. Los movimientos,
-  // por la sociedad de su cuenta, con el mismo criterio que `ignorar` y `descartar`.
+  // por la sociedad de su cuenta, con el mismo criterio que `ignorar` y `descartar`;
+  // el filtro va dentro del barrido para que `limite` cuente solo los permitidos.
   const empresasOk = await empresasPermitidasDelUsuario(req.user);
+  const movimientoPermitido = (m) => facturaEmisorPermitido({ emisor_id: m?.empresaId }, empresasOk);
+  // Restringido sin sociedades (o sin poder cargarlas): no hay nada que pueda ver.
+  const sinAlcance = empresasOk != null && empresasOk.size === 0;
+  let truncado = false;
+
+  const [facturas, movimientosVisibles] = sinAlcance
+    ? [[], []]
+    : await Promise.all([
+      listarFacturasElegibles(tipo, { empresaId }),
+      listarMovimientosAbiertos({
+        empresaId,
+        desde,
+        hasta,
+        limite,
+        ...(empresasOk != null && {
+          permitido: movimientoPermitido,
+          alTruncar: () => { truncado = true; },
+        }),
+      }),
+    ]);
   const visibles = facturas.filter((f) => facturaEmisorPermitido(f, empresasOk));
-  const movimientosVisibles = movimientos.filter((m) => facturaEmisorPermitido({ emisor_id: m?.empresaId }, empresasOk));
 
   const resultado = sugerirConciliaciones({ movimientos: movimientosVisibles, facturas: visibles });
 
   res.json({
     ok: true,
     filtros: { tipo, empresaId, desde, hasta, limite },
+    truncado,
     totales: resultado.totales,
     porFactura: resultado.porFactura.map((f) => ({
       ...f,
@@ -231,6 +263,7 @@ router.post('/banca/conciliacion/aplicar', requirePermission('facturacion.cobrar
     return res.status(400).json({ error: 'Indica al menos una factura en asignaciones' });
   }
 
+  const alcance = {};
   const resultado = await aplicarConciliacion({
     ...identidad,
     asignaciones,
@@ -239,8 +272,8 @@ router.post('/banca/conciliacion/aplicar', requirePermission('facturacion.cobrar
     referencia: req.body?.referencia,
     observaciones: req.body?.observaciones,
     usuario: usuarioDeReq(req),
-  }, { ...(await depsConAlcance(req)), ...(await depsMovimientoConAlcance(req)) });
-  return responder(res, resultado);
+  }, { ...(await depsConAlcance(req)), ...(await depsMovimientoConAlcance(req, alcance)) });
+  return responderMovimiento(res, resultado, alcance);
 });
 
 /**
@@ -263,12 +296,13 @@ router.post(
     }
 
     // Y, como `ignorar`, el movimiento tiene que ser de una sociedad suya.
+    const alcance = {};
     const resultado = await descartarSugerenciaMovimiento({
       ...identidad,
       id_factura: req.body?.id_factura,
       usuario: usuarioDeReq(req),
-    }, { ...deps, ...(await depsMovimientoConAlcance(req)) });
-    return responder(res, resultado);
+    }, { ...deps, ...(await depsMovimientoConAlcance(req, alcance)) });
+    return responderMovimiento(res, resultado, alcance);
   },
 );
 
@@ -284,12 +318,13 @@ router.post(
     const identidad = movimientoDeBody(req.body);
     if (faltaMovimiento(res, identidad)) return;
 
+    const alcance = {};
     const resultado = await ignorarMovimiento({
       ...identidad,
       ignorar: req.body?.ignorar === undefined ? true : esVerdadero(req.body.ignorar),
       usuario: usuarioDeReq(req),
-    }, await depsMovimientoConAlcance(req));
-    return responder(res, resultado);
+    }, await depsMovimientoConAlcance(req, alcance));
+    return responderMovimiento(res, resultado, alcance);
   },
 );
 
@@ -308,13 +343,14 @@ router.delete('/banca/conciliacion', requirePermission('facturacion.cobrar_pagar
   const idFactura = String(req.body?.id_factura || '').trim();
   if (!idFactura) return res.status(400).json({ error: 'Indica la factura cuya conciliación se deshace' });
 
+  const alcance = {};
   const resultado = await deshacerConciliacion({
     ...identidad,
     id_factura: idFactura,
     id_pago: req.body?.id_pago,
     usuario: usuarioDeReq(req),
-  }, { ...(await depsConAlcance(req)), ...(await depsMovimientoConAlcance(req)) });
-  return responder(res, resultado);
+  }, { ...(await depsConAlcance(req)), ...(await depsMovimientoConAlcance(req, alcance)) });
+  return responderMovimiento(res, resultado, alcance);
 });
 
 export default router;

@@ -181,12 +181,18 @@ Sin cambios: `GET /agora/products` (lo carga `ProductosCache` en el layout globa
 - Marketing: `getUserLocales` resuelve los nombres de `usuarios.Local` a ids con el helper de alcance; con alcance global (Administrador o `Local` vacío) ve todos los locales, como en el resto de la app. `imagen-url` con alcance global hace una sola lectura.
 - `dashboard-home` sin `cajas.ver` solo consulta `dateTo`, `datePrev` y los locales del usuario.
 
+### Decisiones del 2026-11-02
+
+- Un usuario con `marketing.proponer` y `Local` vacío puede editar propuestas y el estilo visual de cualquier local: **se mantiene** (mismo criterio que el resto de la app).
+- `GET /agora/products` sigue devolviendo `CostPrice` / `CostPrices`: **se mantiene**.
+- `GET /agora/products?source=agora` (consulta en vivo a Ágora) exige `productos.sincronizar` o `ajustes.sincronizaciones.agora_productos`: **hecho**.
+- Sugerencias de conciliación: para usuarios restringidos el límite se aplica tras filtrar por sociedad, con tope de 20 páginas y campo `truncado`; sin sociedades no se consulta: **hecho**.
+- Movimiento cuya cuenta no tiene sociedad: los restringidos reciben 403 `MOVIMIENTO_SIN_SOCIEDAD` con mensaje claro (antes 404 genérico) en aplicar, deshacer, descartar e ignorar; si es de otra sociedad sigue 404: **hecho**.
+- Los 2 tests que fallaban (`agoraSinFugasS19`, `tasksFase3NotificacionesIcs`) tenían datos de prueba desactualizados tras cambios de contrato deliberados (`38b3729` y `c455d95`); corregidos en el test. La suite queda en 0 fallos.
+
 ### Pendientes abiertos
 
-- **Decisión:** un usuario con solo `marketing.proponer` y `Local` vacío puede ahora editar propuestas y el estilo visual de cualquier local (antes no veía nada por el fallo de `getUserLocales`). Si no debe, exigir `marketing.gestionar` en `PATCH /marketing/locales/:id/estilo` cuando el alcance es global.
 - ~~Frontend de RRSS trata `user.Locales` como ids~~ — resuelto: hook `useIdsLocalesUsuario()` en `LocalesContext` (`localPermitido` + `/api/locales`).
-- Sugerencias de conciliación: el límite se aplica antes de filtrar por sociedad; un usuario restringido puede ver menos sugerencias sin aviso.
-- Movimientos sin sociedad: los usuarios restringidos reciben 404 genérico al aplicar, deshacer, descartar o ignorar.
 - `GET /locales` devuelve `estilo_visual_imagen_keys` de todos los locales.
 
 ### Pendientes detectados en la revisión de la fase 2 (histórico)

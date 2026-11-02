@@ -80,7 +80,7 @@ import {
   listFormasPago,
   upsertFormasFromAgora,
 } from '../lib/agora/formasPago.js';
-import { requirePermission, requireAnyPermission, requireRole, hasPermission } from '../middleware/auth.js';
+import { requirePermission, requireAnyPermission, requireRole, hasPermission, hasAnyPermission } from '../middleware/auth.js';
 import { requireLocal, requireLocales, requireAlcanceGlobal, requireLocalLectura, desde } from '../middleware/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal, workplacesLectura } from '../lib/alcanceLecturas.js';
 import { MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, cargarAlcance, modoLecturas, filtrarPorLocal, intersecarLocales } from '../lib/alcance.js';
@@ -2521,6 +2521,13 @@ router.put('/agora/formas-pago/:agoraId', requireAnyPermission('formas_pago.edit
 router.get('/agora/products', async (req, res) => {
   const forceAgora = (req.query.source || req.query.force || '').toString().toLowerCase() === 'agora';
   if (forceAgora) {
+    if (!req.isInternal
+      && !(await hasAnyPermission(req.user, 'productos.sincronizar', 'ajustes.sincronizaciones.agora_productos'))) {
+      return res.status(403).json({
+        error: 'No tienes permiso para consultar los productos en vivo en Ágora '
+          + '(requiere productos.sincronizar o ajustes.sincronizaciones.agora_productos).',
+      });
+    }
     const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
     const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
     const token = (AGORA_API_TOKEN || '').trim();
