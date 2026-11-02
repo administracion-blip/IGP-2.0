@@ -5,7 +5,7 @@
  * IGP no escribe en Ágora (solo lee el teórico al añadir un producto, como POST /lineas).
  *
  * inventario.contar o inventario.gestionar (`ver`): sesión propia, interpretar, editar líneas,
- *   aplicar, pausar/reanudar/cerrar, leer formatos y alias, crear un formato.
+ *   aplicar, deshacer una línea, pausar/reanudar/cerrar, leer formatos y alias, crear un formato.
  * inventario.gestionar: editar/borrar formatos y borrar alias.
  *
  * Rutas de un inventario: comprueban el almacén del inventario (permiteAlmacen) y las mismas
@@ -21,7 +21,7 @@
  *   alias.
  * - Formatos: primero se empareja el textoProducto con el matcher y, con ese productId, se busca
  *   su formato (obtenerFormatos) y se vuelve a parsear con resolverFormato. Las órdenes sin
- *   producto usan el de la última línea no descartada y, si les faltaba formato, se reinterpretan
+ *   producto usan el de la última línea no descartada ni deshecha y, si les faltaba formato, se reinterpretan
  *   con el formato de ese producto.
  * - Modo: borrar → 'borrar'; reemplazar/corregir → 'reemplazar'; el resto → 'sumar' (sobre un
  *   producto sin contar es lo mismo que fijar el total).
@@ -69,7 +69,7 @@ import {
   reanudarSesion,
   reservarEnvio,
 } from '../lib/inventarios/dictado/sesion.js';
-import { aplicarLineasDictado, calcularResultado } from '../lib/inventarios/dictado/aplicar.js';
+import { aplicarLineasDictado, calcularResultado, deshacerLineaDictado } from '../lib/inventarios/dictado/aplicar.js';
 import { transcribir } from '../lib/inventarios/dictado/transcripcion.js';
 import { multerPerfil, rechazaArchivo } from '../lib/seguridad/subidas.js';
 
@@ -248,7 +248,8 @@ async function interpretar(req, inventario, texto, idEnvio) {
   const sinAplicar = new Set(previa.lineas
     .filter((l) => (l.estado === 'pendiente' || l.estado === 'confirmada') && l.productId)
     .map((l) => l.productId));
-  const ultimaPrevia = [...previa.lineas].reverse().find((l) => l.estado !== 'descartada') || null;
+  const ultimaPrevia = [...previa.lineas].reverse()
+    .find((l) => l.estado !== 'descartada' && l.estado !== 'deshecha') || null;
 
   const memoTexto = new Map();
   const pidDeTexto = (t) => {
@@ -756,6 +757,27 @@ export function crearRouterDictado({ exportStocks = exportStocksAgora } = {}) {
       return res.json({ ...resultado, sesion: sesion.meta, lineasDictado: sesion.lineas });
     } catch (err) {
       return atrapar(res, err, 'Error aplicando el dictado');
+    }
+  });
+
+  // «Deshacer último»: pendiente/confirmada → descartada; aplicada → restaura el conteo y queda
+  // 'deshecha' (409 si el producto se cambió después). Idempotente: yaDeshecha.
+  router.post('/inventarios/:id/dictado/lineas/:n/deshacer', ver, async (req, res) => {
+    try {
+      const n = numeroLinea(req.params.n);
+      const ctx = await inventarioDeRuta(req, res);
+      if (!ctx) return;
+      return res.json(await deshacerLineaDictado({
+        inventarioId: ctx.inventario.inventarioId,
+        usuarioId: usuarioId(req),
+        quien: quien(req),
+        quienSesion: nombreSesion(req),
+        n,
+        soloContar: ctx.soloContar,
+        inventario: ctx.inventario,
+      }));
+    } catch (err) {
+      return atrapar(res, err, 'Error deshaciendo la línea del dictado');
     }
   });
 

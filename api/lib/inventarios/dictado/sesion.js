@@ -46,26 +46,34 @@ const MAX_MOTIVOS = 20;
 const MAX_ALTERNATIVAS = 10;
 
 export const ESTADOS_SESION = Object.freeze(['activa', 'pausada', 'cerrada']);
-export const ESTADOS_LINEA = Object.freeze(['pendiente', 'confirmada', 'aplicada', 'descartada']);
+export const ESTADOS_LINEA = Object.freeze(['pendiente', 'confirmada', 'aplicada', 'descartada', 'deshecha']);
 export const MODOS_LINEA = Object.freeze(['sumar', 'reemplazar', 'borrar']);
 
-/** Destinos permitidos desde cada estado de línea. `aplicada` queda cerrada. */
+/**
+ * Destinos permitidos desde cada estado de línea. aplicada → deshecha solo lo hace
+ * deshacerLineaDictado (aplicar.js), en la misma transacción que restaura el conteo;
+ * actualizarLinea nunca toca una línea aplicada. `deshecha` es final.
+ */
 export const TRANSICIONES_LINEA = Object.freeze({
   pendiente: Object.freeze(['confirmada', 'descartada', 'aplicada']),
   confirmada: Object.freeze(['aplicada', 'descartada', 'pendiente']),
-  aplicada: Object.freeze([]),
+  aplicada: Object.freeze(['deshecha']),
   descartada: Object.freeze(['pendiente']),
+  deshecha: Object.freeze([]),
 });
 
 /**
  * Únicos atributos que puede tener una línea en Dynamo. `aplicado` ({ stockReal, botellasAbiertas,
- * en }) solo lo escribe aplicar.js al pasar la línea a 'aplicada', para que un reintento devuelva
- * el mismo resultado. `idEnvio` es el envío de la UI que creó la línea (ver reservarEnvio).
+ * version, en }; version: la de LINE# tras aplicar, interna, no se presenta) y `anterior`
+ * ({ existia, stockReal, botellasAbiertas }: la LINE# antes de aplicar; existia, informativo,
+ * false si la añadió el propio aplicar) solo los escribe aplicar.js al pasar la línea a 'aplicada', para
+ * que un reintento devuelva el mismo resultado y se pueda deshacer. Nunca llevan stockTeorico.
+ * `idEnvio` es el envío de la UI que creó la línea (ver reservarEnvio).
  */
 export const CAMPOS_LINEA = Object.freeze([
   'PK', 'SK', 'n', 'texto', 'orden', 'productId', 'productoNombre', 'cantidad', 'modo',
   'motivos', 'confirmar', 'estado', 'creadoEn', 'creadoPor', 'actualizadoEn', 'actualizadoPor',
-  'aplicado', 'idEnvio',
+  'aplicado', 'anterior', 'idEnvio',
 ]);
 
 /** Únicos atributos que puede tener el META de una sesión en Dynamo. */
@@ -220,7 +228,7 @@ function itemLinea(clave, n, c) {
   };
 }
 
-function presentarLinea(it) {
+export function presentarLinea(it) {
   return {
     n: Number(it.n),
     texto: it.texto || '',
@@ -240,6 +248,13 @@ function presentarLinea(it) {
         stockReal: it.aplicado.stockReal ?? null,
         botellasAbiertas: it.aplicado.botellasAbiertas ?? 0,
         en: it.aplicado.en || null,
+      },
+    }),
+    ...(it.anterior && {
+      anterior: {
+        existia: Boolean(it.anterior.existia),
+        stockReal: it.anterior.stockReal ?? null,
+        botellasAbiertas: it.anterior.botellasAbiertas ?? 0,
       },
     }),
   };
@@ -495,7 +510,7 @@ export async function anadirLineas(inventarioId, usuario, lineas, quien) {
  * Cambia los campos editables de una línea (productId, productoNombre, cantidad, modo, estado,
  * motivos, confirmar). Lo demás que venga en `cambios` se ignora.
  * Transiciones: pendiente → confirmada|descartada|aplicada; confirmada → aplicada|descartada|pendiente;
- * descartada → pendiente; aplicada → ninguna.
+ * descartada → pendiente; aplicada y deshecha → ninguna (deshacer una aplicada: aplicar.js).
  *
  * @throws errorInventario 404 «Línea de dictado no encontrada.», 409 si está aplicada, la
  *   transición no vale o la línea cambió a la vez.
@@ -507,6 +522,7 @@ export async function actualizarLinea(inventarioId, usuario, n, cambios, quien) 
   const { Item: previo } = await docClient.send(new GetCommand({ TableName: tabla, Key: clave, ConsistentRead: true }));
   if (!previo) throw errorInventario('Línea de dictado no encontrada.', 404);
   if (previo.estado === 'aplicada') throw errorInventario('La línea ya está aplicada y no se puede cambiar.', 409);
+  if (previo.estado === 'deshecha') throw errorInventario('La línea está deshecha y no se puede cambiar.', 409);
 
   const c = cambios && typeof cambios === 'object' ? cambios : {};
   const nuevo = {

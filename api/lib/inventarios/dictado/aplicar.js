@@ -23,6 +23,9 @@
  * escritura concurrente de otro usuario. Si la transacción falla se vuelve a leer (hasta 3 veces):
  * si la línea ya está aplicada, se devuelve su resultado guardado con yaAplicada=true.
  *
+ * Al aplicar se guarda también `anterior` (la LINE# leída antes de escribir) para poder deshacer
+ * (deshacerLineaDictado). Una línea 'deshecha' no se vuelve a aplicar (rechazada 'deshecha').
+ *
  * IGP no escribe en Ágora.
  */
 
@@ -32,10 +35,10 @@ import { logger } from '../../logger.js';
 import { errorInventario, idSegmento, pkInventario, skDictadoLinea, usuarioSegmento } from '../claves.js';
 import { anadirProducto } from '../conteo.js';
 import { stockContado } from '../diferencia.js';
-import { escrituraLinea, exigirConteo, leerLineaConteo, obtenerInventario } from '../inventarios.js';
+import { escrituraLinea, exigirConteo, leerLineaConteo, obtenerInventario, versionLinea } from '../inventarios.js';
 import { tablaInventarios } from '../store.js';
 import { partirCantidad } from './parser.js';
-import { MAX_LINEAS_POR_ENVIO, leerLineaDictado } from './sesion.js';
+import { MAX_LINEAS_POR_ENVIO, descartarLinea, leerLineaDictado, presentarLinea } from './sesion.js';
 
 const MAX_INTENTOS = 3;
 
@@ -91,6 +94,7 @@ function resultadoAplicado(item) {
 /** Por qué no se puede aplicar la línea tal como está, o null si se puede. */
 function motivoNoAplicable(item) {
   if (item.estado === 'descartada') return 'descartada';
+  if (item.estado === 'deshecha') return 'deshecha';
   if (item.estado === 'pendiente' && item.confirmar) return 'requiere_confirmacion';
   if (item.estado !== 'pendiente' && item.estado !== 'confirmada') return 'estado_no_valido';
   if (!item.productId) return 'sin_producto';
@@ -191,11 +195,16 @@ async function aplicarUna(ctx, n) {
     exigirConteo(inventario, soloContar);
     const pid = item.productId;
     let previa = await leerLineaConteo(id, pid);
+    // Solo informativo (deshacer restaura siempre los valores de `anterior`): false si la LINE#
+    // la creó este intento; si otro la añadió a la vez (409), ya existía.
+    let existia = Boolean(previa);
     if (!previa && item.modo === 'borrar') return { rechazada: rechazo(n, 'no_en_conteo') };
     if (!previa) {
       try {
         await anadirProducto(id, pid, quien, { soloContar, exportStocks });
+        existia = false;
       } catch (err) {
+        existia = true;
         if (err?.status === 404) return { rechazada: rechazo(n, 'producto_no_encontrado') };
         if (err?.status === 403) return { rechazada: rechazo(n, 'producto_no_anadible', { mensaje: err.message }) };
         if (err?.status === 502) return { rechazada: rechazo(n, 'agora_no_disponible', { mensaje: err.message }) };
@@ -227,7 +236,7 @@ async function aplicarUna(ctx, n) {
     }
 
     const ahora = new Date().toISOString();
-    const { operaciones } = escrituraLinea(
+    const { operaciones, version } = escrituraLinea(
       inventario,
       previa,
       { productId: pid, stockReal: resultado.stockReal, botellasAbiertas: resultado.botellasAbiertas },
@@ -238,11 +247,16 @@ async function aplicarUna(ctx, n) {
       Update: {
         TableName: tabla,
         Key: { PK: pk, SK: skDictadoLinea(u, n) },
-        UpdateExpression: 'SET estado = :aplicada, aplicado = :res, actualizadoEn = :ahora, actualizadoPor = :quien',
+        UpdateExpression: 'SET estado = :aplicada, aplicado = :res, anterior = :ant, actualizadoEn = :ahora, actualizadoPor = :quien',
         ConditionExpression: 'estado IN (:pendiente, :confirmada) AND actualizadoEn = :leido',
         ExpressionAttributeValues: {
           ':aplicada': 'aplicada',
-          ':res': { stockReal: resultado.stockReal, botellasAbiertas: resultado.botellasAbiertas, en: ahora },
+          ':res': { stockReal: resultado.stockReal, botellasAbiertas: resultado.botellasAbiertas, version, en: ahora },
+          ':ant': {
+            existia,
+            stockReal: previa.stockReal ?? null,
+            botellasAbiertas: previa.botellasAbiertas ?? 0,
+          },
           ':ahora': ahora,
           ':quien': quienSesion || '',
           ':pendiente': 'pendiente',
@@ -267,4 +281,110 @@ async function aplicarUna(ctx, n) {
     };
   }
   return { rechazada: rechazo(n, 'conflicto') };
+}
+
+// ─── Deshacer ───
+
+const MENSAJE_CAMBIADO = 'Ese producto se ha cambiado después; corrígelo a mano.';
+
+/**
+ * LINE# sigue exactamente como la dejó el dictado: misma versión (nadie la ha escrito después,
+ * aunque dejase el mismo valor). Las aplicadas antes de guardar `aplicado.version` se comparan
+ * por valores.
+ */
+function sigueComoAplicada(previa, aplicado) {
+  if (!previa) return false;
+  if (aplicado.version != null) return versionLinea(previa) === Number(aplicado.version);
+  return (previa.stockReal ?? null) === (aplicado.stockReal ?? null)
+    && (previa.botellasAbiertas ?? 0) === (aplicado.botellasAbiertas ?? 0);
+}
+
+/**
+ * Deshace una línea de la sesión del usuario.
+ * - pendiente/confirmada → descartada (como PATCH estado descartada).
+ * - aplicada → en UNA TransactWrite: LINE# vuelve SIEMPRE a los valores de `anterior` (vía
+ *   escrituraLinea, mismas reglas que guardarLinea) y la línea pasa a 'deshecha'. Si el alta la
+ *   hizo este dictado, `anterior` ya es «sin contar» (stockReal null, botellas 0); la LINE# NO se
+ *   borra: así no se pierde el teórico que se leyó de Ágora ni cambia qué filas salen en el Excel.
+ *   Condiciones: LINE# sigue en la versión que dejó el aplicar (`aplicado.version`; sin ella, con
+ *   los mismos valores) y la línea sigue 'aplicada' con su actualizadoEn.
+ * - deshecha/descartada → yaDeshecha (idempotente).
+ * @returns {Promise<{ deshecha: true, yaDeshecha?: true, linea: object }>}
+ * @throws errorInventario 404 sin línea; 409 si LINE# cambió después, si la línea se aplicó sin
+ *   guardar `anterior` o tras 3 conflictos; 403/409 de exigirConteo.
+ */
+export async function deshacerLineaDictado({
+  inventarioId, usuarioId, quien, quienSesion, n, soloContar, inventario = null,
+}) {
+  const id = idSegmento(inventarioId, 'inventarioId');
+  const u = usuarioSegmento(usuarioId);
+  const tabla = tablaInventarios();
+  const pk = pkInventario(id);
+  let inv = inventario;
+  for (let intento = 0; intento < MAX_INTENTOS; intento += 1) {
+    const item = await leerLineaDictado(id, usuarioId, n);
+    if (!item) throw errorInventario('Línea de dictado no encontrada.', 404);
+    if (item.estado === 'deshecha' || item.estado === 'descartada') {
+      return { deshecha: true, yaDeshecha: true, linea: presentarLinea(item) };
+    }
+    if (item.estado === 'pendiente' || item.estado === 'confirmada') {
+      try {
+        return { deshecha: true, linea: await descartarLinea(id, usuarioId, n, quienSesion) };
+      } catch (err) {
+        if (err?.status !== 409) throw err;
+        continue;
+      }
+    }
+    if (item.estado !== 'aplicada') throw errorInventario('Esta línea no se puede deshacer.', 409);
+    if (!item.anterior || !item.aplicado) {
+      throw errorInventario('Esta línea se aplicó sin guardar el valor anterior; corrígelo a mano.', 409);
+    }
+
+    if (!inv) inv = await obtenerInventario(id);
+    exigirConteo(inv, soloContar);
+    const pid = item.productId;
+    const previa = await leerLineaConteo(id, pid);
+    if (!sigueComoAplicada(previa, item.aplicado)) throw errorInventario(MENSAJE_CAMBIADO, 409);
+    const restaurar = {
+      stockReal: item.anterior.stockReal ?? null,
+      botellasAbiertas: item.anterior.botellasAbiertas ?? 0,
+    };
+
+    const ahora = new Date().toISOString();
+    const { operaciones } = escrituraLinea(
+      inv,
+      previa,
+      { productId: pid, ...restaurar },
+      quien,
+      { soloContar, condicionExtra: condicionVersion(previa) },
+    );
+    operaciones.push({
+      Update: {
+        TableName: tabla,
+        Key: { PK: pk, SK: skDictadoLinea(u, n) },
+        UpdateExpression: 'SET estado = :deshecha, actualizadoEn = :ahora, actualizadoPor = :quien',
+        ConditionExpression: 'estado = :aplicada AND actualizadoEn = :leido',
+        ExpressionAttributeValues: {
+          ':deshecha': 'deshecha',
+          ':aplicada': 'aplicada',
+          ':ahora': ahora,
+          ':quien': quienSesion || '',
+          ':leido': item.actualizadoEn,
+        },
+      },
+    });
+    try {
+      await docClient.send(new TransactWriteCommand({ TransactItems: operaciones }));
+    } catch (err) {
+      if (!esCancelada(err)) throw err;
+      // META, LINE# o la línea cambiaron: se relee; si LINE# ya no es lo aplicado, 409 arriba.
+      inv = null;
+      continue;
+    }
+    return {
+      deshecha: true,
+      linea: presentarLinea({ ...item, estado: 'deshecha', actualizadoEn: ahora, actualizadoPor: quienSesion }),
+    };
+  }
+  throw errorInventario('El dictado ha cambiado; vuelve a intentarlo.', 409);
 }

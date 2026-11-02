@@ -494,6 +494,223 @@ test('borrar un producto que no está en el conteo se rechaza', async () => {
 
 // ─── Alias ───
 
+// ─── Deshacer ───
+
+const deshacer = (id, n, usuario) => api('POST', ruta(id, `/lineas/${n}/deshacer`), {}, usuario);
+
+test('deshacer una línea pendiente la descarta', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3', CONTADOR);
+  const d = await deshacer(id, 1, CONTADOR);
+  assert.equal(d.status, 200);
+  assert.equal(d.body.deshecha, true);
+  assert.equal(d.body.linea.estado, 'descartada');
+  assert.equal(lineaConteo(id, '200').stockReal, undefined);
+  const otra = await deshacer(id, 1, CONTADOR);
+  assert.deepEqual([otra.status, otra.body.yaDeshecha], [200, true]);
+  assert.equal((await deshacer(id, 9, CONTADOR)).status, 404);
+  assert.equal((await deshacer(id, 1, CONTADOR2)).status, 404, 'solo la sesión propia');
+});
+
+test('deshacer una suma aplicada (0,50 + 0,75 = 1 + 0,25) vuelve a 0,50; la deshecha ya no cuenta', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Johnnie 0,75', CONTADOR);
+  await patch(id, 1, { estado: 'confirmada' }, CONTADOR);
+  const a = await aplicar(id, [1], CONTADOR);
+  assert.deepEqual([a.body.aplicadas[0].stockReal, a.body.aplicadas[0].botellasAbiertas], [1, 0.25]);
+  const aplicada = a.body.lineasDictado.find((l) => l.n === 1);
+  assert.deepEqual(aplicada.anterior, { existia: true, stockReal: 0, botellasAbiertas: 0.5 });
+  assert.equal(db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001' }).anterior.stockTeorico, undefined);
+
+  const d = await deshacer(id, 1, CONTADOR);
+  assert.equal(d.status, 200);
+  assert.deepEqual([d.body.deshecha, d.body.yaDeshecha, d.body.linea.estado], [true, undefined, 'deshecha']);
+  const linea = lineaConteo(id, '1367');
+  assert.deepEqual([linea.stockReal, linea.botellasAbiertas, linea.stockTeorico], [0, 0.5, 203]);
+
+  const r = await aplicar(id, [1], CONTADOR);
+  assert.deepEqual(r.body.rechazadas.map((x) => [x.n, x.motivo]), [[1, 'deshecha']]);
+  assert.equal(lineaConteo(id, '1367').botellasAbiertas, 0.5);
+  assert.equal((await patch(id, 1, { estado: 'pendiente' }, CONTADOR)).status, 409);
+
+  // La deshecha no cuenta como repetida ni como «última» para una orden sin producto.
+  const otra = await dictar(id, 'Johnnie 1', CONTADOR);
+  assert.equal(otra.body.lineas[0].motivos.includes('repetido_en_dictado'), false);
+  await deshacer(id, 2, CONTADOR);
+  const sinProducto = await dictar(id, 'ahora son 10', CONTADOR);
+  assert.equal(sinProducto.body.lineas[0].productId, null);
+  assert.ok(sinProducto.body.lineas[0].motivos.includes('sin_producto'));
+});
+
+test('deshacer una línea que añadió el producto lo deja sin contar sin borrar la LINE#', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Coca cola 4', CONTADOR);
+  const a = await aplicar(id, [1], CONTADOR);
+  assert.equal(a.body.aplicadas[0].stockReal, 4);
+  assert.deepEqual(a.body.lineasDictado[0].anterior, { existia: false, stockReal: null, botellasAbiertas: 0 });
+
+  const d = await deshacer(id, 1, CONTADOR);
+  assert.equal(d.status, 200);
+  const linea = lineaConteo(id, '400');
+  assert.ok(linea, 'la LINE# sigue existiendo');
+  assert.equal(linea.stockReal ?? null, null);
+  assert.equal(linea.botellasAbiertas ?? 0, 0);
+  assert.equal(linea.stockTeorico, 9);
+});
+
+test('deshacer dos veces (seguidas y en paralelo) restaura una sola vez', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3. Larios 2', CONTADOR);
+  await aplicar(id, [1, 2], CONTADOR);
+
+  assert.equal((await deshacer(id, 1, CONTADOR)).body.yaDeshecha, undefined);
+  await api('PUT', `/api/inventarios/${id}/lineas/200`, { stockReal: 6, botellasAbiertas: 0 }, CONTADOR2);
+  const otra = await deshacer(id, 1, CONTADOR);
+  assert.deepEqual([otra.status, otra.body.yaDeshecha], [200, true]);
+  assert.equal(lineaConteo(id, '200').stockReal, 6);
+
+  const [p, q] = await Promise.all([deshacer(id, 2, CONTADOR), deshacer(id, 2, CONTADOR)]);
+  assert.deepEqual([p.status, q.status], [200, 200]);
+  assert.deepEqual([p.body.yaDeshecha, q.body.yaDeshecha].filter(Boolean), [true]);
+  assert.equal(lineaConteo(id, '300').stockReal, undefined);
+});
+
+test('deshacer tras un PUT /lineas de otro usuario → 409 y se queda lo del otro', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3', CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  await api('PUT', `/api/inventarios/${id}/lineas/200`, { stockReal: 8, botellasAbiertas: 0.5 }, CONTADOR2);
+  const d = await deshacer(id, 1, CONTADOR);
+  assert.equal(d.status, 409);
+  assert.equal(d.body.error, 'Ese producto se ha cambiado después; corrígelo a mano.');
+  assert.deepEqual([lineaConteo(id, '200').stockReal, lineaConteo(id, '200').botellasAbiertas], [8, 0.5]);
+  assert.equal(db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001' }).estado, 'aplicada');
+});
+
+test('deshacer restaura lo de otro usuario que añadió y contó el producto a la vez (alta con 409)', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Coca cola 2', CONTADOR);
+  await patch(id, 1, { estado: 'confirmada' }, CONTADOR);
+  let primera = true;
+  // Justo antes del alta de LINE#400, otro usuario la añade y cuenta 4: anadirProducto da 409.
+  db.interceptar('PutCommand', T(), async () => {
+    if (!primera) return;
+    primera = false;
+    db.sembrar(T(), {
+      PK: `INV#${id}`, SK: 'LINE#400', productId: '400', nombre: 'COCA COLA 35CL', familiaNombre: 'BOT',
+      unidad: 'Unidad', stockTeorico: 9, stockReal: 4, botellasAbiertas: 0, version: 1,
+    });
+  });
+  const a = await aplicar(id, [1], CONTADOR);
+  assert.equal(primera, false);
+  assert.equal(a.body.aplicadas[0].stockReal, 6);
+  assert.deepEqual(a.body.lineasDictado[0].anterior, { existia: true, stockReal: 4, botellasAbiertas: 0 });
+  assert.equal(lineaConteo(id, '400').stockReal, 6);
+
+  assert.equal((await deshacer(id, 1, CONTADOR)).status, 200);
+  assert.equal(lineaConteo(id, '400').stockReal, 4);
+});
+
+test('ABA (a): borra, conteo manual al mismo valor de partida, borra otra vez → deshacer la primera da 409', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3', CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  await dictar(id, 'borra Roku', CONTADOR);
+  await patch(id, 2, { estado: 'confirmada' }, CONTADOR);
+  await aplicar(id, [2], CONTADOR);
+  assert.equal(lineaConteo(id, '200').stockReal, undefined);
+  assert.equal((await api('PUT', `/api/inventarios/${id}/lineas/200`, { stockReal: 7, botellasAbiertas: 0 }, CONTADOR2)).status, 200);
+  await dictar(id, 'borra Roku', CONTADOR);
+  await patch(id, 3, { estado: 'confirmada' }, CONTADOR);
+  assert.equal((await aplicar(id, [3], CONTADOR)).body.aplicadas.length, 1);
+  assert.equal(lineaConteo(id, '200').stockReal, undefined);
+
+  const d = await deshacer(id, 2, CONTADOR);
+  assert.equal(d.status, 409);
+  assert.equal(d.body.error, 'Ese producto se ha cambiado después; corrígelo a mano.');
+  assert.equal(lineaConteo(id, '200').stockReal, undefined);
+  // La última sí se deshace: vuelve al conteo manual.
+  assert.equal((await deshacer(id, 3, CONTADOR)).status, 200);
+  assert.equal(lineaConteo(id, '200').stockReal, 7);
+});
+
+test('ABA (b): reemplazar 5 sobre 3 y otro usuario guarda 5 → deshacer da 409', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3', CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  await dictar(id, 'Roku ahora son 5', CONTADOR);
+  await patch(id, 2, { estado: 'confirmada' }, CONTADOR);
+  assert.equal((await aplicar(id, [2], CONTADOR)).body.aplicadas[0].stockReal, 5);
+  await api('PUT', `/api/inventarios/${id}/lineas/200`, { stockReal: 5, botellasAbiertas: 0 }, CONTADOR2);
+  const d = await deshacer(id, 2, CONTADOR);
+  assert.equal(d.status, 409);
+  assert.equal(lineaConteo(id, '200').stockReal, 5);
+  assert.equal(db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000002' }).estado, 'aplicada');
+});
+
+test('ABA (c): versión de LINE# en cada escritura; el caso normal deshace; aplicadas antiguas, por valores', async () => {
+  const id = await nuevoInventario();
+  assert.equal(lineaConteo(id, '200').version, 1);
+  await dictar(id, 'Roku 3', CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  const tras = lineaConteo(id, '200');
+  const item1 = db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001' });
+  assert.deepEqual([tras.version, item1.aplicado.version], [2, 2]);
+  const vista = await api('GET', ruta(id), undefined, CONTADOR);
+  assert.equal(JSON.stringify(vista.body).includes('"version"'), false, 'la versión no se expone');
+
+  await dictar(id, 'Roku ahora son 5', CONTADOR);
+  await patch(id, 2, { estado: 'confirmada' }, CONTADOR);
+  await aplicar(id, [2], CONTADOR);
+  assert.equal((await deshacer(id, 2, CONTADOR)).status, 200);
+  assert.deepEqual([lineaConteo(id, '200').stockReal, lineaConteo(id, '200').version], [3, 4]);
+
+  // Línea aplicada antes de guardar aplicado.version: se compara por valores.
+  await dictar(id, 'Larios 2', CONTADOR);
+  await aplicar(id, [3], CONTADOR);
+  const item3 = db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000003' });
+  const { version: _v, ...aplicadoAntiguo } = item3.aplicado;
+  db.sembrar(T(), { ...item3, aplicado: aplicadoAntiguo });
+  assert.equal((await deshacer(id, 3, CONTADOR)).status, 200);
+  assert.equal(lineaConteo(id, '300').stockReal, undefined);
+
+  // Una LINE# antigua sin versión (cuenta como 0) se puede escribir y pasa a 1.
+  const { version: _w, ...sinVersion } = lineaConteo(id, '1367');
+  db.sembrar(T(), sinVersion);
+  assert.equal((await api('PUT', `/api/inventarios/${id}/lineas/1367`, { stockReal: 2, botellasAbiertas: 0 }, CONTADOR)).status, 200);
+  assert.equal(lineaConteo(id, '1367').version, 1);
+
+  // PUT /lineas sigue siendo «gana el último» aunque otro escriba la línea entre lectura y escritura.
+  let primera = true;
+  db.interceptar('PutCommand', T(), async () => {
+    if (!primera) return;
+    primera = false;
+    const actual = lineaConteo(id, '1367');
+    db.sembrar(T(), { ...actual, stockReal: 9, version: actual.version + 1 });
+  });
+  const put = await api('PUT', `/api/inventarios/${id}/lineas/1367`, { stockReal: 4, botellasAbiertas: 0 }, CONTADOR);
+  assert.equal(put.status, 200);
+  assert.equal(primera, false);
+  assert.deepEqual([lineaConteo(id, '1367').stockReal, lineaConteo(id, '1367').version], [4, 3]);
+});
+
+test('deshacer: quien solo cuenta con el inventario revisado → 403; gestionar sí; sin stockTeorico', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3', CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  await dictar(id, 'Larios 2', COMPRAS);
+  await aplicar(id, [1], COMPRAS);
+  await cambiarEstado(id, 'contado', 'compras@test');
+  await cambiarEstado(id, 'revisado', 'compras@test');
+  assert.equal((await deshacer(id, 1, CONTADOR)).status, 403);
+  assert.equal(lineaConteo(id, '200').stockReal, 3);
+  const g = await deshacer(id, 1, COMPRAS);
+  assert.equal(g.status, 200);
+  assert.equal(lineaConteo(id, '300').stockReal, undefined);
+  assert.equal(lineaConteo(id, '300').stockTeorico, 4);
+  assert.deepEqual(clavesProhibidas(g.body), []);
+});
+
 test('confirmar con producto activo aprende alias y luego suma uso; inactivo no aprende', async () => {
   const id = await nuevoInventario();
   await dictar(id, 'Rokku 5', CONTADOR);
