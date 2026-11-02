@@ -45,6 +45,9 @@
  *   no crea líneas.
  * - «Multiplícalo por…» solo continúa si el texto empieza así y la línea anterior tiene
  *   menos de 20 s. Si la línea se queda sin producto, no hereda la cantidad.
+ * - «sí», «no» y «el 10» resuelven la última línea pendiente de confirmar. «sí» la deja
+ *   lista para aplicar (salvo redondeo o si falta el producto). «no» la descarta. «el 10»
+ *   elige un candidato y, si sigue ya contado u otra regla, queda pendiente.
  */
 
 import { Router } from 'express';
@@ -58,6 +61,7 @@ import { exigirConteo, leerLineaConteo, obtenerInventario, versionLinea } from '
 import { listarProductosInventario } from '../lib/inventarios/productos.js';
 import { parsearDictado, partirCantidad } from '../lib/inventarios/dictado/parser.js';
 import { emparejarProducto, filtrarCandidatosParecidos, normalizarAlias, prepararIndice } from '../lib/inventarios/dictado/matcher.js';
+import { confirmarTrasElegir, motivosTrasElegir, resolverRespuesta } from '../lib/inventarios/dictado/respuestaVoz.js';
 import { debeConsultarIa, esContinuacion, proponerInterpretacion } from '../lib/inventarios/dictado/interpretarIa.js';
 import { aliasAceptable, borrarAlias, guardarAlias, listarAlias, sumarUso } from '../lib/inventarios/dictado/alias.js';
 import {
@@ -97,6 +101,44 @@ const VIAS_A_APRENDER = new Set(['aproximado', 'palabras']);
 const AVISO_AUDIO_VACIO = 'No se ha entendido nada en el audio.';
 /** La continuación («multiplícalo por») solo usa la línea anterior si es más reciente que esto. */
 const CONTINUACION_MS = 20_000;
+
+/**
+ * Cierra la pregunta abierta. No crea otra línea.
+ * @returns {Promise<{ lineas: object[], aviso?: string }>}
+ */
+async function cerrarConRespuesta(inventario, uid, nombre, pregunta, resp, conteo) {
+  const n = pregunta.n;
+  const id = inventario.inventarioId;
+  if (resp.tipo === 'no') {
+    const linea = await actualizarLinea(id, uid, n, { estado: 'descartada' }, nombre);
+    return { lineas: [linea] };
+  }
+  if (resp.tipo === 'si') {
+    const conCantidad = pregunta.modo === 'borrar'
+      || (pregunta.cantidad != null && typeof pregunta.cantidad.total === 'number');
+    if (!pregunta.productId || !conCantidad || (pregunta.motivos || []).includes('redondeo')) {
+      return { lineas: [], aviso: 'Esa línea sigue pendiente: revísala en la pantalla.' };
+    }
+    // confirmada: aplicar acepta un ya contado solo si el usuario ya confirmó (el botón hace lo mismo).
+    const linea = await actualizarLinea(id, uid, n, { confirmar: false, estado: 'confirmada' }, nombre);
+    return { lineas: [linea] };
+  }
+  const yaContado = stockContado(conteo.get(resp.productId)) != null;
+  const motivos = motivosTrasElegir(pregunta.motivos, { yaContado });
+  const confirmar = confirmarTrasElegir({
+    productId: resp.productId,
+    modo: pregunta.modo,
+    cantidad: pregunta.cantidad,
+  }, motivos);
+  const linea = await actualizarLinea(id, uid, n, {
+    productId: resp.productId,
+    productoNombre: resp.nombre,
+    motivos,
+    confirmar,
+    estado: 'pendiente',
+  }, nombre);
+  return { lineas: [linea] };
+}
 
 function continuacionReciente(creadoEn, ahora = Date.now()) {
   const t = Date.parse(creadoEn || '');
@@ -295,6 +337,26 @@ async function interpretar(req, inventario, texto, idEnvio) {
   };
   const ultimaPrevia = [...previa.lineas].reverse()
     .find((l) => l.estado !== 'descartada' && l.estado !== 'deshecha') || null;
+  if (ultimaPrevia && (ultimaPrevia.estado === 'pendiente' || ultimaPrevia.estado === 'confirmada') && ultimaPrevia.confirmar) {
+    const ordenPregunta = ultimaPrevia.orden?.textoProducto
+      ? ultimaPrevia.orden
+      : { tipo: 'linea', textoProducto: ultimaPrevia.texto, cantidad: ultimaPrevia.cantidad || { total: 1 } };
+    const empareje = emparejarProducto(ordenPregunta, { indice, plantilla });
+    const candidatos = filtrarCandidatosParecidos(
+      String(ultimaPrevia.texto || ordenPregunta.textoProducto || ''),
+      empareje.candidatos || [],
+    );
+    const resp = resolverRespuesta(texto, { candidatos });
+    if (resp) {
+      const cerrada = await cerrarConRespuesta(inventario, uid, nombre, ultimaPrevia, resp, conteo);
+      const sesionResp = await obtenerSesion(inventarioId, uid);
+      return {
+        sesion: sesionResp.meta,
+        lineas: cerrada.lineas,
+        ...(cerrada.aviso && { aviso: cerrada.aviso }),
+      };
+    }
+  }
 
   const memoTexto = new Map();
   const pidDeTexto = (t) => {

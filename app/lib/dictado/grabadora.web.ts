@@ -118,6 +118,8 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
   let tipo = '';
 
   let audioCtx: AudioContext | null = null;
+  /** Mientras suena la respuesta del dictado, las pistas no alimentan el grabador. */
+  let mudos = 0;
   let fuente: MediaStreamAudioSourceNode | null = null;
   let analizador: AnalyserNode | null = null;
   let medicion: ReturnType<typeof setInterval> | null = null;
@@ -186,7 +188,7 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
     const trozo = actual;
     if (rms == null || !trozo) return;
     try {
-      if (!activa || rotando) return;
+      if (!activa || rotando || mudos > 0) return;
       trozo.muestras += 1;
       const ahora = Date.now();
       const dt = ultimoNivel ? Math.min(ahora - ultimoNivel, 200) : INTERVALO_NIVEL_MS;
@@ -252,6 +254,25 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
     if (!t) return;
     pararRecorder(t);
     await esperarTrozo(t);
+  }
+
+  function pistas(activas: boolean) {
+    stream?.getAudioTracks().forEach((p) => { p.enabled = activas; });
+  }
+
+  /**
+   * La respuesta no entra en el trozo: se apaga el micrófono hasta que termina de hablar.
+   * Lo ya dicho sigue en el trozo abierto y se enviará al cortar por silencio.
+   */
+  async function enmudecer(mientras: Promise<void>) {
+    mudos += 1;
+    if (mudos === 1) pistas(false);
+    try {
+      await mientras;
+    } finally {
+      mudos = Math.max(0, mudos - 1);
+      if (mudos === 0 && activa) pistas(true);
+    }
   }
 
   /** Para y suelta el micrófono pase lo que pase. Si justo se estaba cortando, espera ese trozo. */
@@ -392,6 +413,7 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
     detener,
     grabando: () => activa && actual != null,
     inicioTrozo: () => actual?.empezado ?? null,
+    enmudecer,
     liberar: () => { void detener(); },
   };
 }

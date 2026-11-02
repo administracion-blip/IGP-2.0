@@ -31,6 +31,11 @@ export type Grabadora = {
   grabando: () => boolean;
   /** Instante (ms) en que empezó el trozo en curso, o null si no se graba. */
   inicioTrozo: () => number | null;
+  /**
+   * Cierra el micrófono mientras suena la respuesta, para no transcribirla.
+   * Al terminar la promesa vuelve a oír, si la grabación sigue.
+   */
+  enmudecer: (mientras: Promise<void>) => Promise<void>;
   /** Como detener, sin esperar: para desmontar. */
   liberar: () => void;
 };
@@ -49,6 +54,7 @@ export function crearGrabadora(_opciones: OpcionesGrabadora): Grabadora {
     detener: async () => {},
     grabando: () => false,
     inicioTrozo: () => null,
+    enmudecer: async (mientras) => { await mientras; },
     liberar: () => {},
   };
 }

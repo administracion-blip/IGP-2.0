@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
 import { crearGrabadora, grabadoraDisponible, type Grabadora } from '../lib/dictado/grabadora';
+import { callar, hablarLineas } from '../lib/dictado/voz';
 import {
   alResponderAudio,
   descartarTrozos,
@@ -411,6 +412,20 @@ export function useDictado(inventarioId: string, { onAplicado }: { onAplicado?: 
 
   // ─── Respuestas del audio ───
 
+  const anunciadas = useRef(new Set<string>());
+  const anunciar = useCallback((llegadas: LineaDictado[]) => {
+    const frescas = llegadas.filter((l) => {
+      const clave = `${l.n}:${l.estado}:${l.productId ?? ''}:${l.confirmar ? 1 : 0}`;
+      if (anunciadas.current.has(clave)) return false;
+      anunciadas.current.add(clave);
+      return true;
+    });
+    const habla = hablarLineas(frescas);
+    if (!habla) return;
+    if (grabadora.current?.grabando()) void grabadora.current.enmudecer(habla);
+    else void habla;
+  }, []);
+
   const recibir = useCallback((body: RespuestaAudio, meta: MetaRespuesta) => {
     if (meta.descartado) recordarDescartados([meta.idEnvio]);
     const llegadas = listaLineas(body.lineas);
@@ -428,8 +443,11 @@ export function useDictado(inventarioId: string, { onAplicado }: { onAplicado?: 
         void pasarAPausa();
       }
     }
-    void aplicar(llegadas.filter(autoaplicable).map((l) => l.n));
-  }, [aplicar, autoaplicable, pasarAPausa, ponerLineas, recordarDescartados]);
+    if (!meta.descartado) anunciar(llegadas);
+    // «sí» deja la línea confirmada: se aplica igual que al pulsar Confirmar.
+    const aAplicar = llegadas.filter((l) => autoaplicable(l) || (l.estado === 'confirmada' && !esDescartada(l)));
+    void aplicar(aAplicar.map((l) => l.n));
+  }, [anunciar, aplicar, autoaplicable, pasarAPausa, ponerLineas, recordarDescartados]);
 
   const recibirRef = useRef(recibir);
   recibirRef.current = recibir;
@@ -493,6 +511,7 @@ export function useDictado(inventarioId: string, { onAplicado }: { onAplicado?: 
 
     return () => {
       vivo.current = false;
+      callar();
       grabadora.current?.liberar();
       grabadora.current = null;
       esperaCtrl.current?.abort();

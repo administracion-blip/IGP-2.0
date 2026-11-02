@@ -27,6 +27,7 @@ import {
   type RechazoDictado,
 } from '../../hooks/useDictado';
 import { MAX_TROZO_MS } from '../../lib/dictado/grabadora';
+import { guardarModoVoz, leerModoVoz, type ModoVoz } from '../../lib/dictado/voz';
 import { apiFetch } from '../../utils/api';
 import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplegable';
 import { BotonPeligro } from '../ui/BotonPeligro';
@@ -728,6 +729,7 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
     };
   }, [dictado.lineas, dictado.rechazos, dictado.esDescartada]);
   const [confirmandoTodas, setConfirmandoTodas] = useState(false);
+  const [modoVoz, setModoVoz] = useState<ModoVoz>(() => leerModoVoz());
   const [resultadoTodas, setResultadoTodas] = useState<string | null>(null);
   /** Líneas que no se aplicaron solas: el hook borra el rechazo al aplicarlas, así que se recuerdan aquí. */
   const [aMano, setAMano] = useState<Set<number>>(() => new Set());
@@ -991,6 +993,28 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
 
       {fase === 'terminada' ? null : (
       <View style={[styles.barra, shouldStackToolbar && styles.filaApilada]}>
+        {([
+          ['silencio', 'volume-off', 'Silenciar'],
+          ['pitido', 'notifications', 'Pitido'],
+          ['hablada', 'record-voice-over', 'Voz'],
+        ] as const).map(([id, icono, etiqueta]) => (
+          <Pressable
+            key={id}
+            style={[styles.botonAnadir, modoVoz === id && styles.vozActiva]}
+            onPress={() => { guardarModoVoz(id); setModoVoz(id); }}
+            accessibilityRole="button"
+            accessibilityState={{ selected: modoVoz === id }}
+            accessibilityLabel={etiqueta === 'Silenciar' ? 'Silenciar la voz del dictado' : etiqueta === 'Pitido' ? 'Avisar los aciertos con un pitido' : 'Confirmar en voz alta'}
+          >
+            <MaterialIcons name={icono} size={18} color={modoVoz === id ? colors.accent : colors.textSecondary} />
+            <Text style={styles.botonAnadirTexto}>{etiqueta}</Text>
+          </Pressable>
+        ))}
+      </View>
+      )}
+
+      {fase === 'terminada' ? null : (
+      <View style={[styles.barra, shouldStackToolbar && styles.filaApilada]}>
         {fase === 'dictando' ? (
           <Pressable
             style={[styles.botonFoto, styles.flex]}
@@ -1219,6 +1243,7 @@ const styles = StyleSheet.create({
   bannerAccion: { minHeight: MIN_TOUCH, justifyContent: 'center', paddingHorizontal: SPACING.sm },
   puntoGrabando: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.danger },
   barra: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginTop: SPACING.xs },
+  vozActiva: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
   cola: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, minHeight: 32 },
   colaTexto: { flex: 1, fontFamily: fontFamily.medium, fontSize: fontSizes[13] },
   trozos: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: SPACING.xs },
