@@ -83,7 +83,7 @@ import {
 import { requirePermission, requireAnyPermission, requireRole, hasPermission } from '../middleware/auth.js';
 import { requireLocal, requireLocales, requireAlcanceGlobal, requireLocalLectura, desde } from '../middleware/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal, workplacesLectura } from '../lib/alcanceLecturas.js';
-import { MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, cargarAlcance, modoLecturas, filtrarPorLocal } from '../lib/alcance.js';
+import { MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, cargarAlcance, modoLecturas, filtrarPorLocal, intersecarLocales } from '../lib/alcance.js';
 import { invalidarMapaAlmacenes } from '../lib/alcanceAlmacenes.js';
 import { buildObjetivoMensualCard, loadFestivosByFecha } from '../lib/agora/objetivoMensual.js';
 import { buildFacturacionMesDiaria } from '../lib/agora/facturacionMesDiaria.js';
@@ -1150,121 +1150,134 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
     return total;
   };
 
+  // Sin cajas.ver solo se devuelve el ticker: basta con los días dateTo y datePrev
+  // de los locales del usuario, en vez de todo el grupo desde el año anterior.
+  const conAcumulados = await hasPermission(req.user, 'cajas.ver');
   const maestro = await maestroLocales();
-  const items = await queryCierresPorWorkplace(
-    [...maestro.porAgora.keys()],
-    `${lastYearNum}-01-01`,
-    `${dateTo}\uffff`,
-  );
+  let items;
+  if (conAcumulados) {
+    items = await queryCierresPorWorkplace(
+      [...maestro.porAgora.keys()],
+      `${lastYearNum}-01-01`,
+      `${dateTo}\uffff`,
+    );
+  } else {
+    const workplaces = intersecarLocales(await cargarAlcance(req), [...maestro.porAgora.keys()]);
+    const [delDia, delPrevio] = await Promise.all([
+      queryCierresPorWorkplace(workplaces, dateTo, `${dateTo}\uffff`),
+      queryCierresPorWorkplace(workplaces, datePrev, `${datePrev}\uffff`),
+    ]);
+    items = [...delDia, ...delPrevio];
+  }
   const pkToNombre = nombresPorAgora(maestro);
 
-    const totalsTickerPk = {};
-    const totalsPrevPk = {};
-    const ytdCurPk = {};
-    const ytdLastPk = {};
-    const monthCur = {};
-    const monthLast = {};
+  const totalsTickerPk = {};
+  const totalsPrevPk = {};
+  const ytdCurPk = {};
+  const ytdLastPk = {};
+  const monthCur = {};
+  const monthLast = {};
 
-    for (const item of items) {
-      const sk = String(item.SK ?? item.sk ?? '').trim();
-      if (!sk) continue;
-      const pk = String(item.PK ?? item.pk ?? '').trim();
-      if (!pk) continue;
-      const t = sumInvoicePayments(item);
+  for (const item of items) {
+    const sk = String(item.SK ?? item.sk ?? '').trim();
+    if (!sk) continue;
+    const pk = String(item.PK ?? item.pk ?? '').trim();
+    if (!pk) continue;
+    const t = sumInvoicePayments(item);
 
-      if (sk.startsWith(dateTo)) {
-        totalsTickerPk[pk] = (totalsTickerPk[pk] || 0) + t;
-      }
-      if (sk.startsWith(datePrev)) {
-        totalsPrevPk[pk] = (totalsPrevPk[pk] || 0) + t;
-      }
+    if (sk.startsWith(dateTo)) {
+      totalsTickerPk[pk] = (totalsTickerPk[pk] || 0) + t;
+    }
+    if (sk.startsWith(datePrev)) {
+      totalsPrevPk[pk] = (totalsPrevPk[pk] || 0) + t;
+    }
 
-      const datePart = sk.split('#')[0] || '';
+    const datePart = sk.split('#')[0] || '';
 
-      if (sk.startsWith(prefixCur)) {
-        if (!(useDateToCur && datePart > dateTo)) {
-          ytdCurPk[pk] = (ytdCurPk[pk] || 0) + t;
-          const mo = parseInt(datePart.slice(5, 7), 10) || 0;
-          if (mo >= 1 && mo <= 12) {
-            monthCur[mo] = (monthCur[mo] || 0) + t;
-          }
-        }
-      }
-      if (sk.startsWith(prefixLast)) {
-        if (!(useDateToLast && datePart > dateToLastYear)) {
-          ytdLastPk[pk] = (ytdLastPk[pk] || 0) + t;
-          const mo = parseInt(datePart.slice(5, 7), 10) || 0;
-          if (mo >= 1 && mo <= 12) {
-            monthLast[mo] = (monthLast[mo] || 0) + t;
-          }
+    if (sk.startsWith(prefixCur)) {
+      if (!(useDateToCur && datePart > dateTo)) {
+        ytdCurPk[pk] = (ytdCurPk[pk] || 0) + t;
+        const mo = parseInt(datePart.slice(5, 7), 10) || 0;
+        if (mo >= 1 && mo <= 12) {
+          monthCur[mo] = (monthCur[mo] || 0) + t;
         }
       }
     }
-
-    const mapPkToTotals = (totalsByPk) =>
-      Object.entries(totalsByPk)
-        .filter(([, total]) => total > 0)
-        .map(([workplaceId, total]) => ({
-          local: pkToNombre[workplaceId] ?? workplaceId,
-          total: Math.round(total * 100) / 100,
-          workplaceId,
-        }))
-        .sort((a, b) => b.total - a.total);
-
-    const monthsCurArr = [];
-    const monthsLastArr = [];
-    for (let m = 1; m <= 12; m++) {
-      monthsCurArr.push({
-        month: m,
-        monthLabel: MONTH_LABELS[m - 1],
-        total: Math.round((monthCur[m] || 0) * 100) / 100,
-      });
-      monthsLastArr.push({
-        month: m,
-        monthLabel: MONTH_LABELS[m - 1],
-        total: Math.round((monthLast[m] || 0) * 100) / 100,
-      });
+    if (sk.startsWith(prefixLast)) {
+      if (!(useDateToLast && datePart > dateToLastYear)) {
+        ytdLastPk[pk] = (ytdLastPk[pk] || 0) + t;
+        const mo = parseInt(datePart.slice(5, 7), 10) || 0;
+        if (mo >= 1 && mo <= 12) {
+          monthLast[mo] = (monthLast[mo] || 0) + t;
+        }
+      }
     }
+  }
 
-    const ticker = Object.entries(totalsTickerPk)
+  const mapPkToTotals = (totalsByPk) =>
+    Object.entries(totalsByPk)
       .filter(([, total]) => total > 0)
       .map(([workplaceId, total]) => ({
         local: pkToNombre[workplaceId] ?? workplaceId,
         total: Math.round(total * 100) / 100,
-        totalAnterior: Math.round((totalsPrevPk[workplaceId] || 0) * 100) / 100,
         workplaceId,
       }))
       .sort((a, b) => b.total - a.total);
-    const totalsTicker = filtrarPorLocal(await cargarAlcance(req), ticker, (r) => ({ workplaceId: r.workplaceId }));
 
-    if (!(await hasPermission(req.user, 'cajas.ver'))) {
-      return res.json({ dateTo, totalsTicker });
-    }
-
-    res.json({
-      dateTo,
-      totalsTicker,
-      ytdCurrent: {
-        year: curYear,
-        dateTo: useDateToCur ? dateTo : null,
-        totals: mapPkToTotals(ytdCurPk),
-      },
-      ytdLastYear: {
-        year: lastYearNum,
-        dateTo: useDateToLast ? dateToLastYear : null,
-        totals: mapPkToTotals(ytdLastPk),
-      },
-      monthsCurrent: {
-        year: curYear,
-        dateTo: useDateToCur ? dateTo : null,
-        months: monthsCurArr,
-      },
-      monthsLastYear: {
-        year: lastYearNum,
-        dateTo: useDateToLast ? dateToLastYear : null,
-        months: monthsLastArr,
-      },
+  const monthsCurArr = [];
+  const monthsLastArr = [];
+  for (let m = 1; m <= 12; m++) {
+    monthsCurArr.push({
+      month: m,
+      monthLabel: MONTH_LABELS[m - 1],
+      total: Math.round((monthCur[m] || 0) * 100) / 100,
     });
+    monthsLastArr.push({
+      month: m,
+      monthLabel: MONTH_LABELS[m - 1],
+      total: Math.round((monthLast[m] || 0) * 100) / 100,
+    });
+  }
+
+  const ticker = Object.entries(totalsTickerPk)
+    .filter(([, total]) => total > 0)
+    .map(([workplaceId, total]) => ({
+      local: pkToNombre[workplaceId] ?? workplaceId,
+      total: Math.round(total * 100) / 100,
+      totalAnterior: Math.round((totalsPrevPk[workplaceId] || 0) * 100) / 100,
+      workplaceId,
+    }))
+    .sort((a, b) => b.total - a.total);
+  const totalsTicker = filtrarPorLocal(await cargarAlcance(req), ticker, (r) => ({ workplaceId: r.workplaceId }));
+
+  if (!conAcumulados) {
+    return res.json({ dateTo, totalsTicker });
+  }
+
+  res.json({
+    dateTo,
+    totalsTicker,
+    ytdCurrent: {
+      year: curYear,
+      dateTo: useDateToCur ? dateTo : null,
+      totals: mapPkToTotals(ytdCurPk),
+    },
+    ytdLastYear: {
+      year: lastYearNum,
+      dateTo: useDateToLast ? dateToLastYear : null,
+      totals: mapPkToTotals(ytdLastPk),
+    },
+    monthsCurrent: {
+      year: curYear,
+      dateTo: useDateToCur ? dateTo : null,
+      months: monthsCurArr,
+    },
+    monthsLastYear: {
+      year: lastYearNum,
+      dateTo: useDateToLast ? dateToLastYear : null,
+      months: monthsLastArr,
+    },
+  });
 });
 
 router.get('/agora/closeouts-ready', (_req, res) => {

@@ -6,7 +6,7 @@ import { formatId6 } from '../lib/usuarioLocales.js';
 import { esSedeGrupoParipeLocal } from '../lib/locales/sede.js';
 import { listarLocalesCacheados, invalidarCacheLocales } from '../lib/locales/cacheLocales.js';
 import { invalidarMaestroLocales } from '../lib/alcance.js';
-import { hasPermission, requireAnyPermission, requirePermission } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -36,9 +36,9 @@ function formatIdEmpresa(val) {
 }
 
 /**
- * Siguiente `id_Locales` libre (máximo del maestro + 1). Solo se usa en altas sin
- * identificador (creación rápida desde Usuarios): antes se asignaba '000000' fijo,
- * que pisaba el local que ya tuviera ese id.
+ * Siguiente `id_Locales` libre (máximo del maestro + 1). Solo se usa en altas que
+ * llegan sin identificador: antes se asignaba '000000' fijo, que pisaba el local
+ * que ya tuviera ese id.
  */
 async function siguienteIdLocalLibre() {
   let max = 0;
@@ -94,23 +94,19 @@ router.get('/locales', async (req, res) => {
   res.json({ locales });
 });
 
-// La creación rápida desde la ficha de usuario (usuarios.crear / usuarios.editar) solo
-// da de alta el nombre y la sede; el resto del maestro exige locales.crear.
-const ATTRS_ALTA_RAPIDA = new Set(['id_Locales', 'nombre', 'sede']);
-
-router.post('/locales', requireAnyPermission('locales.crear', 'usuarios.crear', 'usuarios.editar'), async (req, res) => {
+// Desde 2026-11-01 la gestión de usuarios es solo Administrador: `usuarios.crear` /
+// `usuarios.editar` ya no dan acceso. La creación rápida desde la ficha de usuario
+// sigue funcionando porque esa pantalla solo la usa el Administrador.
+router.post('/locales', requirePermission('locales.crear'), async (req, res) => {
   const body = req.body || {};
   if (!bodyLocalesVal(body, 'nombre') || !String(bodyLocalesVal(body, 'nombre')).trim()) {
     return res.status(400).json({ error: 'nombre es obligatorio' });
   }
-  const soloAltaRapida = !req.isInternal && !(await hasPermission(req.user, 'locales.crear'));
   const idBody = body.id_Locales ?? body.Id_Locales;
   const idExplicito = idBody != null && String(idBody).trim() !== '';
   const item = {};
   for (const key of TABLE_LOCALES_ATTRS) {
-    if (soloAltaRapida && !ATTRS_ALTA_RAPIDA.has(key)) {
-      item[key] = key === 'estilo_visual_imagen_keys' ? [] : '';
-    } else if (key === 'id_Locales') {
+    if (key === 'id_Locales') {
       item[key] = idExplicito ? formatId6(idBody) : '';
     } else if (key === 'id_empresa') {
       item[key] = formatIdEmpresa(bodyLocalesVal(body, key));

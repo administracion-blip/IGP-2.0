@@ -89,9 +89,11 @@ async function depsConAlcance(req) {
 }
 
 /**
- * [SEC S-08] Para `ignorar` y `descartar`, que escriben sobre el movimiento: la
- * sociedad que se comprueba es la de la cuenta del movimiento (`empresaId`). Fuera de alcance —o sin cuenta
- * asignada— el movimiento no existe para un usuario restringido (404).
+ * [SEC S-08] Para los cuatro endpoints de escritura, que escriben sobre el
+ * movimiento: la sociedad que se comprueba es la de la cuenta del movimiento
+ * (`empresaId`). Fuera de alcance —o sin cuenta asignada— el movimiento no existe
+ * para un usuario restringido (404). En `aplicar` y en el DELETE se combina con
+ * `depsConAlcance`, que hace lo mismo con la factura.
  */
 async function depsMovimientoConAlcance(req) {
   const empresasOk = await empresasPermitidasDelUsuario(req.user);
@@ -190,11 +192,13 @@ router.get('/banca/conciliacion/sugerencias', requirePermission('banca.ver'), as
 
   // [SEC S-08] Las facturas se filtran por sociedad emisora permitida, igual que
   // en facturación: si no, la conciliación sería una puerta de atrás para ver
-  // facturas de sociedades a las que el usuario no tiene acceso.
+  // facturas de sociedades a las que el usuario no tiene acceso. Los movimientos,
+  // por la sociedad de su cuenta, con el mismo criterio que `ignorar` y `descartar`.
   const empresasOk = await empresasPermitidasDelUsuario(req.user);
   const visibles = facturas.filter((f) => facturaEmisorPermitido(f, empresasOk));
+  const movimientosVisibles = movimientos.filter((m) => facturaEmisorPermitido({ emisor_id: m?.empresaId }, empresasOk));
 
-  const resultado = sugerirConciliaciones({ movimientos, facturas: visibles });
+  const resultado = sugerirConciliaciones({ movimientos: movimientosVisibles, facturas: visibles });
 
   res.json({
     ok: true,
@@ -235,7 +239,7 @@ router.post('/banca/conciliacion/aplicar', requirePermission('facturacion.cobrar
     referencia: req.body?.referencia,
     observaciones: req.body?.observaciones,
     usuario: usuarioDeReq(req),
-  }, await depsConAlcance(req));
+  }, { ...(await depsConAlcance(req)), ...(await depsMovimientoConAlcance(req)) });
   return responder(res, resultado);
 });
 
@@ -309,7 +313,7 @@ router.delete('/banca/conciliacion', requirePermission('facturacion.cobrar_pagar
     id_factura: idFactura,
     id_pago: req.body?.id_pago,
     usuario: usuarioDeReq(req),
-  }, await depsConAlcance(req));
+  }, { ...(await depsConAlcance(req)), ...(await depsMovimientoConAlcance(req)) });
   return responder(res, resultado);
 });
 

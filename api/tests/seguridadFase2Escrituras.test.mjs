@@ -3,8 +3,10 @@
  * del permiso global y no miraban el local o la sociedad del registro.
  *
  * - Sesiones de activaciones (POST, PATCH, DELETE) comprueban el local.
- * - Conciliación bancaria: `descartar` mira la sociedad de la factura e
- *   `ignorar` la de la cuenta del movimiento.
+ * - Conciliación bancaria: las escrituras miran la sociedad de la cuenta del
+ *   movimiento (y la de la factura cuando interviene); las sugerencias no
+ *   devuelven movimientos de otras sociedades.
+ * - Marketing resuelve los locales del usuario (nombres en `Local`) a ids.
  * - `rappel-preview` comprueba el local del pedido.
  * - `conflicto-artista` avisa del conflicto sin datos de locales ajenos.
  * - `marketing/imagen-url` solo firma claves visibles para el usuario.
@@ -23,6 +25,7 @@ process.env.AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID || 'AKIAPRUEBAS';
 process.env.AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY || 'secreto-de-pruebas';
 
 const { montarEscenario, tables, local, empresa, EMPRESA_NORTE, EMPRESA_SUR } = await import('./escenarioFacturacion.mjs');
+const { docClient } = await import('../lib/db.js');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 const { aplicarClavesGsi, clavesActuacion } = await import('../lib/clavesIndice.js');
@@ -40,11 +43,16 @@ const PERMISOS = [
   'marketing.proponer',
   'facturacion.cobrar_pagar',
   'banca.importar',
+  'banca.ver',
 ];
 const ADMIN = { sub: '000001', email: 'jefe@grupo.test', rol: 'Administrador' };
 const NORTE = { sub: 'u-norte', email: 'norte@grupo.test', rol: ROL };
-// Marketing guarda en `Local` ids de local (getUserLocales los normaliza con formatId6).
+// `Local` guarda nombres de local; marketing los resuelve a ids con el alcance.
 const MK = { sub: '000050', email: 'mk@grupo.test', rol: ROL };
+// Ficha antigua con ids en `Local`: se sigue aceptando.
+const MK_IDS = { sub: '000051', email: 'mk-ids@grupo.test', rol: ROL };
+// `Local` vacío: alcance global aunque no sea gestor.
+const MK_GLOBAL = { sub: '000052', email: 'mk-global@grupo.test', rol: ROL };
 
 const IBAN_NORTE = 'ES1000492352082414205416';
 const IBAN_SUR = 'ES9121000418450200051332';
@@ -92,7 +100,9 @@ beforeEach(() => {
   db.sembrar(tables.empresas, empresa(EMPRESA_NORTE, 'Norte'));
   db.sembrar(tables.empresas, empresa(EMPRESA_SUR, 'Sur'));
   db.sembrar(tables.usuarios, { id_usuario: 'u-norte', Email: NORTE.email, Local: ['Local Norte'], Rol: ROL });
-  db.sembrar(tables.usuarios, { id_usuario: '000050', Email: MK.email, Local: ['000010'], Rol: ROL });
+  db.sembrar(tables.usuarios, { id_usuario: '000050', Email: MK.email, Local: ['local NORTE'], Rol: ROL });
+  db.sembrar(tables.usuarios, { id_usuario: '000051', Email: MK_IDS.email, Local: ['10'], Rol: ROL });
+  db.sembrar(tables.usuarios, { id_usuario: '000052', Email: MK_GLOBAL.email, Local: [], Rol: ROL });
   db.sembrar(tables.usuarios, { id_usuario: '000001', Email: ADMIN.email, Rol: 'Administrador' });
   for (const p of PERMISOS) db.sembrar(tables.rolesPermisos, { PK: `ROL#${ROL}`, SK: `PERMISO#${p}` });
 
@@ -255,6 +265,49 @@ test('conciliación: el Administrador descarta e ignora en cualquier sociedad', 
   assert.equal(i.status, 200, JSON.stringify(i.body));
 });
 
+test('conciliación: aplicar sobre un movimiento de otra sociedad da 404 aunque la factura sea suya', async () => {
+  const cuerpo = (iban, hash) => ({ ...movimiento(iban, hash), asignaciones: [{ id_factura: 'F-NORTE', importe: 10 }] });
+  const r = await api('POST', '/api/banca/conciliacion/aplicar', cuerpo(IBAN_SUR, 'hs'));
+  assert.equal(r.status, 404);
+  assert.equal(r.body.code, 'MOVIMIENTO_NO_ENCONTRADO');
+  assert.equal(mov(IBAN_SUR, 'hs').estadoConciliacion, 'pendiente');
+  assert.equal(mov(IBAN_SUR, 'hs').conciliaciones, undefined);
+
+  // Sobre su propio movimiento no se le niega el movimiento (lo que pase después es cosa de la factura).
+  const propio = await api('POST', '/api/banca/conciliacion/aplicar', cuerpo(IBAN_NORTE, 'hn'));
+  assert.notEqual(propio.body.code, 'MOVIMIENTO_NO_ENCONTRADO', JSON.stringify(propio.body));
+});
+
+test('conciliación: deshacer sobre un movimiento de otra sociedad da 404 y no toca sus conciliaciones', async () => {
+  const conciliado = {
+    ...mov(IBAN_SUR, 'hs'),
+    estadoConciliacion: 'conciliado',
+    conciliaciones: [{ id_factura: 'F-NORTE', id_pago: 'PAG-1', importeCentimos: 1000 }],
+  };
+  db.sembrar(tables.bankMovements, conciliado);
+
+  const r = await api('DELETE', '/api/banca/conciliacion', { ...movimiento(IBAN_SUR, 'hs'), id_factura: 'F-NORTE' });
+  assert.equal(r.status, 404);
+  assert.equal(r.body.code, 'MOVIMIENTO_NO_ENCONTRADO');
+  assert.deepEqual(mov(IBAN_SUR, 'hs').conciliaciones, conciliado.conciliaciones);
+  assert.equal(mov(IBAN_SUR, 'hs').estadoConciliacion, 'conciliado');
+});
+
+test('conciliación: las sugerencias no devuelven movimientos de otras sociedades; el Administrador los ve todos', async () => {
+  const ruta = '/api/banca/conciliacion/sugerencias?tipo=OUT&desde=2026-01-01';
+  const hashes = (r) => r.body.porMovimiento.map((m) => m.movementHash).sort();
+
+  const r = await api('GET', ruta);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(hashes(r), ['hn']);
+  assert.equal(r.body.totales.movimientos, 1);
+  assert.ok(!JSON.stringify(r.body).includes(IBAN_SUR));
+
+  const admin = await api('GET', ruta, undefined, ADMIN);
+  assert.equal(admin.status, 200, JSON.stringify(admin.body));
+  assert.deepEqual(hashes(admin), ['hn', 'hs']);
+});
+
 // ─── Pedidos: rappel-preview ───
 
 test('rappel-preview: con lecturas bloqueadas, un pedido de otro local da 403; inexistente 404', async () => {
@@ -346,6 +399,51 @@ test('propuestas: un no gestor no puede poner como referencia una clave ajena', 
   assert.equal(refNorte(), 'marketing/referencia/norte.jpg');
   const misma = await api('PATCH', '/api/marketing/propuestas/P-NORTE', { imagen_referencia_url: 'marketing/referencia/norte.jpg', descripcion: 'Otra' }, MK);
   assert.equal(misma.status, 200, JSON.stringify(misma.body));
+});
+
+test('propuestas: un no gestor con nombre de local en su ficha ve las de su local (sin distinguir mayúsculas) y no las ajenas', async () => {
+  const propias = await api('GET', '/api/marketing/propuestas?id_local=000010', undefined, MK);
+  assert.equal(propias.status, 200, JSON.stringify(propias.body));
+  assert.deepEqual(propias.body.propuestas.map((p) => p.id_propuesta), ['P-NORTE']);
+  assert.equal((await api('GET', '/api/marketing/propuestas?id_local=000020', undefined, MK)).status, 403);
+
+  assert.equal((await api('GET', '/api/marketing/propuestas/P-NORTE', undefined, MK)).status, 200);
+  assert.equal((await api('GET', '/api/marketing/propuestas/P-SUR', undefined, MK)).status, 404);
+});
+
+test('propuestas: una ficha antigua con ids en Local sigue funcionando', async () => {
+  const r = await api('GET', '/api/marketing/propuestas?id_local=000010', undefined, MK_IDS);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.propuestas.map((p) => p.id_propuesta), ['P-NORTE']);
+  assert.equal((await api('GET', '/api/marketing/propuestas?id_local=000020', undefined, MK_IDS)).status, 403);
+  assert.equal((await imagen('marketing/estilo-local/norte.jpg', MK_IDS)).status, 200);
+  assert.equal((await imagen('marketing/estilo-local/sur.jpg', MK_IDS)).status, 403);
+});
+
+test('propuestas: un no gestor con Local vacío (alcance global) ve todos los locales y sus imágenes', async () => {
+  for (const [idLocal, id] of [['000010', 'P-NORTE'], ['000020', 'P-SUR']]) {
+    const r = await api('GET', `/api/marketing/propuestas?id_local=${idLocal}`, undefined, MK_GLOBAL);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(r.body.propuestas.map((p) => p.id_propuesta), [id]);
+  }
+
+  const lecturas = [];
+  const enviar = docClient.send;
+  docClient.send = (cmd) => {
+    lecturas.push(`${cmd?.constructor?.name}:${cmd?.input?.TableName}`);
+    return enviar(cmd);
+  };
+  try {
+    for (const key of ['marketing/estilo-local/sur.jpg', 'marketing/referencia/sur.jpg', 'marketing/estilo-local/norte.jpg']) {
+      assert.equal((await imagen(key, MK_GLOBAL)).status, 200, key);
+    }
+    assert.equal((await imagen('marketing/estilo-local/no-existe.jpg', MK_GLOBAL)).status, 403);
+    assert.equal((await imagen('marketing/final/no-existe.jpg', MK_GLOBAL)).status, 403);
+  } finally {
+    docClient.send = enviar;
+  }
+  // Sin una lectura por local: ni Get al maestro de locales ni Query por id_local.
+  assert.equal(lecturas.some((l) => l === `GetCommand:${tables.locales}` || l === `QueryCommand:${tables.marketing}`), false, lecturas.join(', '));
 });
 
 test('imagen-url: el Administrador firma cualquier clave de marketing', async () => {

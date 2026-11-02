@@ -117,24 +117,23 @@ test('con locales.crear / editar / borrar el maestro funciona como antes', async
   assert.equal(db.obtener(tables.locales, { id_Locales: '000020' }), null);
 });
 
-test('la creación rápida desde Usuarios funciona con usuarios.crear, pero solo guarda nombre y sede', async () => {
+test('desde 2026-11-01 usuarios.crear ya no permite crear locales (solo locales.crear o Administrador)', async () => {
   const db = montar();
-  const r = await api('POST', '/api/locales', {
-    id_Locales: '21',
-    Nombre: 'Terraza',
-    Sede: 'Grupo Paripe',
-    AgoraCode: '7',
-    id_empresa: '3',
-  }, GESTOR_USUARIOS);
-  assert.equal(r.status, 200);
-  const guardado = db.obtener(tables.locales, { id_Locales: '000021' });
+  const r = await api('POST', '/api/locales', { id_Locales: '21', Nombre: 'Terraza', Sede: 'Grupo Paripe' }, GESTOR_USUARIOS);
+  assert.equal(r.status, 403);
+  assert.equal(db.obtener(tables.locales, { id_Locales: '000021' }), null);
+  assert.equal((await api('PUT', '/api/locales', { id_Locales: '000010', Nombre: 'Otro' }, GESTOR_USUARIOS)).status, 403);
+  assert.equal((await api('DELETE', '/api/locales', { id_Locales: '000010' }, GESTOR_USUARIOS)).status, 403);
+});
+
+test('un alta sin id_Locales (Administrador) asigna el siguiente id libre', async () => {
+  const db = montar();
+  const admin = { sub: '000001', email: 'jefe@grupo.test', rol: 'Administrador' };
+  const r = await api('POST', '/api/locales', { Nombre: 'Terraza', Sede: 'Grupo Paripe' }, admin);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const guardado = db.obtener(tables.locales, { id_Locales: '000011' });
   assert.equal(guardado.nombre, 'Terraza');
   assert.equal(guardado.sede, 'Grupo Paripe');
-  assert.equal(guardado.agoraCode, '');
-  assert.equal(guardado.id_empresa, '');
-
-  assert.equal((await api('PUT', '/api/locales', { id_Locales: '000021', Nombre: 'Otro' }, GESTOR_USUARIOS)).status, 403);
-  assert.equal((await api('DELETE', '/api/locales', { id_Locales: '000021' }, GESTOR_USUARIOS)).status, 403);
 });
 
 test('PUT de un local inexistente devuelve 404 y no lo crea (locales.editar no sirve para crear)', async () => {

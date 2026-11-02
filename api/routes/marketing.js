@@ -10,7 +10,7 @@
  * El rol 'Administrador' bypasea ambos (comportamiento de `requirePermission`).
  *
  * El JWT solo lleva sub/email/rol — `id_local`/`id_empresa` no están en el token.
- * Se resuelven con `getUserLocales(userId)` (Get a `tables.usuarios`) y
+ * Se resuelven con `getUserLocales(req)` (alcance por nombre de local) y
  * `getEmpresaIdFromLocal(idLocalNorm)` (Get a `tables.locales`).
  *
  * IDs de local: el proyecto los almacena con padding a 6 dígitos (`'000005'`).
@@ -34,8 +34,10 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { queryActuacionesListado } from '../lib/actuacionesIndice.js';
 import { docClient, tables } from '../lib/db.js';
-import { invalidarCacheLocales } from '../lib/locales/cacheLocales.js';
+import { invalidarCacheLocales, listarLocalesCacheados } from '../lib/locales/cacheLocales.js';
 import { hasPermission, requirePermission } from '../middleware/auth.js';
+import { cargarAlcance, maestroLocales } from '../lib/alcance.js';
+import { cargarContextoAcceso } from '../lib/tasks/acceso.js';
 import {
   GSI_LOCAL_ESTADO_NAME,
   GSI_LOCAL_FECHA_NAME,
@@ -319,32 +321,23 @@ function throwSiTablaMarketingFalta(err) {
   throw err;
 }
 
-function normalizeLocalField(val) {
-  if (Array.isArray(val)) {
-    return val
-      .filter((l) => l != null && String(l).trim() !== '')
-      .map((l) => formatId6(String(l).trim()))
-      .filter(Boolean);
-  }
-  if (val != null && String(val).trim() !== '') {
-    const norm = formatId6(String(val).trim());
-    return norm ? [norm] : [];
-  }
-  return [];
-}
-
 /**
- * Devuelve el array de locales (ya normalizados a `formatId6`) asignados a un
- * usuario. Lectura con Get sobre `tables.usuarios`. Si el usuario no existe o
- * no tiene `Local` asignado devuelve `[]`.
+ * Ids de local (`formatId6`) del usuario de la petición. `Local` en igp_usuarios
+ * guarda **nombres**: se resuelven con el alcance de `lib/alcance.js`
+ * (case-insensitive contra el maestro). Alcance global (Administrador o `Local`
+ * vacío): todos los locales del maestro. Usuario inexistente: `[]`.
+ * Se aceptan también ids numéricos en `Local`, por fichas antiguas.
  */
-async function getUserLocales(userId) {
-  if (!userId) return [];
-  const r = await docClient.send(new GetCommand({
-    TableName: tables.usuarios,
-    Key: { id_usuario: String(userId) },
-  }));
-  return normalizeLocalField(r.Item?.Local);
+async function getUserLocales(req) {
+  const [alcance, maestro] = await Promise.all([cargarAlcance(req), maestroLocales()]);
+  if (alcance.global) return [...maestro.porId.keys()];
+  const ids = new Set(alcance.localIds);
+  const ctx = await cargarContextoAcceso(req.user);
+  for (const bruto of ctx.locales) {
+    const valor = String(bruto ?? '').trim();
+    if (/^\d+$/.test(valor)) ids.add(formatId6(valor));
+  }
+  return [...ids];
 }
 
 /** Normaliza un nombre de empresa para cruzar `locales.empresa` con `empresas.Nombre`. */
@@ -437,7 +430,7 @@ async function assertAccesoEstiloLocal(req, idLocalNorm) {
   if (!idLocalNorm) throw badRequest('id de local inválido');
   const esGestor = await hasGestionPermission(req);
   if (esGestor) return;
-  const userLocales = await getUserLocales(req.user?.sub);
+  const userLocales = await getUserLocales(req);
   if (!userLocales.includes(idLocalNorm)) {
     throw forbidden('No tienes permiso para la identidad visual de ese local');
   }
@@ -486,7 +479,20 @@ async function puedeVerImagenMarketing(req, key) {
   if (key.includes('..') || key.includes('//')) return false;
   if (await hasGestionPermission(req)) return true;
   if (subidaPorUsuario(key, req.user?.sub)) return true;
-  const userLocales = await getUserLocales(req.user?.sub);
+  const contieneClave = (p) =>
+    String(p?.imagen_referencia_url ?? '').trim() === key || String(p?.imagen_final_url ?? '').trim() === key;
+
+  // Alcance global: una sola lectura en vez de una por local.
+  if ((await cargarAlcance(req)).global) {
+    if (key.startsWith(PREFIX_ESTILO_LOCAL_KEY)) {
+      const locales = await listarLocalesCacheados();
+      return locales.some((l) => normalizeEstiloImagenKeysFromItem(l.estilo_visual_imagen_keys).includes(key));
+    }
+    const items = await scanAllMarketing(undefined, undefined, undefined, 'imagen_referencia_url, imagen_final_url');
+    return items.some(contieneClave);
+  }
+
+  const userLocales = await getUserLocales(req);
   if (userLocales.length === 0) return false;
 
   if (key.startsWith(PREFIX_ESTILO_LOCAL_KEY)) {
@@ -501,8 +507,6 @@ async function puedeVerImagenMarketing(req, key) {
     return false;
   }
 
-  const contieneClave = (p) =>
-    String(p?.imagen_referencia_url ?? '').trim() === key || String(p?.imagen_final_url ?? '').trim() === key;
   if (isMarketingLocalEstadoReady()) {
     for (const idLocal of userLocales) {
       let lastKey = null;
@@ -725,7 +729,6 @@ function buildPromptCartelMusicoAgrupado({
 // ──────────────────────────────────────────────────────────────────────────
 
 router.get('/marketing/propuestas', requirePermission('marketing.proponer'), async (req, res) => {
-  const userId = req.user?.sub;
   const idLocalQ = req.query?.id_local != null ? formatId6(String(req.query.id_local).trim()) : '';
   const estado = req.query?.estado != null ? String(req.query.estado).trim() : '';
   const idEmpresa = req.query?.id_empresa != null ? String(req.query.id_empresa).trim() : '';
@@ -743,7 +746,7 @@ router.get('/marketing/propuestas', requirePermission('marketing.proponer'), asy
   // Sin gestionar: id_local obligatorio y debe pertenecer al usuario.
   if (!esGestor) {
     if (!idLocalQ) throw badRequest('id_local es obligatorio');
-    const userLocales = await getUserLocales(userId);
+    const userLocales = await getUserLocales(req);
     if (!userLocales.includes(idLocalQ)) {
       throw forbidden('No tienes acceso a las propuestas de ese local');
     }
@@ -827,7 +830,7 @@ router.get('/marketing/propuestas', requirePermission('marketing.proponer'), asy
 
   // Para no-gestores, segunda salvaguarda: filtrar por sus locales.
   if (!esGestor) {
-    const userLocales = await getUserLocales(userId);
+    const userLocales = await getUserLocales(req);
     items = items.filter((p) => userLocales.includes(formatId6(String(p.id_local || ''))));
   }
 
@@ -856,7 +859,7 @@ router.post('/marketing/propuestas', requirePermission('marketing.proponer'), as
 
   const esGestor = await hasGestionPermission(req);
   if (!esGestor) {
-    const userLocales = await getUserLocales(userId);
+    const userLocales = await getUserLocales(req);
     if (!userLocales.includes(idLocal)) {
       throw forbidden('No puedes crear propuestas para un local que no es tuyo');
     }
@@ -915,7 +918,7 @@ router.get('/marketing/propuestas/:id', requirePermission('marketing.proponer'),
 
   const esGestor = await hasGestionPermission(req);
   if (!esGestor) {
-    const userLocales = await getUserLocales(req.user?.sub);
+    const userLocales = await getUserLocales(req);
     const idLocalProp = formatId6(String(result.Item.id_local || ''));
     if (!userLocales.includes(idLocalProp)) {
       // Devolvemos 404 para no filtrar existencia.
@@ -945,7 +948,7 @@ router.patch('/marketing/propuestas/:id', requirePermission('marketing.proponer'
   if (!prev) throw notFound('Propuesta no encontrada');
 
   const esGestor = await hasGestionPermission(req);
-  const userLocales = !esGestor ? await getUserLocales(userId) : [];
+  const userLocales = !esGestor ? await getUserLocales(req) : [];
   const idLocalProp = formatId6(String(prev.id_local || ''));
 
   if (!esGestor) {
@@ -1091,7 +1094,7 @@ router.delete('/marketing/propuestas/:id', requirePermission('marketing.proponer
   const idLocalProp = formatId6(String(prev.id_local || ''));
 
   if (!esGestor) {
-    const userLocales = await getUserLocales(req.user?.sub);
+    const userLocales = await getUserLocales(req);
     if (!userLocales.includes(idLocalProp)) {
       throw forbidden('No puedes borrar esta propuesta');
     }

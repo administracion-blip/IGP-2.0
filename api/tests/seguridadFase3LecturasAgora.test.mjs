@@ -73,6 +73,15 @@ db.crearTabla(tables.salesCloseOuts, { hashKey: 'PK', rangeKey: 'SK' }, [
   { PK: '101', SK: '2026-10-12#1#1', InvoicePayments: [{ Amount: 10 }] },
   { PK: '202', SK: '2026-10-12#1#1', InvoicePayments: [{ Amount: 20 }] },
   { PK: '101', SK: '2025-10-12#1#1', InvoicePayments: [{ Amount: 5 }] },
+  // datePrev de dateTo=2026-10-12 (totalAnterior del ticker) y un día que solo cuenta en los acumulados.
+  { PK: '101', SK: '2026-10-05#1#1', InvoicePayments: [{ Amount: 3 }] },
+  { PK: '202', SK: '2026-10-05#1#1', InvoicePayments: [{ Amount: 7 }] },
+  { PK: '101', SK: '2026-10-08#1#1', InvoicePayments: [{ Amount: 100 }] },
+  // dateTo=2026-01-03: su datePrev (2025-12-27) cae en el año anterior.
+  { PK: '101', SK: '2026-01-03#1#1', InvoicePayments: [{ Amount: 11 }] },
+  { PK: '202', SK: '2026-01-03#1#1', InvoicePayments: [{ Amount: 22 }] },
+  { PK: '101', SK: '2025-12-27#1#1', InvoicePayments: [{ Amount: 4 }] },
+  { PK: '202', SK: '2025-12-27#1#1', InvoicePayments: [{ Amount: 8 }] },
 ]);
 db.crearTabla(tables.gestionFestivos, { hashKey: 'PK', rangeKey: 'SK' });
 db.crearTabla(tables.comprasProveedor, {
@@ -183,7 +192,7 @@ test('dashboard-home con cajas.ver: acumulados de grupo; el ticker sigue filtrad
   assert.deepEqual(r.body.totalsTicker.map((t) => t.workplaceId), ['101']);
   for (const clave of ACUMULADOS) assert.ok(r.body[clave], clave);
   assert.deepEqual(r.body.ytdCurrent.totals.map((t) => t.workplaceId).sort(), ['101', '202']);
-  assert.equal(r.body.monthsCurrent.months[9].total, 30);
+  assert.equal(r.body.monthsCurrent.months[9].total, 140);
   assert.equal(r.body.ytdLastYear.totals[0].total, 5);
 
   const todos = await get(HOME, CAJAS_TODOS);
@@ -195,4 +204,67 @@ test('dashboard-home como Administrador: ticker completo y acumulados', async ()
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.totalsTicker.map((t) => t.workplaceId), ['202', '101']);
   for (const clave of ACUMULADOS) assert.ok(r.body[clave], clave);
+});
+
+/** Pares [PK, inicio de SK] de las consultas a cierres durante `fn`. */
+async function consultasCierres(fn) {
+  const consultas = [];
+  const enviar = docClient.send;
+  docClient.send = (cmd) => {
+    if (cmd?.input?.TableName === tables.salesCloseOuts) {
+      const v = cmd.input.ExpressionAttributeValues || {};
+      consultas.push([v[':pk'], v[':skFrom']]);
+    }
+    return enviar(cmd);
+  };
+  try {
+    const resultado = await fn();
+    return { resultado, consultas: consultas.sort() };
+  } finally {
+    docClient.send = enviar;
+  }
+}
+
+test('dashboard-home sin cajas.ver: solo consulta dateTo y datePrev de sus locales y el ticker no cambia', async () => {
+  const { resultado: r, consultas } = await consultasCierres(() => get(HOME, LOCAL_PARIPE));
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.totalsTicker, [{ local: 'PARIPE', total: 10, totalAnterior: 3, workplaceId: '101' }]);
+  assert.deepEqual(consultas, [['101', '2026-10-05'], ['101', '2026-10-12']]);
+
+  const conCajas = await get(HOME, CAJAS_PARIPE);
+  assert.deepEqual(conCajas.body.totalsTicker, r.body.totalsTicker);
+});
+
+test('dashboard-home sin cajas.ver y alcance global: consulta solo los dos días, mismo ticker que el Administrador', async () => {
+  const { resultado: r, consultas } = await consultasCierres(() => get(HOME, SIN_PERMISOS));
+  assert.equal(r.status, 200);
+  assert.deepEqual(consultas, [['101', '2026-10-05'], ['101', '2026-10-12'], ['202', '2026-10-05'], ['202', '2026-10-12']]);
+  const admin = await get(HOME, ADMIN);
+  assert.deepEqual(r.body.totalsTicker, admin.body.totalsTicker);
+  assert.deepEqual(r.body.totalsTicker, [
+    { local: 'SUR', total: 20, totalAnterior: 7, workplaceId: '202' },
+    { local: 'PARIPE', total: 10, totalAnterior: 3, workplaceId: '101' },
+  ]);
+});
+
+test('dashboard-home sin cajas.ver a principios de año: datePrev en diciembre anterior, mismo ticker que el Administrador', async () => {
+  const ruta = '/api/agora/closeouts/dashboard-home?dateTo=2026-01-03';
+  const { resultado: r, consultas } = await consultasCierres(() => get(ruta, SIN_PERMISOS));
+  assert.equal(r.status, 200);
+  assert.deepEqual(consultas, [['101', '2025-12-27'], ['101', '2026-01-03'], ['202', '2025-12-27'], ['202', '2026-01-03']]);
+  const admin = await get(ruta, ADMIN);
+  assert.deepEqual(r.body.totalsTicker, admin.body.totalsTicker);
+  assert.deepEqual(r.body.totalsTicker, [
+    { local: 'SUR', total: 22, totalAnterior: 8, workplaceId: '202' },
+    { local: 'PARIPE', total: 11, totalAnterior: 4, workplaceId: '101' },
+  ]);
+
+  const { resultado: paripe, consultas: consultasParipe } = await consultasCierres(() => get(ruta, LOCAL_PARIPE));
+  assert.deepEqual(consultasParipe, [['101', '2025-12-27'], ['101', '2026-01-03']]);
+  assert.deepEqual(paripe.body.totalsTicker, [{ local: 'PARIPE', total: 11, totalAnterior: 4, workplaceId: '101' }]);
+});
+
+test('dashboard-home con cajas.ver: sigue consultando desde el 1 de enero del año anterior', async () => {
+  const { consultas } = await consultasCierres(() => get(HOME, CAJAS_PARIPE));
+  assert.deepEqual(consultas, [['101', '2025-01-01'], ['202', '2025-01-01']]);
 });

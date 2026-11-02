@@ -174,7 +174,22 @@ Sin cambios: `GET /agora/products` (lo carga `ProductosCache` en el layout globa
 - `rappel-preview` sigue el modo de lecturas: en «observar» solo avisa, hasta la 3.2.
 - `ignorar` en conciliación: un movimiento sin cuenta asignada da 404 a los usuarios restringidos a algunas sociedades.
 
-### Pendientes detectados en la revisión de la fase 2
+### Pendientes de las fases 2 y 3.1 resueltos (2026-11-02)
+
+- Conciliación: `aplicar` y `DELETE` comprueban también la sociedad del movimiento (404); `sugerencias` no devuelve movimientos de sociedades ajenas.
+- `POST /locales` exige `locales.crear` (el Administrador pasa siempre).
+- Marketing: `getUserLocales` resuelve los nombres de `usuarios.Local` a ids con el helper de alcance; con alcance global (Administrador o `Local` vacío) ve todos los locales, como en el resto de la app. `imagen-url` con alcance global hace una sola lectura.
+- `dashboard-home` sin `cajas.ver` solo consulta `dateTo`, `datePrev` y los locales del usuario.
+
+### Pendientes abiertos
+
+- **Decisión:** un usuario con solo `marketing.proponer` y `Local` vacío puede ahora editar propuestas y el estilo visual de cualquier local (antes no veía nada por el fallo de `getUserLocales`). Si no debe, exigir `marketing.gestionar` en `PATCH /marketing/locales/:id/estilo` cuando el alcance es global.
+- Frontend de RRSS (`rrss/index.tsx`, `config-estilo.tsx`, `nueva-propuesta.tsx`, `propuesta/[id].tsx`) trata `user.Locales` como ids con `formatId6(nombre)`: los no gestores siguen sin ver sus locales en pantalla. Cruzar `localPermitido` con `/api/locales`.
+- Sugerencias de conciliación: el límite se aplica antes de filtrar por sociedad; un usuario restringido puede ver menos sugerencias sin aviso.
+- Movimientos sin sociedad: los usuarios restringidos reciben 404 genérico al aplicar, deshacer, descartar o ignorar.
+- `GET /locales` devuelve `estilo_visual_imagen_keys` de todos los locales.
+
+### Pendientes detectados en la revisión de la fase 2 (histórico)
 
 - `getUserLocales` (`api/routes/marketing.js`) trata `usuarios.Local` como ids, pero guarda nombres: los no gestores con locales asignados no ven propuestas ni estilos (ya pasaba antes). Resolver con `alcanceDelUsuario` / `permiteLocal`.
 - Conciliación: `aplicar` y `DELETE /banca/conciliacion` no comprueban la sociedad del movimiento, y `GET /sugerencias` puede devolver movimientos de otras sociedades.
