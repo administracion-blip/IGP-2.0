@@ -234,15 +234,15 @@ const lineasDictado = () => db.listar(T()).filter((it) => /^DICTADO#.*#LINEA#/.t
 
 test('audio webm válido: transcribe y crea las líneas igual que interpretar', async () => {
   const id = await nuevoInventario();
-  respuesta = 'Larios 2. Coca cola 4';
+  respuesta = 'Larios 2. Roku 4';
   const r = await enviarAudio(id, { idEnvio: 'grab-1' });
   assert.equal(r.status, 201);
-  assert.equal(r.body.texto, 'Larios 2. Coca cola 4');
+  assert.equal(r.body.texto, 'Larios 2. Roku 4');
   assert.equal(r.body.repetido, undefined);
   assert.equal(r.body.sesion.estado, 'activa');
   assert.deepEqual(r.body.lineas.map((l) => [l.n, l.productId, l.idEnvio, l.cantidad.total]), [
     [1, '300', 'grab-1', 2],
-    [2, '400', 'grab-1', 4],
+    [2, '200', 'grab-1', 4],
   ]);
   assert.equal(JSON.stringify(r.body).includes('stockTeorico'), false);
 
@@ -255,7 +255,7 @@ test('audio webm válido: transcribe y crea las líneas igual que interpretar', 
 
   // Mismo resultado que el texto por interpretar en otro inventario.
   const otro = await nuevoInventario();
-  const t = await api('POST', ruta(otro, '/interpretar'), { texto: 'Larios 2. Coca cola 4', idEnvio: 'grab-1' }, CONTADOR);
+  const t = await api('POST', ruta(otro, '/interpretar'), { texto: 'Larios 2. Roku 4', idEnvio: 'grab-1' }, CONTADOR);
   const sinFechas = (l) => ({ ...l, creadoEn: undefined, actualizadoEn: undefined });
   assert.deepEqual(r.body.lineas.map(sinFechas), t.body.lineas.map(sinFechas));
 });

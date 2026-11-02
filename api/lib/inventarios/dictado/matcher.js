@@ -484,7 +484,11 @@ function emparejarLectura(textoProducto, indice, memo) {
       : decidirPorTokens(puntSemilla, false);
     if (dec) {
       for (const c of puntSemilla) if (dec.productos.includes(c.idx)) anotar([c.idx], c.puntuacion);
-      const r = resultado(NIVEL.SEMILLA, dec.productos, Math.min(dec.confianza, CONFIANZA_DE_NIVEL[NIVEL.SEMILLA]), dec.avisos);
+      // Un único producto: el prefijo («bot») no pide confirmar. Varios, o una variante no dicha, sí.
+      const avisos = dec.productos.length === 1
+        ? dec.avisos.filter((a) => a !== 'semilla_no_anclada')
+        : dec.avisos;
+      const r = resultado(NIVEL.SEMILLA, dec.productos, Math.min(dec.confianza, CONFIANZA_DE_NIVEL[NIVEL.SEMILLA]), avisos);
       if (r) return r;
     }
   }
@@ -492,6 +496,17 @@ function emparejarLectura(textoProducto, indice, memo) {
   const porTokens = decidirPorTokens(puntuados, true);
   if (porTokens) {
     const r = resultado(NIVEL.PALABRAS, porTokens.productos, porTokens.confianza, porTokens.avisos);
+    if (r) return r;
+  }
+
+  // Sin anclar a la primera palabra: si un único producto de la lista contiene lo dicho
+  // («Seagrams» → BOT SEAGRAMS), se elige y el prefijo no pide confirmar. Varios siguen ambiguos.
+  const suelto = decidirPorTokens(puntuados, false);
+  if (suelto) {
+    const avisos = suelto.productos.length === 1
+      ? suelto.avisos.filter((a) => a !== 'semilla_no_anclada')
+      : suelto.avisos;
+    const r = resultado(NIVEL.PALABRAS, suelto.productos, suelto.confianza, avisos);
     if (r) return r;
   }
 

@@ -63,6 +63,7 @@ const MOTIVOS: Record<string, string> = {
   repetido_en_dictado: 'Ese producto ya sale en otra línea del dictado',
   sumado: 'Sumado a lo que ya habías dictado',
   sin_coincidencia: 'No se encuentra el producto',
+  no_en_plantilla: 'No está en la plantilla',
   sin_producto: 'Falta el producto',
   fraccion_redondeada: 'La fracción se ha llevado a la botella más cercana',
   numero_ambiguo: 'Número dudoso, comprueba la cantidad',

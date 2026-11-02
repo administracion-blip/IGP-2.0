@@ -174,6 +174,61 @@ test('Legendario, cinco lo resuelven las reglas y no llama a la IA', async () =>
   assert.equal(lineaConteo(id, '749').stockReal ?? null, null);
 });
 
+test('Seagrams va a BOT SEAGRAMS y se aplica solo aunque el catálogo tenga más', async () => {
+  db.sembrar(tables.agoraProducts, {
+    PK: 'GLOBAL', SK: '464', Id: '464', Name: 'SEAGRAMS', FamilyId: '12', FamilyName: 'BOT', FormatoBaseNombre: 'Unidad', Active: true,
+  });
+  db.sembrar(tables.agoraProducts, {
+    PK: 'GLOBAL', SK: '465', Id: '465', Name: 'CHUPITO SEAGRAMS', FamilyId: '12', FamilyName: 'BOT', FormatoBaseNombre: 'Unidad', Active: true,
+  });
+  const id = await nuevoInventario([['1351', 'BOT SEAGRAMS']]);
+  db.sembrar(T(), {
+    PK: 'ALIAS#GLOBAL', SK: 'TXT#seagrams', texto: 'seagrams', productId: '464', productoNombre: 'SEAGRAMS', usos: 3,
+  });
+  const r = await dictar(id, 'Seagrams catorce');
+  const [l] = r.body.lineas;
+  assert.equal(l.productId, '1351');
+  assert.equal(l.cantidad.total, 14);
+  assert.equal(l.confirmar, false);
+  assert.equal(llamadasIa.length, 0);
+  assert.equal(lineaConteo(id, '464'), null);
+});
+
+test('dos Ballantines en la plantilla dejan Bot Ballantines ambiguo', async () => {
+  const id = await nuevoInventario([
+    ['1350', 'BOT BALLANTINES'],
+    ['826', 'BALLANTINES 10'],
+  ]);
+  const r = await dictar(id, 'Bot Ballantines 14');
+  const [l] = r.body.lineas;
+  assert.equal(l.productId, null);
+  assert.equal(l.confirmar, true);
+  assert.ok(l.motivos.includes('marca_ambigua'));
+  assert.equal(llamadasIa.length, 0);
+});
+
+test('Valentine lo propone la IA y queda pendiente; si no hay propuesta, no está en la plantilla', async () => {
+  const id = await nuevoInventario([['826', 'BALLANTINES 10']]);
+  responder = ({ texto }) => (
+    /valentine/i.test(texto) ? { productId: '826', cantidad: 15, modo: 'sumar' } : null
+  );
+  const vale = await dictar(id, 'Valentine 10, 15');
+  const [sugerida] = vale.body.lineas;
+  assert.equal(sugerida.productId, '826');
+  assert.equal(sugerida.cantidad.total, 15);
+  assert.equal(sugerida.confirmar, true);
+  assert.ok(sugerida.motivos.includes('propuesto_ia'));
+  assert.equal(sugerida.motivos.includes('no_en_plantilla'), false);
+  assert.equal(lineaConteo(id, '826').stockReal ?? null, null);
+
+  const nada = await dictar(id, 'Kahlua tres');
+  const [vacia] = nada.body.lineas;
+  assert.equal(vacia.productId, null);
+  assert.equal(vacia.confirmar, true);
+  assert.ok(vacia.motivos.includes('no_en_plantilla'));
+  assert.ok(llamadasIa.some((c) => /kahlua/i.test(c.texto)));
+});
+
 test('Seagrams catorce ya contado pide confirmar sin llamar a la IA', async () => {
   const id = await nuevoInventario([['464', 'SEAGRAMS', { stockReal: 2, botellasAbiertas: 0 }]]);
   const r = await dictar(id, 'Seagrams catorce');

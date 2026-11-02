@@ -15,10 +15,11 @@
  * Ninguna respuesta lleva stockTeorico: el dictado solo muestra lo contado.
  *
  * Decisiones:
- * - Candidatos del emparejamiento: los productos ACTIVOS (listarProductosInventario). Una línea
- *   del conteo cuyo producto ya no está activo no es candidata ni por nombre exacto: la UI la
- *   elige a mano (PATCH con productId); ese producto sí se acepta al confirmar, pero no aprende
- *   alias.
+ * - Candidatos del emparejamiento: solo las líneas de la plantilla de ESTE conteo. Un alias que
+ *   apunta a un producto que no está en esa plantilla no se usa. Si no hay coincidencia, la IA
+ *   propone uno de la plantilla (pendiente de confirmar); si tampoco, motivo 'no_en_plantilla'.
+ *   Un único producto que contiene lo dicho se aplica solo, salvo ya contado, cálculo u otra
+ *   regla de confirmación. Aprender un alias sigue exigiendo un producto activo del maestro.
  * - Formatos: primero se empareja el textoProducto con el matcher y, con ese productId, se busca
  *   su formato (obtenerFormatos) y se vuelve a parsear con resolverFormato. Las órdenes sin
  *   producto usan el de la última línea no descartada ni deshecha y, si les faltaba formato, se reinterpretan
@@ -253,14 +254,15 @@ async function interpretar(req, inventario, texto, idEnvio) {
   const uid = usuarioId(req);
   const nombre = nombreSesion(req);
   const inventarioId = inventario.inventarioId;
-  const [activos, alias, previa, delCiclo] = await Promise.all([
-    candidatosDelAlmacen(inventario),
+  const [alias, previa, delCiclo] = await Promise.all([
     listarAlias(),
     obtenerSesion(inventarioId, uid),
     aplicadasDelCiclo(inventarioId, uid),
   ]);
-  const indice = prepararIndice(activos, alias);
   const plantilla = plantillaDe(inventario);
+  const idsPlantilla = new Set(plantilla.map((p) => p.productId));
+  const aliasEnPlantilla = alias.filter((a) => idsPlantilla.has(String(a.productId)));
+  const indice = prepararIndice(plantilla, aliasEnPlantilla);
   const conteo = new Map((inventario.lineas || []).map((l) => [l.productId, l]));
   // Conteo tal como quedaría tras aplicar las órdenes anteriores de este mismo dictado.
   const simulado = new Map(conteo);
@@ -426,9 +428,15 @@ async function interpretar(req, inventario, texto, idEnvio) {
         }
         if (propuesta.cantidad != null && orden.tipo !== 'borrar') cantidad = cantidadTotal(propuesta.cantidad);
         if (propuesta.modo) modoForzado = propuesta.modo;
+        motivosMatch = motivosMatch.filter((m) => m !== 'sin_coincidencia' && m !== 'no_en_plantilla');
         motivosMatch = [...motivosMatch, 'propuesto_ia'];
         confirmarMatch = true;
       }
+    }
+    if (!sinSeparar && !productId && orden.textoProducto && !motivosMatch.includes('marca_ambigua') && !motivosMatch.includes('propuesto_ia')) {
+      motivosMatch = motivosMatch.filter((m) => m !== 'sin_coincidencia');
+      if (!motivosMatch.includes('no_en_plantilla')) motivosMatch.push('no_en_plantilla');
+      confirmarMatch = true;
     }
 
     const modo = modoForzado || modoDeOrden(orden.tipo);

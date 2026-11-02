@@ -338,9 +338,13 @@ test('una suma que deja el total negativo se rechaza', async () => {
 
 test('idempotencia: dos veces seguidas, en paralelo y [n, n] suman una sola vez', async () => {
   const id = await nuevoInventario();
+  db.sembrar(T(), {
+    PK: `INV#${id}`, SK: 'LINE#400', productId: '400', nombre: 'COCA COLA 35CL',
+    familiaNombre: 'BOT', unidad: 'Unidad', stockTeorico: 9, botellasAbiertas: 0,
+  });
   const r = await dictar(id, 'Roku 3. Larios 2. Coca cola 4', CONTADOR);
   assert.deepEqual(r.body.lineas.map((l) => [l.n, l.productId, l.confirmar]), [[1, '200', false], [2, '300', false], [3, '400', false]]);
-  assert.equal(r.body.lineas[2].enConteo, false);
+  assert.equal(r.body.lineas[2].enConteo, true);
 
   const a1 = await aplicar(id, [1], CONTADOR);
   const a2 = await aplicar(id, [1], CONTADOR);
@@ -360,7 +364,7 @@ test('idempotencia: dos veces seguidas, en paralelo y [n, n] suman una sola vez'
   assert.equal(doble.body.aplicadas.length, 1);
   assert.equal(lineaConteo(id, '400').stockReal, 4);
   assert.equal(lineaConteo(id, '400').stockTeorico, 9);
-  assert.deepEqual(llamadasStock, [{ warehouseId: '000001' }]);
+  assert.deepEqual(llamadasStock, []);
   const otra = await aplicar(id, [3], CONTADOR);
   assert.equal(otra.body.aplicadas[0].yaAplicada, true);
   assert.equal(lineaConteo(id, '400').stockReal, 4);
@@ -600,6 +604,7 @@ test('redondeo en aplicar y en el PATCH de cantidad', async () => {
 test('errores de una línea no paran el lote: producto no añadible y Ágora caída', async () => {
   const id = await nuevoInventario();
   await dictar(id, 'Roku 3. Coca cola 4', COMPRAS);
+  await patch(id, 2, { productId: '400', estado: 'confirmada' }, COMPRAS);
   await cambiarEstado(id, 'contado', 'compras@test');
   await cambiarEstado(id, 'revisado', 'compras@test');
   const a = await aplicar(id, [1, 2], COMPRAS);
@@ -610,6 +615,7 @@ test('errores de una línea no paran el lote: producto no añadible y Ágora ca�
 
   const otro = await nuevoInventario();
   await dictar(otro, 'Coca cola 4. Larios 2', CONTADOR);
+  await patch(otro, 1, { productId: '400', estado: 'confirmada' }, CONTADOR);
   stockFalla = true;
   const b = await aplicar(otro, [1, 2], CONTADOR);
   stockFalla = false;
@@ -624,10 +630,11 @@ test('borrar un producto que no está en el conteo se rechaza', async () => {
   const id = await nuevoInventario();
   const r = await dictar(id, 'borra Coca cola', CONTADOR);
   assert.equal(r.body.lineas[0].modo, 'borrar');
+  assert.equal((await patch(id, 1, { productId: '400', estado: 'confirmada' }, CONTADOR)).status, 200);
   const a = await aplicar(id, [1], CONTADOR);
   assert.equal(a.body.rechazadas[0].motivo, 'no_en_conteo');
   assert.equal(lineaConteo(id, '400'), null);
-  assert.equal(db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001' }).estado, 'pendiente');
+  assert.equal(db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001' }).estado, 'confirmada');
 });
 
 // ─── Alias ───
@@ -683,6 +690,7 @@ test('deshacer una suma aplicada (0,50 + 0,75 = 1 + 0,25) vuelve a 0,50; la desh
 test('deshacer una línea que añadió el producto lo deja sin contar sin borrar la LINE#', async () => {
   const id = await nuevoInventario();
   await dictar(id, 'Coca cola 4', CONTADOR);
+  assert.equal((await patch(id, 1, { productId: '400', estado: 'confirmada' }, CONTADOR)).status, 200);
   const a = await aplicar(id, [1], CONTADOR);
   assert.equal(a.body.aplicadas[0].stockReal, 4);
   assert.deepEqual(a.body.lineasDictado[0].anterior, { existia: false, stockReal: null, botellasAbiertas: 0 });
@@ -728,7 +736,7 @@ test('deshacer tras un PUT /lineas de otro usuario → 409 y se queda lo del otr
 test('deshacer restaura lo de otro usuario que añadió y contó el producto a la vez (alta con 409)', async () => {
   const id = await nuevoInventario();
   await dictar(id, 'Coca cola 2', CONTADOR);
-  await patch(id, 1, { estado: 'confirmada' }, CONTADOR);
+  await patch(id, 1, { productId: '400', estado: 'confirmada' }, CONTADOR);
   let primera = true;
   // Justo antes del alta de LINE#400, otro usuario la añade y cuenta 4: anadirProducto da 409.
   db.interceptar('PutCommand', T(), async () => {
@@ -839,6 +847,7 @@ test('ABA (d): línea borrada y recreada por otro no repite versión → ni suma
   const id = await nuevoInventario();
   // El dictado da de alta Coca cola y la cuenta: alta + aplicación son dos escrituras de LINE#400.
   await dictar(id, 'Coca cola 3', CONTADOR);
+  assert.equal((await patch(id, 1, { productId: '400', estado: 'confirmada' }, CONTADOR)).status, 200);
   const a = await aplicar(id, [1], CONTADOR);
   assert.equal(a.body.aplicadas[0].stockReal, 3);
   const vDictado = db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001' }).aplicado.version;
@@ -848,8 +857,9 @@ test('ABA (d): línea borrada y recreada por otro no repite versión → ni suma
   // alta + aplicación, así que con versiones desde 1 acabaría en la misma versión que dejó el primero.
   assert.equal((await api('DELETE', `/api/inventarios/${id}/lineas/400`, undefined, COMPRAS)).status, 200);
   assert.equal(lineaConteo(id, '400'), null);
-  await dictar(id, 'Coca cola 10', CONTADOR2);
-  assert.equal((await aplicar(id, [1], CONTADOR2)).body.aplicadas[0].stockReal, 10);
+  const alta = await dictar(id, 'Coca cola 10', CONTADOR2);
+  assert.equal((await patch(id, alta.body.lineas[0].n, { productId: '400', estado: 'confirmada' }, CONTADOR2)).status, 200);
+  assert.equal((await aplicar(id, [alta.body.lineas[0].n], CONTADOR2)).body.aplicadas[0].stockReal, 10);
   const recreada = lineaConteo(id, '400');
   assert.equal(recreada.stockReal, 10);
   assert.notEqual(recreada.version, vDictado, 'la línea recreada no repite la versión que dejó el dictado');
@@ -904,8 +914,9 @@ test('confirmar con producto activo aprende alias y luego suma uso; inactivo no 
   const lista = await api('GET', '/api/inventarios/dictado/alias', undefined, CONTADOR);
   assert.deepEqual(lista.body.alias.map((a) => [a.texto, a.productId, a.usos]), [['rokku', '200', 2]]);
 
-  const b = await dictar(id, 'Bombay 3', CONTADOR);
+  const b = await dictar(id, 'Phantom 3', CONTADOR);
   assert.equal(b.body.lineas[0].productId, null);
+  assert.ok(b.body.lineas[0].motivos.includes('no_en_plantilla'));
   const c3 = await patch(id, 3, { productId: '50', estado: 'confirmada' }, CONTADOR);
   assert.equal(c3.status, 200);
   assert.equal(c3.body.linea.estado, 'confirmada');

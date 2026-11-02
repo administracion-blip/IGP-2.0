@@ -142,12 +142,12 @@ test('nombre compacto: «Redbull 3» → RED BULL', () => {
   assert.equal(r.confirmar, false);
 });
 
-test('palabra no inicial del nombre no basta: «Estrella» → MAHOU 5 ESTRELLAS pero confirma', () => {
+test('palabra no inicial y única en la lista: «Estrella» → MAHOU, y el 5 no dicho confirma', () => {
   const r = emparejar('Estrella 3');
   assert.equal(r.productId, id('MAHOU 5 ESTRELLAS'));
-  assert.equal(r.via, 'aproximado');
+  assert.equal(r.via, 'palabras');
   assert.equal(r.confirmar, true);
-  assert.ok(r.motivos.includes('aproximado'));
+  assert.ok(r.motivos.includes('variante_no_dicha'));
 });
 
 // --- lecturas con número en el nombre ---------------------------------------------
@@ -516,12 +516,11 @@ test('solo palabras de categoría → generico', () => {
   assert.equal(emparejar('Ron 2', { alias: [{ texto: 'ron', productId: id('RON Y MIEL') }] }).confirmar, false);
 });
 
-test('semilla cuyo fragmento no está al principio del nombre → semilla_no_anclada', () => {
+test('semilla no anclada y única en la lista se aplica; al principio del nombre, también', () => {
   const r = con(["GIN SEAGRAM'S", 'ROKU'], 'Seagrams 2');
   assert.equal(r.productId, id("GIN SEAGRAM'S"));
-  assert.equal(r.via, 'semilla');
-  assert.equal(r.confirmar, true);
-  assert.ok(r.motivos.includes('semilla_no_anclada'));
+  assert.equal(r.confirmar, false);
+  assert.equal(r.motivos.includes('semilla_no_anclada'), false);
   const anclada = con(["SEAGRAM'S GIN", 'ROKU'], 'Seagrams 2');
   assert.equal(anclada.productId, id("SEAGRAM'S GIN"));
   assert.equal(anclada.confirmar, false);
@@ -589,6 +588,24 @@ test('normalizarAlias recorta a MAX_LONGITUD_ALIAS; normalizarTexto no', () => {
   const r = emparejarProducto(una(`${largo} 2`), { productos: PRODUCTOS, alias: [{ texto: largo, productId: id('ROKU') }] });
   assert.equal(r.productId, id('ROKU'));
   assert.equal(r.via, 'alias');
+});
+
+test('Seagrams se aplica solo si la plantilla solo tiene BOT SEAGRAMS', () => {
+  const plantilla = solo('BOT SEAGRAMS');
+  const r = emparejarProducto(una('Seagrams 14'), { productos: plantilla, plantilla });
+  assert.equal(r.productId, id('BOT SEAGRAMS'));
+  assert.equal(r.cantidad?.total ?? r.lectura.cantidad.total, 14);
+  assert.equal(r.confirmar, false);
+  assert.equal(r.motivos.includes('aproximado'), false);
+  assert.equal(r.motivos.includes('semilla_no_anclada'), false);
+});
+
+test('Seagrams queda ambiguo si la plantilla tiene dos', () => {
+  const plantilla = solo('BOT SEAGRAMS', 'CHUPITO SEAGRAMS');
+  const r = emparejarProducto(una('Seagrams 14'), { productos: plantilla, plantilla });
+  assert.equal(r.productId, null);
+  assert.equal(r.confirmar, true);
+  assert.ok(r.motivos.includes('ambiguo'));
 });
 
 test('Bot Ballantines 14 queda ambiguo si la plantilla tiene varios Ballantines', () => {
