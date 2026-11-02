@@ -168,8 +168,10 @@ function lineaDesde(raw, { previa, soloContar }) {
 }
 
 /**
- * Versión de una LINE#: entero que sube en cada escritura (empieza en 1). Las líneas anteriores
- * a este campo no lo tienen y cuentan como 0. Es interna: presentarLinea no la expone.
+ * Versión de una LINE#: entero que sube en 1 en cada escritura. Las de la plantilla nacen en 1 con
+ * crearInventario; las que crea escrituraLinea (o una sin versión que escribe) parten de la hora en
+ * ms. Las líneas anteriores a este campo no lo tienen y cuentan como 0. Es interna: presentarLinea
+ * no la expone.
  */
 export function versionLinea(item) {
   const v = Number(item?.version);
@@ -396,6 +398,9 @@ export async function guardarLinea(inventarioId, productId, body, usuario, { sol
  *
  * Cada escritura sube `version` de LINE# en 1 y exige la versión leída en `previa`
  * (attribute_not_exists(version) si era 0), así que dos escrituras nunca dejan la misma versión.
+ * Si no hay versión leída (línea nueva, también la recreada tras borrarLinea, o antigua sin
+ * versión) se parte de Date.now() y no de 1: el dictado compara la versión actual con
+ * `aplicado.version`, y una línea borrada y vuelta a crear no debe repetir versiones anteriores.
  *
  * `condicionExtra` ({ expresion, valores }) se añade con AND a la condición del Put.
  * @returns {{ linea: ReturnType<typeof lineaDesde>, operaciones: object[], version: number }}
@@ -407,7 +412,7 @@ export function escrituraLinea(meta, previa, body, usuario, { soloContar = false
   const ahora = new Date().toISOString();
   const tabla = tablaInventarios();
   const leida = versionLinea(previa);
-  const version = leida + 1;
+  const version = leida > 0 ? leida + 1 : Date.now();
   const condicionLeida = leida === 0 ? 'attribute_not_exists(#version)' : '#version = :versionLeida';
   const base = previa
     ? `${soloContar ? 'stockTeorico = :teorico' : 'attribute_exists(PK)'} AND ${condicionLeida}`

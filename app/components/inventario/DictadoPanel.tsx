@@ -58,6 +58,7 @@ const MOTIVOS: Record<string, string> = {
   semilla_no_anclada: 'Nombre poco claro, comprueba el producto',
   generico: 'Nombre demasiado general',
   repetido_en_dictado: 'Ese producto ya sale en otra línea del dictado',
+  sumado: 'Sumado a lo que ya habías dictado',
   sin_coincidencia: 'No se encuentra el producto',
   sin_producto: 'Falta el producto',
   fraccion_redondeada: 'La fracción se ha llevado a la botella más cercana',
@@ -134,6 +135,49 @@ function textoPrevisto(l: LineaDictado): string | null {
   return `Queda ${queda}`;
 }
 
+/** Motivos informativos: no son avisos ni piden confirmar. */
+const MOTIVOS_INFO = new Set(['sumado']);
+
+function textoTotal(c: { stockReal: number | null; botellasAbiertas: number } | null | undefined): string {
+  const t = totalDe(c);
+  return t == null ? 'sin contar' : num(t);
+}
+
+/** «antes 3 → ahora 5» de una línea 'sumado' (tras recargar, con anterior/aplicado). */
+function textoSumado(l: LineaDictado): string | null {
+  if (l.sumado) return `antes ${textoTotal(l.sumado.antes)} → ahora ${textoTotal(l.sumado.ahora)}`;
+  if (l.anterior && l.aplicado) return `antes ${textoTotal(l.anterior)} → ahora ${textoTotal(l.aplicado)}`;
+  return null;
+}
+
+/**
+ * Chip «Sumado» solo si la línea se aplicó sola: sin rechazo, sin editar, sin pasar por confirmar
+ * y, si llegó `sumado`, con el mismo total que se guardó.
+ */
+function sumadoAutomatico(l: LineaDictado, rechazo: RechazoDictado | undefined, editada: boolean, aMano: boolean): boolean {
+  if (l.estado !== 'aplicada' || !l.motivos.includes('sumado')) return false;
+  if (rechazo || editada || aMano || l.confirmar) return false;
+  if (l.sumado && l.aplicado && totalDe(l.sumado.ahora) !== totalDe(l.aplicado)) return false;
+  return true;
+}
+
+/** Suma cuyo «actual → queda» calculado al interpretar puede estar desfasado. */
+function sumaDesfasada(l: LineaDictado, rechazo: RechazoDictado | undefined): boolean {
+  return l.modo === 'sumar' && (l.motivos.includes('ya_contado') || Boolean(rechazo));
+}
+
+function yaContadoLinea(l: LineaDictado, rechazo?: RechazoDictado): boolean {
+  return Boolean(l.conteoActual?.contado)
+    || l.motivos.includes('ya_contado')
+    || l.motivos.includes('repetido_en_dictado')
+    || rechazo?.motivo === 'ya_contado';
+}
+
+/** Se puede confirmar sin tocar nada: con producto, modo y cantidad (salvo borrar). */
+function confirmable(l: LineaDictado): boolean {
+  return Boolean(l.productId) && l.modo != null && (l.modo === 'borrar' || l.cantidad != null);
+}
+
 function evaluarExpresion(expr: string): number | null {
   const limpio = expr.replace(/\s+/g, '');
   if (!limpio || !/^[\d,.×+−-]+$/.test(limpio)) return null;
@@ -207,6 +251,8 @@ type PropsTarjeta = {
   rechazo: RechazoDictado | undefined;
   nueva: boolean;
   editada: boolean;
+  /** Confirmada por el usuario o rechazada alguna vez en esta sesión del panel. */
+  aMano: boolean;
   ocupada: boolean;
   apilar: boolean;
   catalogo: OpcionDesplegable[] | null;
@@ -226,6 +272,7 @@ function TarjetaLinea({
   rechazo,
   nueva,
   editada,
+  aMano,
   ocupada,
   apilar,
   catalogo,
@@ -250,7 +297,14 @@ function TarjetaLinea({
   const editable = esEditable(linea);
   const autoaplicable = linea.estado === 'pendiente' && !linea.confirmar && !rechazo;
   const previsto = textoPrevisto(linea);
-  const motivos = editable ? linea.motivos : linea.motivos.filter((m) => m === 'calculo');
+  const motivos = (editable ? linea.motivos : linea.motivos.filter((m) => m === 'calculo'))
+    .filter((m) => !MOTIVOS_INFO.has(m));
+  const esSumado = sumadoAutomatico(linea, rechazo, editada, aMano);
+  const sumadoTexto = esSumado ? textoSumado(linea) : null;
+  const pideConfirmar = linea.estado === 'pendiente' && (linea.confirmar || Boolean(rechazo));
+  const ayudaConfirmar = pideConfirmar
+    ? (linea.modo === 'sumar' && yaContadoLinea(linea, rechazo) ? 'Toca Confirmar para sumar' : 'Toca Confirmar para aplicar')
+    : null;
   const candidatos = (linea.candidatos ?? []).filter((c) => c.productId !== linea.productId);
   const faltaFormato = editable && necesitaFormato(linea);
   const caja = parseNumero(cajaTexto);
@@ -293,6 +347,11 @@ function TarjetaLinea({
               <Text style={[styles.chipTexto, { color: statusColors.info.text }]}>Editado</Text>
             </View>
           ) : null}
+          {esSumado ? (
+            <View style={[styles.chip, { backgroundColor: statusColors.success.bg }]}>
+              <Text style={[styles.chipTexto, { color: statusColors.success.text }]}>Sumado</Text>
+            </View>
+          ) : null}
           <View style={[styles.chip, { backgroundColor: estadoColor.bg }]}>
             <Text style={[styles.chipTexto, { color: estadoColor.text }]}>{estadoTexto}</Text>
           </View>
@@ -318,6 +377,12 @@ function TarjetaLinea({
         <Text style={styles.cantidad}>{textoCantidad(linea)}</Text>
       </View>
       {previsto ? <Text style={styles.previsto}>{previsto}</Text> : null}
+      {esSumado ? (
+        <Text style={styles.sumado}>
+          {sumadoTexto ? `${MOTIVOS.sumado}: ${sumadoTexto}` : MOTIVOS.sumado}
+        </Text>
+      ) : null}
+      {ayudaConfirmar && editable ? <Text style={styles.ayuda}>{ayudaConfirmar}</Text> : null}
 
       {motivos.length > 0 ? (
         <View style={styles.motivos}>
@@ -602,6 +667,74 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
   const lineasVisibles = useMemo(() => [...dictado.lineas].sort((a, b) => b.n - a.n), [dictado.lineas]);
   const aplicadas = dictado.lineas.filter((l) => l.estado === 'aplicada').length;
   const porConfirmar = dictado.lineas.filter((l) => esEditable(l) && (l.confirmar || dictado.rechazos[l.n])).length;
+  /** Pendientes de confirmar (sin las de trozos descartados): las que se pueden confirmar ya y las que no. */
+  const { confirmables, sinCompletar } = useMemo(() => {
+    const pendientes = dictado.lineas.filter(
+      (l) => esEditable(l) && (l.confirmar || dictado.rechazos[l.n]) && !dictado.esDescartada(l),
+    );
+    return {
+      confirmables: pendientes.filter(confirmable).sort((a, b) => a.n - b.n),
+      sinCompletar: pendientes.filter((l) => !confirmable(l)).length,
+    };
+  }, [dictado.lineas, dictado.rechazos, dictado.esDescartada]);
+  const [confirmandoTodas, setConfirmandoTodas] = useState(false);
+  const [resultadoTodas, setResultadoTodas] = useState<string | null>(null);
+  /** Líneas que no se aplicaron solas: el hook borra el rechazo al aplicarlas, así que se recuerdan aquí. */
+  const [aMano, setAMano] = useState<Set<number>>(() => new Set());
+
+  const marcarAMano = useCallback((ns: number[]) => {
+    setAMano((prev) => {
+      if (ns.every((n) => prev.has(n))) return prev;
+      const s = new Set(prev);
+      ns.forEach((n) => s.add(n));
+      return s;
+    });
+  }, []);
+
+  useEffect(() => {
+    const ns = dictado.lineas
+      .filter((l) => l.estado === 'confirmada' || dictado.rechazos[l.n])
+      .map((l) => l.n);
+    if (ns.length > 0) marcarAMano(ns);
+  }, [dictado.lineas, dictado.rechazos, marcarAMano]);
+
+  async function confirmarTodas() {
+    if (confirmandoTodas) return;
+    const lista = confirmables.filter((l) => !dictado.ocupadas.has(l.n));
+    const n = lista.length;
+    if (n === 0) return;
+    const MAX = 10;
+    const filas = lista.slice(0, MAX).map((l) => {
+      const producto = l.productoNombre || l.productId || 'Sin producto';
+      if (sumaDesfasada(l, dictado.rechazos[l.n])) {
+        const c = l.cantidad?.total;
+        const dictada = c == null ? '' : `${c < 0 ? '' : '+'}${num(c)}, `;
+        return `${producto}: ${dictada}se sumará a lo contado ahora`;
+      }
+      const actual = l.conteoActual?.contado ? textoTotal(l.conteoActual) : 'sin contar';
+      const queda = l.previsto
+        ? (l.previsto.total == null ? 'sin contar' : num(l.previsto.total))
+        : `${l.modo ? MODOS[l.modo].toLowerCase() : ''} ${textoCantidad(l)}`.trim();
+      return `${producto}: ${actual} → ${queda}`;
+    });
+    if (n > MAX) filas.push(`…y ${n - MAX} más`);
+    if (sinCompletar > 0) {
+      filas.push('', `Quedan ${sinCompletar} sin producto o sin cantidad: revísalas una a una.`);
+    }
+    const ok = await confirmar(`Confirmar ${n} ${n === 1 ? 'línea' : 'líneas'}`, filas.join('\n'), {
+      confirmarLabel: 'Confirmar y aplicar',
+    });
+    if (!ok) return;
+    setResultadoTodas(null);
+    setConfirmandoTodas(true);
+    marcarAMano(lista.map((l) => l.n));
+    try {
+      const r = await dictado.confirmarTodas(lista.map((l) => l.n));
+      if (r.aplicadas < r.total) setResultadoTodas(`Se han aplicado ${r.aplicadas} de ${r.total}.`);
+    } finally {
+      setConfirmandoTodas(false);
+    }
+  }
 
   /**
    * La X: pausa (o, si se está esperando al terminar, deja de esperar) y cierra sin descartar audio.
@@ -692,6 +825,7 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
       const ok = await confirmar('Producto ya contado', partes.join(' '), { confirmarLabel: 'Aplicar cambio' });
       if (!ok) return;
     }
+    marcarAMano([l.n]);
     await dictado.confirmarLinea(l.n);
   }
 
@@ -873,6 +1007,23 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
       {dictado.error ? <Text style={styles.error}>{dictado.error}</Text> : null}
       {dictado.aviso ? <Text style={styles.aviso}>{dictado.aviso}</Text> : null}
 
+      {confirmables.length >= 2 || confirmandoTodas ? (
+        <Pressable
+          style={[styles.botonAnadir, styles.botonTodas, confirmandoTodas && styles.botonOff]}
+          disabled={confirmandoTodas}
+          onPress={() => void confirmarTodas()}
+          accessibilityRole="button"
+        >
+          {confirmandoTodas ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <MaterialIcons name="done-all" size={20} color={colors.accent} />
+          )}
+          <Text style={styles.botonAnadirTexto}>{`Confirmar todas (${confirmables.length})`}</Text>
+        </Pressable>
+      ) : null}
+      {resultadoTodas ? <Text style={styles.avisoDiscreto}>{resultadoTodas}</Text> : null}
+
       <ScrollView style={styles.flex} contentContainerStyle={styles.lista} keyboardShouldPersistTaps="handled">
         {lineasVisibles.length === 0 && fase !== 'cargando' ? (
           <Text style={styles.vacio}>
@@ -886,6 +1037,7 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
             rechazo={dictado.rechazos[l.n]}
             nueva={dictado.nuevas.has(l.n)}
             editada={estaEditada(l, dictado.editadas)}
+            aMano={aMano.has(l.n)}
             ocupada={dictado.ocupadas.has(l.n)}
             apilar={shouldStackToolbar}
             catalogo={catalogo}
@@ -1015,6 +1167,8 @@ const styles = StyleSheet.create({
   motivo: { borderRadius: radius.md, backgroundColor: statusColors.warning.bg, paddingHorizontal: SPACING.sm, paddingVertical: 4 },
   motivoTexto: { fontFamily: fontFamily.medium, fontSize: fontSizes[12], color: statusColors.warning.text },
   rechazo: { fontFamily: fontFamily.medium, fontSize: fontSizes[13], color: colors.danger },
+  sumado: { fontFamily: fontFamily.medium, fontSize: fontSizes[13], color: statusColors.success.text },
+  ayuda: { fontFamily: fontFamily.semibold, fontSize: fontSizes[13], color: colors.accentPressed },
   acciones: { gap: SPACING.xs, marginTop: SPACING.xs },
   etiqueta: { fontFamily: fontFamily.semibold, fontSize: fontSizes[13], color: colors.textSecondary, marginBottom: 4 },
   opciones: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
@@ -1082,6 +1236,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
   },
   botonCompacto: { paddingHorizontal: SPACING.md },
+  botonTodas: { marginBottom: SPACING.xs },
   botonAnadirTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.accentPressed },
   botonBorrar: {
     minHeight: MIN_TOUCH,

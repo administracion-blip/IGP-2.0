@@ -5,7 +5,8 @@
  * - Solo se aplican líneas 'confirmada' o 'pendiente' con confirmar=false. Las demás vuelven en
  *   `rechazadas` con su motivo y no se escribe nada.
  * - Sin confirmar (estado 'pendiente') nunca se toca un producto que ya tiene stock contado
- *   ('ya_contado'), ni se guarda un total que no cabe exacto en las fracciones de botella
+ *   ('ya_contado'), salvo la regla «sumado» (sumableSola: lo último que lo tocó fue este mismo
+ *   dictado), ni se guarda un total que no cabe exacto en las fracciones de botella
  *   ('redondeo'). Lo comprueba con la LINE# leída dentro del bucle, y la condición de versión de
  *   la transacción garantiza que nadie la contó entre medias.
  * - sumar: contado actual (stockContado de la LINE#: enteras + botella abierta) + total dictado;
@@ -38,7 +39,9 @@ import { stockContado } from '../diferencia.js';
 import { escrituraLinea, exigirConteo, leerLineaConteo, obtenerInventario, versionLinea } from '../inventarios.js';
 import { tablaInventarios } from '../store.js';
 import { partirCantidad } from './parser.js';
-import { MAX_LINEAS_POR_ENVIO, descartarLinea, leerLineaDictado, presentarLinea } from './sesion.js';
+import {
+  MAX_LINEAS_POR_ENVIO, cicloDe, descartarLinea, leerLineaDictado, presentarLinea, ultimaAplicadaDelProducto,
+} from './sesion.js';
 
 const MAX_INTENTOS = 3;
 
@@ -171,6 +174,19 @@ export async function aplicarLineasDictado({
   return { aplicadas, rechazadas };
 }
 
+/**
+ * Regla «sumado»: una línea 'sumar' marcada 'sumado' en interpretar se aplica sin confirmar sobre
+ * un producto contado solo si lo último que escribió su LINE# fue este mismo dictado: la versión
+ * leída en `previa` es la `aplicado.version` de la última aplicada del producto en el ciclo actual,
+ * y la línea es de ese ciclo. Como escrituraLinea exige esa misma versión leída en la
+ * TransactWrite, nadie puede escribir LINE# entre esta comprobación y la escritura.
+ */
+async function sumableSola(ctx, item, previa) {
+  if (item.modo !== 'sumar' || !Array.isArray(item.motivos) || !item.motivos.includes('sumado')) return false;
+  const ultima = await ultimaAplicadaDelProducto(ctx.id, ctx.usuarioId, item.productId);
+  return Boolean(ultima) && ultima.ciclo === cicloDe(item) && versionLinea(previa) === ultima.version;
+}
+
 function yaAplicada(n, item) {
   return {
     aplicada: { n, productId: item.productId, modo: item.modo, ...resultadoAplicado(item), yaAplicada: true },
@@ -223,7 +239,7 @@ async function aplicarUna(ctx, n) {
       return { rechazada: rechazo(n, motivoRechazo) };
     };
     const sinConfirmar = item.estado !== 'confirmada';
-    if (sinConfirmar && stockContado(previa) != null) {
+    if (sinConfirmar && stockContado(previa) != null && !(await sumableSola(ctx, item, previa))) {
       const r = await rechazarTrasLeer('ya_contado');
       if (r) return r;
       continue;

@@ -372,30 +372,148 @@ test('si otro cuenta el producto entre la lectura y la transacción, se rechaza 
   assert.equal(lineaConteo(id, '200').stockReal, 13);
 });
 
-test('dentro de un dictado, la segunda orden del mismo producto pide confirmar y prevé sobre la primera', async () => {
+test('dentro de un dictado, si la primera orden pide confirmar, la segunda también y prevé sobre la primera', async () => {
   const id = await nuevoInventario();
-  const r = await dictar(id, 'Roku 3, Roku 2', CONTADOR);
+  // Johnnie ya está contado (0 + 0,50) y no por este dictado: la primera pide confirmar.
+  const r = await dictar(id, 'Johnnie 1, Johnnie 2', CONTADOR);
   const [l1, l2] = r.body.lineas;
-  assert.equal(l1.confirmar, false);
+  assert.equal(l1.confirmar, true);
+  assert.deepEqual(l1.motivos, ['ya_contado']);
   assert.equal(l2.confirmar, true);
-  assert.ok(l2.motivos.includes('ya_contado'));
-  assert.ok(l2.motivos.includes('repetido_en_dictado'));
-  assert.deepEqual(l2.conteoActual, { stockReal: null, botellasAbiertas: 0, contado: false });
-  assert.equal(l2.previsto.total, 5);
+  assert.deepEqual(l2.motivos, ['ya_contado', 'repetido_en_dictado']);
+  assert.equal(l2.sumado, undefined);
+  assert.deepEqual(l2.conteoActual, { stockReal: 0, botellasAbiertas: 0.5, contado: true });
+  assert.equal(l2.previsto.total, 3.5);
 
+  await patch(id, 1, { estado: 'confirmada' }, CONTADOR);
   const a = await aplicar(id, [1, 2], CONTADOR);
-  assert.deepEqual(a.body.aplicadas.map((x) => [x.n, x.stockReal]), [[1, 3]]);
+  assert.deepEqual(a.body.aplicadas.map((x) => [x.n, x.stockReal, x.botellasAbiertas]), [[1, 1, 0.5]]);
   assert.deepEqual(a.body.rechazadas.map((x) => [x.n, x.motivo]), [[2, 'requiere_confirmacion']]);
   await patch(id, 2, { estado: 'confirmada' }, CONTADOR);
   const b = await aplicar(id, [2], CONTADOR);
-  assert.equal(b.body.aplicadas[0].stockReal, 5);
-  assert.equal(lineaConteo(id, '200').stockReal, 5);
+  assert.equal(b.body.aplicadas[0].stockReal, 3);
+  assert.equal(lineaConteo(id, '1367').stockReal, 3);
 
   // Una línea sin aplicar en la sesión también marca la siguiente del mismo producto.
   await dictar(id, 'Larios 1', CONTADOR);
   const c = await dictar(id, 'Larios 2', CONTADOR);
   assert.ok(c.body.lineas[0].motivos.includes('repetido_en_dictado'));
   assert.equal(c.body.lineas[0].confirmar, true);
+});
+
+// ─── Regla «sumado» ───
+
+const accionSesion = (id, accion, usuario) => api('POST', ruta(id, `/${accion}`), {}, usuario);
+
+test('sumado (a): lo contó este dictado → la suma se aplica sola; deshacer la revierte', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3', CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  const r = await dictar(id, 'Roku 2', CONTADOR);
+  const [l] = r.body.lineas;
+  assert.equal(l.confirmar, false);
+  assert.deepEqual(l.motivos, ['sumado']);
+  assert.deepEqual(l.sumado, { antes: { stockReal: 3, botellasAbiertas: 0 }, ahora: { stockReal: 5, botellasAbiertas: 0 } });
+  assert.deepEqual(l.previsto, { total: 5, stockReal: 5, botellasAbiertas: 0 });
+  assert.equal(l.ciclo, 1);
+  assert.deepEqual(clavesProhibidas(r.body), []);
+  const a = await aplicar(id, [2], CONTADOR);
+  assert.deepEqual(clavesProhibidas(a.body), []);
+  assert.deepEqual(a.body.aplicadas.map((x) => [x.n, x.stockReal]), [[2, 5]]);
+  assert.equal(lineaConteo(id, '200').stockReal, 5);
+  assert.equal((await deshacer(id, 2, CONTADOR)).status, 200);
+  assert.equal(lineaConteo(id, '200').stockReal, 3);
+});
+
+test('sumado (b): «Roku 3, Roku 2» sin contar en un mismo envío se aplican solas en orden', async () => {
+  const id = await nuevoInventario();
+  const r = await dictar(id, 'Roku 3, Roku 2', CONTADOR);
+  const [l1, l2] = r.body.lineas;
+  assert.deepEqual([l1.confirmar, l1.motivos], [false, []]);
+  assert.deepEqual([l2.confirmar, l2.motivos], [false, ['sumado']]);
+  assert.deepEqual(l2.sumado, { antes: { stockReal: 3, botellasAbiertas: 0 }, ahora: { stockReal: 5, botellasAbiertas: 0 } });
+  const a = await aplicar(id, [1, 2], CONTADOR);
+  assert.deepEqual(a.body.aplicadas.map((x) => [x.n, x.stockReal]), [[1, 3], [2, 5]]);
+  assert.deepEqual(a.body.rechazadas, []);
+
+  // Si la línea 1 no se aplica antes, la 2 no suma a ciegas: ya_contado.
+  const otro = await nuevoInventario();
+  await dictar(otro, 'Roku 3, Roku 2', CONTADOR);
+  await api('PUT', `/api/inventarios/${otro}/lineas/200`, { stockReal: 4, botellasAbiertas: 0 }, CONTADOR2);
+  const b = await aplicar(otro, [2], CONTADOR);
+  assert.deepEqual(b.body.rechazadas.map((x) => [x.n, x.motivo]), [[2, 'ya_contado']]);
+  assert.equal(lineaConteo(otro, '200').stockReal, 4);
+});
+
+test('sumado (c): si otro usuario tocó el producto, se pide confirmar (al interpretar o al aplicar)', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3', CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  await api('PUT', `/api/inventarios/${id}/lineas/200`, { stockReal: 4, botellasAbiertas: 0 }, CONTADOR2);
+  const r = await dictar(id, 'Roku 2', CONTADOR);
+  assert.deepEqual([r.body.lineas[0].confirmar, r.body.lineas[0].motivos], [true, ['ya_contado']]);
+  assert.equal(r.body.lineas[0].sumado, undefined);
+
+  const otro = await nuevoInventario();
+  await dictar(otro, 'Roku 3', CONTADOR);
+  await aplicar(otro, [1], CONTADOR);
+  const s = await dictar(otro, 'Roku 2', CONTADOR);
+  assert.deepEqual(s.body.lineas[0].motivos, ['sumado']);
+  await api('PUT', `/api/inventarios/${otro}/lineas/200`, { stockReal: 4, botellasAbiertas: 0 }, CONTADOR2);
+  const a = await aplicar(otro, [2], CONTADOR);
+  assert.deepEqual(a.body.rechazadas.map((x) => [x.n, x.motivo]), [[2, 'ya_contado']]);
+  assert.equal(lineaConteo(otro, '200').stockReal, 4);
+});
+
+test('sumado (d): pausar/reanudar sigue el ciclo; tras Terminar y volver a dictar, ya_contado', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3', CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  await accionSesion(id, 'pausar', CONTADOR);
+  const re = await accionSesion(id, 'reanudar', CONTADOR);
+  assert.deepEqual([re.body.sesion.estado, re.body.sesion.ciclo], ['activa', 1]);
+  assert.deepEqual((await dictar(id, 'Roku 1', CONTADOR)).body.lineas[0].motivos, ['sumado']);
+  await deshacer(id, 2, CONTADOR);
+
+  assert.equal((await accionSesion(id, 'cerrar', CONTADOR)).body.sesion.ciclo, 1);
+  const nuevo = await accionSesion(id, 'reanudar', CONTADOR);
+  assert.deepEqual([nuevo.body.sesion.estado, nuevo.body.sesion.ciclo], ['activa', 2]);
+  assert.equal((await accionSesion(id, 'reanudar', CONTADOR)).body.sesion.ciclo, 2, 'reanudar una activa no sube el ciclo');
+  const r = await dictar(id, 'Roku 2', CONTADOR);
+  assert.deepEqual([r.body.lineas[0].confirmar, r.body.lineas[0].motivos, r.body.lineas[0].ciclo], [true, ['ya_contado'], 2]);
+  assert.equal((await aplicar(id, [3], CONTADOR)).body.rechazadas[0].motivo, 'requiere_confirmacion');
+});
+
+test('sumado (e): tras aplicar una línea confirmada, la siguiente suma del mismo dictado va sola', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Johnnie 1', CONTADOR);
+  await patch(id, 1, { estado: 'confirmada' }, CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  const r = await dictar(id, 'Johnnie 2', CONTADOR);
+  const [l] = r.body.lineas;
+  assert.deepEqual([l.confirmar, l.motivos], [false, ['sumado']]);
+  assert.deepEqual(l.sumado, { antes: { stockReal: 1, botellasAbiertas: 0.5 }, ahora: { stockReal: 3, botellasAbiertas: 0.5 } });
+  const a = await aplicar(id, [2], CONTADOR);
+  assert.deepEqual([a.body.aplicadas[0].stockReal, a.body.aplicadas[0].botellasAbiertas], [3, 0.5]);
+});
+
+test('sumado (f, g): reemplazar sobre lo contado por el dictado y una suma con cálculo siguen pidiendo confirmar', async () => {
+  const id = await nuevoInventario();
+  await dictar(id, 'Roku 3', CONTADOR);
+  await aplicar(id, [1], CONTADOR);
+  const f = await dictar(id, 'Roku ahora son 10', CONTADOR);
+  assert.equal(f.body.lineas[0].modo, 'reemplazar');
+  assert.deepEqual([f.body.lineas[0].confirmar, f.body.lineas[0].motivos], [true, ['ya_contado']]);
+  await deshacer(id, 2, CONTADOR);
+
+  const g = await dictar(id, 'Roku 2 cajas de 6', CONTADOR);
+  const [l] = g.body.lineas;
+  assert.equal(l.confirmar, true);
+  assert.ok(l.motivos.includes('calculo'));
+  assert.ok(l.motivos.includes('sumado'));
+  assert.equal(l.previsto.total, 15);
+  assert.equal((await aplicar(id, [3], CONTADOR)).body.rechazadas[0].motivo, 'requiere_confirmacion');
+  assert.equal(lineaConteo(id, '200').stockReal, 3);
 });
 
 test('interpretar con idEnvio crea las líneas una sola vez, también en paralelo', async () => {
@@ -598,7 +716,7 @@ test('deshacer restaura lo de otro usuario que añadió y contó el producto a l
     primera = false;
     db.sembrar(T(), {
       PK: `INV#${id}`, SK: 'LINE#400', productId: '400', nombre: 'COCA COLA 35CL', familiaNombre: 'BOT',
-      unidad: 'Unidad', stockTeorico: 9, stockReal: 4, botellasAbiertas: 0, version: 1,
+      unidad: 'Unidad', stockTeorico: 9, stockReal: 4, botellasAbiertas: 0, version: Date.now(),
     });
   });
   const a = await aplicar(id, [1], CONTADOR);
@@ -650,12 +768,13 @@ test('ABA (b): reemplazar 5 sobre 3 y otro usuario guarda 5 → deshacer da 409'
 
 test('ABA (c): versión de LINE# en cada escritura; el caso normal deshace; aplicadas antiguas, por valores', async () => {
   const id = await nuevoInventario();
-  assert.equal(lineaConteo(id, '200').version, 1);
+  const v0 = lineaConteo(id, '200').version;
+  assert.ok(Number.isInteger(v0) && v0 > 0);
   await dictar(id, 'Roku 3', CONTADOR);
   await aplicar(id, [1], CONTADOR);
   const tras = lineaConteo(id, '200');
   const item1 = db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001' });
-  assert.deepEqual([tras.version, item1.aplicado.version], [2, 2]);
+  assert.deepEqual([tras.version, item1.aplicado.version], [v0 + 1, v0 + 1]);
   const vista = await api('GET', ruta(id), undefined, CONTADOR);
   assert.equal(JSON.stringify(vista.body).includes('"version"'), false, 'la versión no se expone');
 
@@ -663,7 +782,7 @@ test('ABA (c): versión de LINE# en cada escritura; el caso normal deshace; apli
   await patch(id, 2, { estado: 'confirmada' }, CONTADOR);
   await aplicar(id, [2], CONTADOR);
   assert.equal((await deshacer(id, 2, CONTADOR)).status, 200);
-  assert.deepEqual([lineaConteo(id, '200').stockReal, lineaConteo(id, '200').version], [3, 4]);
+  assert.deepEqual([lineaConteo(id, '200').stockReal, lineaConteo(id, '200').version], [3, v0 + 3]);
 
   // Línea aplicada antes de guardar aplicado.version: se compara por valores.
   await dictar(id, 'Larios 2', CONTADOR);
@@ -674,11 +793,13 @@ test('ABA (c): versión de LINE# en cada escritura; el caso normal deshace; apli
   assert.equal((await deshacer(id, 3, CONTADOR)).status, 200);
   assert.equal(lineaConteo(id, '300').stockReal, undefined);
 
-  // Una LINE# antigua sin versión (cuenta como 0) se puede escribir y pasa a 1.
+  // Una LINE# antigua sin versión (cuenta como 0) se puede escribir y pasa a una versión horaria.
   const { version: _w, ...sinVersion } = lineaConteo(id, '1367');
   db.sembrar(T(), sinVersion);
+  const antesPut = Date.now();
   assert.equal((await api('PUT', `/api/inventarios/${id}/lineas/1367`, { stockReal: 2, botellasAbiertas: 0 }, CONTADOR)).status, 200);
-  assert.equal(lineaConteo(id, '1367').version, 1);
+  const vSinVersion = lineaConteo(id, '1367').version;
+  assert.ok(Number.isInteger(vSinVersion) && vSinVersion >= antesPut);
 
   // PUT /lineas sigue siendo «gana el último» aunque otro escriba la línea entre lectura y escritura.
   let primera = true;
@@ -691,7 +812,42 @@ test('ABA (c): versión de LINE# en cada escritura; el caso normal deshace; apli
   const put = await api('PUT', `/api/inventarios/${id}/lineas/1367`, { stockReal: 4, botellasAbiertas: 0 }, CONTADOR);
   assert.equal(put.status, 200);
   assert.equal(primera, false);
-  assert.deepEqual([lineaConteo(id, '1367').stockReal, lineaConteo(id, '1367').version], [4, 3]);
+  assert.deepEqual([lineaConteo(id, '1367').stockReal, lineaConteo(id, '1367').version], [4, vSinVersion + 2]);
+});
+
+test('ABA (d): línea borrada y recreada por otro no repite versión → ni suma sola ni deshacer la pisa', async () => {
+  const id = await nuevoInventario();
+  // El dictado da de alta Coca cola y la cuenta: alta + aplicación son dos escrituras de LINE#400.
+  await dictar(id, 'Coca cola 3', CONTADOR);
+  const a = await aplicar(id, [1], CONTADOR);
+  assert.equal(a.body.aplicadas[0].stockReal, 3);
+  const vDictado = db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001' }).aplicado.version;
+  assert.equal(lineaConteo(id, '400').version, vDictado);
+
+  // Gestión borra la línea; otro usuario la vuelve a añadir y la cuenta con su dictado: otra vez
+  // alta + aplicación, así que con versiones desde 1 acabaría en la misma versión que dejó el primero.
+  assert.equal((await api('DELETE', `/api/inventarios/${id}/lineas/400`, undefined, COMPRAS)).status, 200);
+  assert.equal(lineaConteo(id, '400'), null);
+  await dictar(id, 'Coca cola 10', CONTADOR2);
+  assert.equal((await aplicar(id, [1], CONTADOR2)).body.aplicadas[0].stockReal, 10);
+  const recreada = lineaConteo(id, '400');
+  assert.equal(recreada.stockReal, 10);
+  assert.notEqual(recreada.version, vDictado, 'la línea recreada no repite la versión que dejó el dictado');
+
+  // El mismo dictado: no es «sumado», pide confirmar y no se aplica solo.
+  const r = await dictar(id, 'Coca cola 2', CONTADOR);
+  const [l] = r.body.lineas;
+  assert.deepEqual([l.confirmar, l.motivos, l.sumado], [true, ['ya_contado'], undefined]);
+  const b = await aplicar(id, [l.n], CONTADOR);
+  assert.deepEqual(b.body.aplicadas, []);
+  assert.deepEqual(b.body.rechazadas.map((x) => [x.n, x.motivo]), [[l.n, 'requiere_confirmacion']]);
+  assert.deepEqual([lineaConteo(id, '400').stockReal, lineaConteo(id, '400').version], [10, recreada.version]);
+
+  // Deshacer la línea antigua del dictado no restaura su `anterior` sobre el conteo nuevo.
+  const d = await deshacer(id, 1, CONTADOR);
+  assert.equal(d.status, 409);
+  assert.deepEqual([lineaConteo(id, '400').stockReal, lineaConteo(id, '400').version], [10, recreada.version]);
+  assert.equal(db.obtener(T(), { PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001' }).estado, 'aplicada');
 });
 
 test('deshacer: quien solo cuenta con el inventario revisado → 403; gestionar sí; sin stockTeorico', async () => {

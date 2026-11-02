@@ -68,18 +68,29 @@ export const TRANSICIONES_LINEA = Object.freeze({
  * ({ existia, stockReal, botellasAbiertas }: la LINE# antes de aplicar; existia, informativo,
  * false si la añadió el propio aplicar) solo los escribe aplicar.js al pasar la línea a 'aplicada', para
  * que un reintento devuelva el mismo resultado y se pueda deshacer. Nunca llevan stockTeorico.
- * `idEnvio` es el envío de la UI que creó la línea (ver reservarEnvio).
+ * `idEnvio` es el envío de la UI que creó la línea (ver reservarEnvio). `ciclo`, el de la sesión
+ * cuando se creó la línea.
  */
 export const CAMPOS_LINEA = Object.freeze([
   'PK', 'SK', 'n', 'texto', 'orden', 'productId', 'productoNombre', 'cantidad', 'modo',
   'motivos', 'confirmar', 'estado', 'creadoEn', 'creadoPor', 'actualizadoEn', 'actualizadoPor',
-  'aplicado', 'anterior', 'idEnvio',
+  'aplicado', 'anterior', 'idEnvio', 'ciclo',
 ]);
 
-/** Únicos atributos que puede tener el META de una sesión en Dynamo. */
+/**
+ * Únicos atributos que puede tener el META de una sesión en Dynamo. `ciclo` (entero, desde 1)
+ * identifica «este mismo dictado»: sube en 1 al reanudar una sesión cerrada (Terminar); pausar y
+ * reanudar una pausada no lo cambian. Sesiones y líneas anteriores a este campo cuentan como 1.
+ */
 export const CAMPOS_META = Object.freeze([
-  'PK', 'SK', 'estado', 'siguiente', 'creadoEn', 'actualizadoEn', 'usuarioId', 'usuarioNombre',
+  'PK', 'SK', 'estado', 'siguiente', 'creadoEn', 'actualizadoEn', 'usuarioId', 'usuarioNombre', 'ciclo',
 ]);
+
+/** Ciclo de un META o de una línea; sin campo (datos antiguos) es 1. */
+export function cicloDe(item) {
+  const c = Number(item?.ciclo);
+  return Number.isInteger(c) && c > 0 ? c : 1;
+}
 
 const EDITABLES = Object.freeze(['productId', 'productoNombre', 'cantidad', 'modo', 'estado', 'motivos', 'confirmar']);
 const TIPOS_ORDEN = new Set(['linea', 'sumar', 'reemplazar', 'corregir', 'borrar', 'pausa', 'sigue']);
@@ -225,6 +236,7 @@ function itemLinea(clave, n, c) {
     actualizadoEn: c.actualizadoEn,
     actualizadoPor: c.actualizadoPor,
     ...(c.idEnvio && { idEnvio: c.idEnvio }),
+    ciclo: cicloDe(c),
   };
 }
 
@@ -242,6 +254,7 @@ export function presentarLinea(it) {
     estado: it.estado,
     creadoEn: it.creadoEn || null,
     actualizadoEn: it.actualizadoEn || null,
+    ciclo: cicloDe(it),
     ...(it.idEnvio && { idEnvio: it.idEnvio }),
     ...(it.aplicado && {
       aplicado: {
@@ -375,6 +388,7 @@ function presentarMeta(it) {
     actualizadoEn: it.actualizadoEn || null,
     usuarioId: it.usuarioId || '',
     usuarioNombre: it.usuarioNombre || '',
+    ciclo: cicloDe(it),
   };
 }
 
@@ -400,7 +414,8 @@ async function exigirInventario(pk) {
  * Sesión de un usuario en un inventario. No comprueba que el inventario exista.
  * @returns {Promise<{ meta: ReturnType<typeof presentarMeta>|null, lineas: Array<ReturnType<typeof presentarLinea>> }>}
  */
-export async function obtenerSesion(inventarioId, usuario) {
+/** META y líneas de la sesión, tal como están en Dynamo. */
+async function itemsSesion(inventarioId, usuario) {
   const { u, pk } = claves(inventarioId, usuario);
   const items = [];
   let lastKey;
@@ -415,12 +430,45 @@ export async function obtenerSesion(inventarioId, usuario) {
     items.push(...(r.Items || []));
     lastKey = r.LastEvaluatedKey || null;
   } while (lastKey);
-  const meta = items.find((it) => it.SK === skDictadoMeta(u));
-  const lineas = items
-    .filter((it) => it.SK.startsWith(`${prefijoDictado(u)}LINEA#`))
-    .map(presentarLinea)
-    .sort((a, b) => a.n - b.n);
-  return { meta: meta ? presentarMeta(meta) : null, lineas };
+  return {
+    meta: items.find((it) => it.SK === skDictadoMeta(u)) || null,
+    lineas: items.filter((it) => it.SK.startsWith(`${prefijoDictado(u)}LINEA#`)),
+  };
+}
+
+export async function obtenerSesion(inventarioId, usuario) {
+  const { meta, lineas } = await itemsSesion(inventarioId, usuario);
+  return {
+    meta: meta ? presentarMeta(meta) : null,
+    lineas: lineas.map(presentarLinea).sort((a, b) => a.n - b.n),
+  };
+}
+
+/**
+ * Por producto, la ÚLTIMA aplicación del ciclo actual de la sesión: la línea 'aplicada' de ese
+ * ciclo con mayor `aplicado.version` (la que escribió LINE# más tarde). Solo cuentan las que
+ * guardaron aplicado.version. Si LINE# sigue en esa versión, lo último que la tocó fue este dictado.
+ * @returns {Promise<{ ciclo: number, ultimas: Map<string, { n: number, version: number }> }>}
+ */
+export async function aplicadasDelCiclo(inventarioId, usuario) {
+  const { meta, lineas } = await itemsSesion(inventarioId, usuario);
+  const ciclo = cicloDe(meta);
+  const ultimas = new Map();
+  for (const it of lineas) {
+    if (it.estado !== 'aplicada' || !it.productId || cicloDe(it) !== ciclo) continue;
+    const version = Number(it.aplicado?.version);
+    if (!Number.isInteger(version)) continue;
+    const pid = String(it.productId);
+    if (!ultimas.has(pid) || ultimas.get(pid).version < version) ultimas.set(pid, { n: Number(it.n), version });
+  }
+  return { ciclo, ultimas };
+}
+
+/** La última aplicación de `productId` en el ciclo actual (ver aplicadasDelCiclo), o null. */
+export async function ultimaAplicadaDelProducto(inventarioId, usuario, productId) {
+  const { ciclo, ultimas } = await aplicadasDelCiclo(inventarioId, usuario);
+  const ultima = ultimas.get(String(productId));
+  return ultima ? { ciclo, ...ultima } : null;
 }
 
 /**
@@ -450,11 +498,12 @@ export async function anadirLineas(inventarioId, usuario, lineas, quien) {
   const ahora = new Date().toISOString();
   const nombre = texto(quien, 'quien', { max: 120 });
   let fin;
+  let ciclo;
   try {
     const r = await docClient.send(new UpdateCommand({
       TableName: tabla,
       Key: { PK: pk, SK: skDictadoMeta(u) },
-      UpdateExpression: 'SET estado = if_not_exists(estado, :activa), creadoEn = if_not_exists(creadoEn, :ahora), usuarioId = if_not_exists(usuarioId, :uid), usuarioNombre = :nombre, actualizadoEn = :ahora ADD siguiente :k',
+      UpdateExpression: 'SET estado = if_not_exists(estado, :activa), creadoEn = if_not_exists(creadoEn, :ahora), usuarioId = if_not_exists(usuarioId, :uid), usuarioNombre = :nombre, actualizadoEn = :ahora, ciclo = if_not_exists(ciclo, :uno) ADD siguiente :k',
       ConditionExpression: 'attribute_not_exists(estado) OR estado <> :cerrada',
       ExpressionAttributeValues: {
         ':activa': 'activa',
@@ -462,11 +511,13 @@ export async function anadirLineas(inventarioId, usuario, lineas, quien) {
         ':ahora': ahora,
         ':uid': String(usuario).trim(),
         ':nombre': nombre,
+        ':uno': 1,
         ':k': datos.length,
       },
-      ReturnValues: 'UPDATED_NEW',
+      ReturnValues: 'ALL_NEW',
     }));
     fin = Number(r.Attributes?.siguiente);
+    ciclo = cicloDe(r.Attributes);
   } catch (err) {
     if (esCondicion(err)) throw errorInventario('La sesión de dictado está cerrada.', 409);
     throw err;
@@ -477,7 +528,7 @@ export async function anadirLineas(inventarioId, usuario, lineas, quien) {
   const items = datos.map((c, i) => itemLinea(
     { PK: pk, SK: skDictadoLinea(u, inicio + i) },
     inicio + i,
-    { ...c, creadoEn: ahora, creadoPor: nombre, actualizadoEn: ahora, actualizadoPor: nombre },
+    { ...c, creadoEn: ahora, creadoPor: nombre, actualizadoEn: ahora, actualizadoPor: nombre, ciclo },
   ));
   try {
     await docClient.send(new TransactWriteCommand({
@@ -538,6 +589,7 @@ export async function actualizarLinea(inventarioId, usuario, n, cambios, quien) 
     creadoEn: previo.creadoEn,
     creadoPor: previo.creadoPor,
     idEnvio: previo.idEnvio ?? null,
+    ciclo: cicloDe(previo),
   };
   const validadores = {
     productId: productIdDe,
@@ -607,9 +659,28 @@ export function pausarSesion(inventarioId, usuario) {
   return cambiarEstadoSesion(inventarioId, usuario, 'pausada', ['activa', 'pausada']);
 }
 
-/** pausada | cerrada → activa (idempotente). 404 sin sesión. */
-export function reanudarSesion(inventarioId, usuario) {
-  return cambiarEstadoSesion(inventarioId, usuario, 'activa', ['pausada', 'cerrada', 'activa']);
+/**
+ * pausada | cerrada → activa (idempotente). 404 sin sesión. Desde cerrada empieza un ciclo nuevo
+ * (otro «dictado» a efectos de la regla «sumado»); desde pausada el ciclo sigue.
+ */
+export async function reanudarSesion(inventarioId, usuario) {
+  const { u, pk } = claves(inventarioId, usuario);
+  try {
+    const r = await docClient.send(new UpdateCommand({
+      TableName: tablaInventarios(),
+      Key: { PK: pk, SK: skDictadoMeta(u) },
+      UpdateExpression: 'SET estado = :activa, actualizadoEn = :ahora, ciclo = if_not_exists(ciclo, :uno) + :uno',
+      ConditionExpression: 'estado = :cerrada',
+      ExpressionAttributeValues: {
+        ':activa': 'activa', ':cerrada': 'cerrada', ':ahora': new Date().toISOString(), ':uno': 1,
+      },
+      ReturnValues: 'ALL_NEW',
+    }));
+    return presentarMeta(r.Attributes);
+  } catch (err) {
+    if (!esCondicion(err)) throw err;
+  }
+  return cambiarEstadoSesion(inventarioId, usuario, 'activa', ['pausada', 'activa']);
 }
 
 /** → cerrada (idempotente). No borra líneas. 404 sin sesión. */

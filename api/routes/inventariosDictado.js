@@ -28,6 +28,12 @@
  * - Todo cambio sobre un producto ya contado pide confirmación ('ya_contado'), también si lo contó
  *   una orden anterior del mismo dictado (se simula su previsión). Un producto con líneas sin
  *   aplicar en la sesión, o repetido en el dictado, pide 'repetido_en_dictado'.
+ * - Excepción «sumado»: una suma sobre un producto que contó ESTE mismo dictado (mismo usuario y
+ *   ciclo de sesión; un ciclo nuevo empieza al reanudar tras cerrar) se aplica sola: motivo
+ *   informativo 'sumado' en vez de 'ya_contado'/'repetido_en_dictado' y `sumado: { antes, ahora }`.
+ *   Cuenta si la versión de LINE# es la que dejó la última aplicación del producto en el ciclo, o
+ *   si en este envío la línea anterior del producto también se aplica sola. Otros motivos
+ *   (ambiguo, calculo, redondeo…) siguen pidiendo confirmar; aplicar.js lo recomprueba.
  * - Si lo que se guardará no cabe exacto en las fracciones de botella, 'redondeo' y el previsto
  *   muestra el valor real que se guardará.
  * - `idEnvio` (opcional, lo manda la UI por grabación) hace interpretar idempotente. En /audio es
@@ -44,7 +50,7 @@ import { permiteAlmacen } from '../lib/alcanceAlmacenes.js';
 import { responderError } from '../lib/http/responderError.js';
 import { errorInventario, idSegmento } from '../lib/inventarios/claves.js';
 import { stockContado } from '../lib/inventarios/diferencia.js';
-import { exigirConteo, obtenerInventario } from '../lib/inventarios/inventarios.js';
+import { exigirConteo, leerLineaConteo, obtenerInventario, versionLinea } from '../lib/inventarios/inventarios.js';
 import { listarProductosInventario } from '../lib/inventarios/productos.js';
 import { parsearDictado, partirCantidad } from '../lib/inventarios/dictado/parser.js';
 import { emparejarProducto, normalizarAlias, prepararIndice } from '../lib/inventarios/dictado/matcher.js';
@@ -59,6 +65,7 @@ import {
   MAX_LINEAS_POR_ENVIO,
   actualizarLinea,
   anadirLineas,
+  aplicadasDelCiclo,
   cerrarSesion,
   completarEnvio,
   idEnvioDe,
@@ -235,19 +242,33 @@ async function interpretar(req, inventario, texto, idEnvio) {
   const uid = usuarioId(req);
   const nombre = nombreSesion(req);
   const inventarioId = inventario.inventarioId;
-  const [activos, alias, previa] = await Promise.all([
+  const [activos, alias, previa, delCiclo] = await Promise.all([
     candidatosDelAlmacen(inventario),
     listarAlias(),
     obtenerSesion(inventarioId, uid),
+    aplicadasDelCiclo(inventarioId, uid),
   ]);
   const indice = prepararIndice(activos, alias);
   const conteo = new Map((inventario.lineas || []).map((l) => [l.productId, l]));
   // Conteo tal como quedaría tras aplicar las órdenes anteriores de este mismo dictado.
   const simulado = new Map(conteo);
-  // Productos con líneas sin aplicar en la sesión (o anteriores en este dictado).
+  // Productos con líneas sin aplicar de envíos anteriores de la sesión.
   const sinAplicar = new Set(previa.lineas
     .filter((l) => (l.estado === 'pendiente' || l.estado === 'confirmada') && l.productId)
     .map((l) => l.productId));
+  // Productos ya vistos en este envío → si su última línea se aplica sola (confirmar=false).
+  const enEnvio = new Map();
+  // «Lo último que tocó LINE# fue este dictado (ciclo actual)»: versión de LINE# = la que dejó
+  // su última aplicación. aplicar.js lo vuelve a comprobar con la LINE# que escribe.
+  const memoTocadoPorCiclo = new Map();
+  const tocadoPorEsteDictado = async (pid) => {
+    if (!memoTocadoPorCiclo.has(pid)) {
+      const ultima = delCiclo.ultimas.get(pid);
+      const linea = ultima ? await leerLineaConteo(inventarioId, pid) : null;
+      memoTocadoPorCiclo.set(pid, Boolean(ultima && linea && versionLinea(linea) === ultima.version));
+    }
+    return memoTocadoPorCiclo.get(pid);
+  };
   const ultimaPrevia = [...previa.lineas].reverse()
     .find((l) => l.estado !== 'descartada' && l.estado !== 'deshecha') || null;
 
@@ -342,19 +363,32 @@ async function interpretar(req, inventario, texto, idEnvio) {
     const lineaConteo = productId ? conteo.get(productId) : null;
     const lineaSimulada = productId ? simulado.get(productId) : null;
     const yaContado = stockContado(lineaSimulada) != null;
-    const motivos = [...orden.motivos, ...motivosMatch];
-    if (yaContado) motivos.push('ya_contado');
-    if (productId && sinAplicar.has(productId)) motivos.push('repetido_en_dictado');
+    const delEnvio = productId ? enEnvio.get(productId) : undefined;
+    const repetido = Boolean(productId) && (sinAplicar.has(productId) || delEnvio !== undefined);
     let prev = productId ? previsto(modo, cantidad, lineaSimulada) : null;
+    // «Sumado»: sumar sobre lo que contó este mismo dictado (ciclo actual) se aplica solo. En este
+    // envío, si la línea anterior del producto se aplica sola; si no, si LINE# la dejó este dictado.
+    // Sin líneas sin aplicar de envíos anteriores (esas siguen pidiendo confirmar).
+    const sumado = yaContado && modo === 'sumar' && Boolean(prev) && !prev.negativo
+      && !sinAplicar.has(productId)
+      && (delEnvio !== undefined ? delEnvio.autoaplicable : await tocadoPorEsteDictado(productId));
+    const motivos = [...orden.motivos, ...motivosMatch];
+    if (sumado) {
+      motivos.push('sumado');
+    } else {
+      if (yaContado) motivos.push('ya_contado');
+      if (repetido) motivos.push('repetido_en_dictado');
+    }
     if (prev?.negativo) {
       motivos.push('total_negativo');
       prev = null;
     }
     if (prev?.redondeada) motivos.push('redondeo');
     const unicos = sinRepetir(motivos).slice(0, MAX_MOTIVOS);
-    const confirmar = orden.confirmar || confirmarMatch || yaContado || !productId || unicos.length > 0;
+    const confirmar = orden.confirmar || confirmarMatch || (yaContado && !sumado) || !productId
+      || unicos.some((m) => m !== 'sumado');
     if (productId) {
-      sinAplicar.add(productId);
+      enEnvio.set(productId, { autoaplicable: !confirmar });
       if (prev) simulado.set(productId, conteoSimulado(lineaSimulada, prev));
     }
 
@@ -376,6 +410,12 @@ async function interpretar(req, inventario, texto, idEnvio) {
         conteoActual: productId ? conteoDe(lineaConteo) : null,
         enConteo: Boolean(lineaConteo),
         previsto: prev && { total: prev.total, stockReal: prev.stockReal, botellasAbiertas: prev.botellasAbiertas },
+        ...(sumado && {
+          sumado: {
+            antes: { stockReal: lineaSimulada?.stockReal ?? null, botellasAbiertas: lineaSimulada?.botellasAbiertas ?? 0 },
+            ahora: { stockReal: prev.stockReal, botellasAbiertas: prev.botellasAbiertas },
+          },
+        }),
         ...(orden.calculo?.faltaFormato && { faltaFormato: { productId } }),
       },
     });

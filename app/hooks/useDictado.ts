@@ -72,11 +72,17 @@ export type LineaDictado = {
   enConteo?: boolean;
   previsto?: PrevistoDictado | null;
   faltaFormato?: { productId: string | null } | null;
+  /** Motivo 'sumado': lo contado por este dictado antes y después de la suma. */
+  sumado?: { antes: ConteoSumado; ahora: ConteoSumado } | null;
+  ciclo?: number;
 };
+
+export type ConteoSumado = { stockReal: number | null; botellasAbiertas: number };
 
 export type SesionDictado = {
   estado: 'activa' | 'pausada' | 'cerrada';
   siguiente: number;
+  ciclo?: number;
   creadoEn: string | null;
   actualizadoEn: string | null;
 };
@@ -546,6 +552,29 @@ export function useDictado(inventarioId: string, { onAplicado }: { onAplicado?: 
     await aplicar([n]);
   }, [aplicar, patch]);
 
+  /**
+   * Confirma varias líneas de una vez (el panel ya ha avisado con un resumen): PATCH 'confirmada'
+   * en orden de n y luego un solo aplicar. Las que fallan quedan pendientes con su motivo.
+   * Devuelve cuántas han quedado aplicadas de las pedidas.
+   */
+  const confirmarTodas = useCallback(async (ns: number[]) => {
+    const orden = [...new Set(ns)].sort((a, b) => a - b);
+    const listas: number[] = [];
+    for (const n of orden) {
+      const actual = lineasRef.current.find((l) => l.n === n);
+      if (!actual) continue;
+      if (actual.estado === 'confirmada') {
+        listas.push(n);
+        continue;
+      }
+      // Si falla, patch deja el error del servidor y la línea sigue pendiente.
+      if (await patch(n, { estado: 'confirmada' })) listas.push(n);
+    }
+    await aplicar(listas);
+    const aplicadas = orden.filter((n) => lineasRef.current.find((l) => l.n === n)?.estado === 'aplicada').length;
+    return { aplicadas, total: orden.length };
+  }, [aplicar, patch]);
+
   const descartarLinea = useCallback(async (n: number) => {
     const linea = await patch(n, { estado: 'descartada' });
     if (linea) quitarRechazo(n);
@@ -722,6 +751,8 @@ export function useDictado(inventarioId: string, { onAplicado }: { onAplicado?: 
     abandonarTerminar,
     deshacerUltimo,
     confirmarLinea,
+    confirmarTodas,
+    esDescartada,
     descartarLinea,
     editarLinea,
     aplicar,
