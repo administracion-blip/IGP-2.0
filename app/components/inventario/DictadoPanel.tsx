@@ -177,9 +177,24 @@ function yaContadoLinea(l: LineaDictado, rechazo?: RechazoDictado): boolean {
     || rechazo?.motivo === 'ya_contado';
 }
 
-/** Se puede confirmar sin tocar nada: con producto, modo y cantidad (salvo borrar). */
+/** Se puede confirmar sin tocar nada: con producto, modo y cantidad (salvo borrar). Sin producto, no. */
 function confirmable(l: LineaDictado): boolean {
-  return Boolean(l.productId) && l.modo != null && (l.modo === 'borrar' || l.cantidad != null);
+  if (!l.productId) return false;
+  return l.modo != null && (l.modo === 'borrar' || l.cantidad != null);
+}
+
+/** «¿Es otro producto?» solo si el candidato se parece a lo dicho. */
+function candidatoParecido(texto: string, c: { nombre: string; puntuacion?: number }): boolean {
+  const norm = (s: string) => s
+    .toLocaleLowerCase('es')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  const dichos = norm(texto).split(' ').filter((t) => t.length >= 3 || /^\d+$/.test(t));
+  const nombre = norm(c.nombre).split(' ').filter(Boolean);
+  const coincide = dichos.some((t) => nombre.some((n) => n === t || (t.length >= 3 && (n.startsWith(t) || t.startsWith(n)))));
+  return coincide || (c.puntuacion ?? 0) >= 0.6;
 }
 
 function evaluarExpresion(expr: string): number | null {
@@ -317,7 +332,9 @@ function TarjetaLinea({
   const ayudaConfirmar = pideConfirmar
     ? (linea.modo === 'sumar' && yaContadoLinea(linea, rechazo) ? 'Toca Confirmar para sumar' : 'Toca Confirmar para aplicar')
     : null;
-  const candidatos = (linea.candidatos ?? []).filter((c) => c.productId !== linea.productId);
+  const candidatos = (linea.candidatos ?? []).filter(
+    (c) => c.productId !== linea.productId && candidatoParecido(linea.texto, c),
+  );
   const faltaFormato = editable && necesitaFormato(linea);
   const caja = parseNumero(cajaTexto);
   const pack = parseNumero(packTexto);

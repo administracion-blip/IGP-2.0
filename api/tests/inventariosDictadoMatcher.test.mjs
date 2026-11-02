@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 const {
   normalizarTexto, normalizarCompacto, normalizarAlias, MAX_LONGITUD_ALIAS, prepararIndice, emparejarProducto,
   vocabularioTranscripcion,
+  filtrarCandidatosParecidos,
 } = await import('../lib/inventarios/dictado/matcher.js');
 const { ALIAS_SEMILLA } = await import('../lib/inventarios/dictado/aliasesSemilla.js');
 const { parsearDictado } = await import('../lib/inventarios/dictado/parser.js');
@@ -625,6 +626,22 @@ test('Bot Ballantines 14 se resuelve si la plantilla solo tiene ese Ballantines'
   assert.equal(r.productId, id('BOT BALLANTINES'));
   assert.equal(r.confirmar, false);
   assert.equal(r.motivos.includes('marca_ambigua'), false);
+});
+
+test('¿Es otro producto? solo sugiere candidatos que se parecen al texto', () => {
+  const lista = [
+    { productId: '10', nombre: 'BALLANTINES 10', puntuacion: 0.5 },
+    { productId: '12', nombre: 'BALLANTINES 12', puntuacion: 0.5 },
+    { productId: 'c', nombre: 'COCA COLA', puntuacion: 0.2 },
+  ];
+  const eco = filtrarCandidatosParecidos('Conteo de inventario de bar nombre de producto y cantidad', lista);
+  assert.deepEqual(eco, []);
+  const marca = filtrarCandidatosParecidos('Bot Ballantines 14', lista).map((c) => c.productId);
+  assert.deepEqual(marca.sort(), ['10', '12']);
+  const cerca = filtrarCandidatosParecidos('xyz', [{ productId: 'c', nombre: 'COCA COLA', puntuacion: 0.8 }]);
+  assert.equal(cerca.length, 1);
+  const lejos = filtrarCandidatosParecidos('xyz', [{ productId: 'c', nombre: 'COCA COLA', puntuacion: 0.2 }]);
+  assert.deepEqual(lejos, []);
 });
 
 test('Ballantines 10, 14 señala el 10 aunque la plantilla tenga varios', () => {

@@ -298,6 +298,45 @@ test('tres filas de diez cajas por 24 = 720, pendiente de confirmar', async () =
   assert.equal(lineaConteo(id, '566').stockReal ?? null, null);
 });
 
+test('multiplícalo en medio de la frase no hereda el producto ni la cantidad', async () => {
+  const id = await nuevoInventario([['566', 'COCA COLA']]);
+  await dictar(id, 'Coca-Cola 3');
+  responder = ({ anterior }) => (anterior ? { productId: '566', cantidad: 720, modo: 'sumar' } : null);
+  const r = await dictar(id, 'luego multiplícalo por 24');
+  const [l] = r.body.lineas;
+  assert.notEqual(l.productId, '566');
+  assert.notEqual(l.cantidad?.total, 720);
+});
+
+test('multiplícalo por 24 no continúa si la línea anterior tiene más de 20 s', async () => {
+  const id = await nuevoInventario([['566', 'COCA COLA']]);
+  await dictar(id, 'Coca-Cola, tengo tres filas de diez cajas');
+  const viejo = new Date(Date.now() - 21_000).toISOString();
+  for (const linea of db.listar(T()).filter((it) => /DICTADO#.*#LINEA#/.test(String(it.SK)))) {
+    db.sembrar(T(), { ...linea, creadoEn: viejo });
+  }
+  responder = ({ texto, anterior }) => {
+    if (!/multipl/i.test(texto) || !anterior) return null;
+    return { productId: '566', cantidad: 720, modo: 'sumar' };
+  };
+  const r = await dictar(id, 'multiplícalo por 24');
+  const [l] = r.body.lineas;
+  assert.equal(l.productId, null);
+  assert.equal(l.cantidad, null);
+  assert.equal(lineaConteo(id, '566').stockReal ?? null, null);
+});
+
+test('multiplícalo por 24 no pone cantidad si no hay producto', async () => {
+  const id = await nuevoInventario([['566', 'COCA COLA']]);
+  const previa = await dictar(id, 'Phantom tres');
+  assert.equal(previa.body.lineas[0].productId, null);
+  responder = () => ({ productId: null, cantidad: 720, modo: 'sumar' });
+  const r = await dictar(id, 'multiplícalo por 24');
+  const [l] = r.body.lineas;
+  assert.equal(l.productId, null);
+  assert.equal(l.cantidad, null);
+});
+
 test('multiplícalo por 24 continúa la frase anterior y queda pendiente', async () => {
   const id = await nuevoInventario([['566', 'COCA COLA']]);
   responder = ({ texto, anterior }) => {

@@ -38,10 +38,11 @@ function enPrueba() {
   return process.env.NODE_TEST_CONTEXT != null || process.env.npm_lifecycle_event === 'test';
 }
 
-/** La frase sigue a la anterior («multiplícalo por 24») en vez de nombrar un producto nuevo. */
+/** La frase sigue a la anterior («multiplícalo por 24») solo si EMPIEZA por esa palabra. */
 export function esContinuacion(orden) {
-  const t = normalizarTexto(`${orden?.textoProducto || ''} ${orden?.textoOriginal || ''}`);
-  return t.split(' ').some((p) => p.startsWith('multiplica'));
+  const t = normalizarTexto(orden?.textoOriginal || orden?.textoProducto || '');
+  const primera = t.split(' ')[0] || '';
+  return primera.startsWith('multiplica');
 }
 
 const MOTIVOS_DUDA = new Set([
@@ -53,13 +54,17 @@ const MOTIVOS_DUDA = new Set([
  * Cuándo pedir la propuesta. Una marca ambigua en la plantilla no se desempata aquí.
  * Un acierto limpio de las reglas (producto elegido y sin motivo de duda) tampoco.
  *
- * @param {{ orden?: object, productId?: string|null, motivos?: string[] }} ctx
+ * `continuacion`: si se pasa, manda sobre el texto (la línea anterior tiene que ser reciente).
+ * null deja la decisión en esContinuacion.
+ *
+ * @param {{ orden?: object, productId?: string|null, motivos?: string[], continuacion?: boolean|null }} ctx
  * @returns {boolean}
  */
-export function debeConsultarIa({ orden, productId, motivos = [] } = {}) {
+export function debeConsultarIa({ orden, productId, motivos = [], continuacion = null } = {}) {
   if (!orden || orden.tipo === 'pausa' || orden.tipo === 'sigue') return false;
   if (motivos.includes('marca_ambigua')) return false;
-  if (esContinuacion(orden)) return true;
+  const sigue = continuacion == null ? esContinuacion(orden) : Boolean(continuacion);
+  if (sigue) return true;
   if (orden.calculo || motivos.includes('calculo') || motivos.includes('falta_formato') || motivos.includes('revisar_texto')) {
     return true;
   }

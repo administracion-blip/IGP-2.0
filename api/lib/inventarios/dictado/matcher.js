@@ -712,6 +712,24 @@ export function aplicarPlantilla(resultado, textoProducto, plantilla) {
 }
 
 /**
+ * Candidatos de «¿Es otro producto?»: comparten una palabra con lo dicho, o su puntuación
+ * llega al umbral de parecido. Si ninguno, la lista queda vacía y no se sugieren.
+ *
+ * @param {unknown} texto
+ * @param {Array<{ productId?: string|number, nombre?: string, puntuacion?: number }>} [candidatos]
+ */
+export function filtrarCandidatosParecidos(texto, candidatos = []) {
+  const dichos = significativos(tokensDe(normalizarTexto(texto)))
+    .filter((t) => t.length >= 3 || RE_NUMERO.test(t));
+  return (candidatos || []).filter((c) => {
+    if (!c?.nombre) return false;
+    if ((c.puntuacion ?? 0) >= UMBRAL_APROXIMADO) return true;
+    const nombre = tokensDe(normalizarTexto(c.nombre));
+    return dichos.some((t) => nombre.some((n) => n === t || (t.length >= 3 && (n.startsWith(t) || t.startsWith(n)))));
+  });
+}
+
+/**
  * Vocabulario para el prompt del transcriptor: alias más usados y nombres de la lista que se le
  * pase (la plantilla de este conteo). Primero como mucho 8 alias de más `usos` (no la mitad de
  * la lista: si no, el recorte de 1000 caracteres se queda sin nombres), luego los nombres de más

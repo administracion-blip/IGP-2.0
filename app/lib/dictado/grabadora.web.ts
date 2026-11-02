@@ -4,7 +4,8 @@
  * Cada trozo es un fichero completo: se para el MediaRecorder y se arranca otro sobre el mismo
  * micrófono (no se usa `timeslice`, que da trozos sin cabecera que el servidor no puede decodificar).
  * Se corta al llegar a MAX_TROZO_MS, tras un silencio de SILENCIO_MS (si en el trozo ya se oyó voz
- * y dura al menos MIN_TROZO_MS), al pausar, al terminar y al desmontar. Al parar se suelta el
+ * y dura al menos MIN_TROZO_MS), al pausar, al terminar y al desmontar. Un trozo en el que se pudo
+ * medir el nivel y no hubo voz (por encima del ruido de fondo) no se envía. Al parar se suelta el
  * micrófono (tracks.stop) y se cierra el AudioContext, pase lo que pase. detener() no se resuelve
  * hasta que onTrozo ha guardado el último trozo (también el de un corte en curso), salvo que onstop
  * no llegue en ESPERA_ONSTOP_MS. Ante un error del MediaRecorder se para todo (como detener) y luego
@@ -25,11 +26,15 @@ const SILENCIO_MS = 1200;
 /** Cada cuánto se lee el nivel del micrófono. */
 const INTERVALO_NIVEL_MS = 50;
 /**
- * Por debajo de esto no hay voz. El ambiente del local no corta el trozo: el silencio se mide
- * respecto al pico de ESTE trozo, no con un suelo que se hunda.
+ * Suelo absoluto: por debajo de esto no hay voz aunque el ruido medido sea más bajo.
+ * El umbral real es este valor o el ruido de fondo de la sesión, el que sea mayor.
  */
 const UMBRAL_MIN = 0.015;
-/** La voz tiene que durar esto: un golpe de vaso no cierra un trozo. */
+/** La voz tiene que superar el ruido de fondo por este factor. */
+const FACTOR_VOZ = 3;
+/** El ruido de fondo se adapta despacio para no subir con la propia voz. */
+const ALFA_RUIDO = 0.08;
+/** La voz tiene que durar esto: un golpe de vaso no cierra ni envía un trozo. */
 const VOZ_MIN_MS = 250;
 /** Silencio de este trozo: el nivel baja de esta parte del pico de voz. */
 const RATIO_SILENCIO = 0.4;
@@ -68,8 +73,15 @@ type TrozoEnCurso = {
   empezado: number;
   /** Ha llegado onstop. */
   parado: Promise<void>;
-  /** onstop ha llegado y onTrozo ha guardado el trozo. */
+  /** onstop ha llegado y onTrozo ha guardado el trozo, o lo ha descartado por no tener voz. */
   terminado: Promise<void>;
+  /** Milisegundos de este trozo por encima del ruido. No se comparte con el trozo siguiente. */
+  vozMs: number;
+  /** Lecturas de nivel de este trozo. 0: no se pudo medir y el trozo se envía igual. */
+  muestras: number;
+  /** Pico de voz de este trozo. El silencio se mide contra él, no contra el ruido. */
+  pico: number;
+  silencioDesde: number | null;
 };
 
 /** true si `p` se resuelve antes de `ms`. */
@@ -110,12 +122,9 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
   let analizador: AnalyserNode | null = null;
   let medicion: ReturnType<typeof setInterval> | null = null;
   let datosNivel: Uint8Array<ArrayBuffer> | null = null;
-  /** Pico de nivel de ESTE trozo. Se pone a cero al empezar el siguiente. */
-  let pico = 0;
-  /** Milisegundos de este trozo con nivel de voz (por encima del mínimo y del silencio). */
-  let vozMs = 0;
+  /** Ruido de fondo de la sesión. No se pone a cero en cada trozo: una pausa larga lo afianza. */
+  let ruido = UMBRAL_MIN;
   let ultimoNivel = 0;
-  let silencioDesde: number | null = null;
 
   function soltarMicro() {
     stream?.getTracks().forEach((t) => t.stop());
@@ -136,10 +145,8 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
     fuente = null;
     analizador = null;
     datosNivel = null;
-    pico = 0;
-    vozMs = 0;
+    ruido = UMBRAL_MIN;
     ultimoNivel = 0;
-    silencioDesde = null;
     const ctx = audioCtx;
     audioCtx = null;
     if (ctx && ctx.state !== 'closed') {
@@ -167,38 +174,37 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
     return Number.isFinite(rms) ? rms : null;
   }
 
-  /** Cada trozo mide su propio pico: el silencio con el que nace no hereda el anterior. */
-  function reiniciarVozTrozo() {
-    pico = 0;
-    vozMs = 0;
-    silencioDesde = null;
-  }
-
   /**
-   * Mide el mismo stream que graba el MediaRecorder. Cierra el trozo tras ~1200 ms por debajo
-   * del 40 % del pico de voz de ESE trozo, si la voz duró al menos ~250 ms y el trozo ya pasa
-   * de MIN_TROZO_MS. El ambiente, que no baja de su propio pico, no corta. Si no se puede medir,
-   * no hace nada y el trozo sigue hasta los 60 s.
+   * Mide el mismo stream que graba el MediaRecorder. La voz es lo que supera el ruido de fondo
+   * de la sesión (o el suelo mínimo). Cierra el trozo tras ~1200 ms por debajo del 40 % del pico
+   * de voz de ESE trozo, si la voz duró al menos ~250 ms y el trozo ya pasa de MIN_TROZO_MS.
+   * El ambiente no corta: no baja de su propio pico y además alimenta el ruido. Si no se puede
+   * medir, no hace nada y el trozo sigue hasta los 60 s.
    */
   function medirNivel() {
     const rms = leerRms();
-    if (rms == null) return;
+    const trozo = actual;
+    if (rms == null || !trozo) return;
     try {
-      if (!activa || !actual || rotando) return;
+      if (!activa || rotando) return;
+      trozo.muestras += 1;
       const ahora = Date.now();
       const dt = ultimoNivel ? Math.min(ahora - ultimoNivel, 200) : INTERVALO_NIVEL_MS;
       ultimoNivel = ahora;
-      const esVoz = rms >= UMBRAL_MIN && (pico === 0 || rms >= pico * RATIO_SILENCIO);
+      const umbral = Math.max(UMBRAL_MIN, ruido * FACTOR_VOZ);
+      const esVoz = rms >= umbral && (trozo.pico === 0 || rms >= trozo.pico * RATIO_SILENCIO);
       if (esVoz) {
-        pico = Math.max(pico, rms);
-        vozMs += dt;
-        silencioDesde = null;
+        trozo.pico = Math.max(trozo.pico, rms);
+        trozo.vozMs += dt;
+        trozo.silencioDesde = null;
         return;
       }
-      if (vozMs < VOZ_MIN_MS || pico <= 0) return;
-      if (silencioDesde == null) silencioDesde = ahora;
-      if (ahora - silencioDesde < SILENCIO_MS) return;
-      if (ahora - actual.empezado < MIN_TROZO_MS) return;
+      const alfa = trozo.muestras < 8 ? 0.45 : ALFA_RUIDO;
+      ruido = ruido * (1 - alfa) + rms * alfa;
+      if (trozo.vozMs < VOZ_MIN_MS || trozo.pico <= 0) return;
+      if (trozo.silencioDesde == null) trozo.silencioDesde = ahora;
+      if (ahora - trozo.silencioDesde < SILENCIO_MS) return;
+      if (ahora - trozo.empezado < MIN_TROZO_MS) return;
       pedirRotacion();
     } catch {
       /* sin medición fiable se sigue cortando solo a los 60 s */
@@ -218,7 +224,7 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
       fuente = source;
       analizador = analyser;
       datosNivel = new Uint8Array(new ArrayBuffer(analyser.fftSize));
-      reiniciarVozTrozo();
+      ruido = UMBRAL_MIN;
       ultimoNivel = 0;
       medicion = setInterval(() => { medirNivel(); }, INTERVALO_NIVEL_MS);
       // Tras getUserMedia: Safari deja el contexto en suspended hasta resume().
@@ -301,7 +307,9 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
         const duracionMs = Date.now() - empezado;
         const tipoTrozo = recorder.mimeType || tipo || partes[0]?.type || 'audio/webm';
         const blob = new Blob(partes, { type: tipoTrozo });
-        if (blob.size === 0 || duracionMs < MIN_TROZO_MS) {
+        // Sin muestras no se pudo medir: se envía. Si se midió y no hubo voz, se tira.
+        const conVoz = enCurso.muestras === 0 || enCurso.vozMs >= VOZ_MIN_MS;
+        if (blob.size === 0 || duracionMs < MIN_TROZO_MS || !conVoz) {
           listo();
           return;
         }
@@ -316,8 +324,9 @@ export function crearGrabadora({ onTrozo, onError, maxTrozoMs = MAX_TROZO_MS }: 
       };
     });
     recorder.onerror = () => { void fallar('Se ha cortado la grabación.'); };
-    const enCurso: TrozoEnCurso = { recorder, empezado, parado, terminado };
-    reiniciarVozTrozo();
+    const enCurso: TrozoEnCurso = {
+      recorder, empezado, parado, terminado, vozMs: 0, muestras: 0, pico: 0, silencioDesde: null,
+    };
     actual = enCurso;
     try {
       recorder.start();

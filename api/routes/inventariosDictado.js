@@ -41,7 +41,10 @@
  *   obligatorio y un envío ya procesado no se vuelve a transcribir.
  * - /audio: el servidor no mide la duración (sin dependencias); la UI corta a 60 s y aquí se
  *   limita el tamaño (perfil 'audio', 25 MB). Permisos, almacén y estado se comprueban antes de
- *   que multer lea el cuerpo.
+ *   que multer lea el cuerpo. Una transcripción vacía, casi vacía o que es el propio prompt
+ *   no crea líneas.
+ * - «Multiplícalo por…» solo continúa si el texto empieza así y la línea anterior tiene
+ *   menos de 20 s. Si la línea se queda sin producto, no hereda la cantidad.
  */
 
 import { Router } from 'express';
@@ -54,7 +57,7 @@ import { stockContado } from '../lib/inventarios/diferencia.js';
 import { exigirConteo, leerLineaConteo, obtenerInventario, versionLinea } from '../lib/inventarios/inventarios.js';
 import { listarProductosInventario } from '../lib/inventarios/productos.js';
 import { parsearDictado, partirCantidad } from '../lib/inventarios/dictado/parser.js';
-import { emparejarProducto, normalizarAlias, prepararIndice } from '../lib/inventarios/dictado/matcher.js';
+import { emparejarProducto, filtrarCandidatosParecidos, normalizarAlias, prepararIndice } from '../lib/inventarios/dictado/matcher.js';
 import { debeConsultarIa, esContinuacion, proponerInterpretacion } from '../lib/inventarios/dictado/interpretarIa.js';
 import { aliasAceptable, borrarAlias, guardarAlias, listarAlias, sumarUso } from '../lib/inventarios/dictado/alias.js';
 import {
@@ -92,6 +95,13 @@ const MAX_MOTIVOS = 20;
 const VIAS_A_APRENDER = new Set(['aproximado', 'palabras']);
 
 const AVISO_AUDIO_VACIO = 'No se ha entendido nada en el audio.';
+/** La continuación («multiplícalo por») solo usa la línea anterior si es más reciente que esto. */
+const CONTINUACION_MS = 20_000;
+
+function continuacionReciente(creadoEn, ahora = Date.now()) {
+  const t = Date.parse(creadoEn || '');
+  return Number.isFinite(t) && ahora - t >= 0 && ahora - t < CONTINUACION_MS;
+}
 
 const ver = requireAnyPermission('inventario.gestionar', 'inventario.contar');
 const gestionar = requirePermission('inventario.gestionar');
@@ -321,6 +331,8 @@ async function interpretar(req, inventario, texto, idEnvio) {
     : null;
   let aviso = null;
   let textoAnterior = ultimaPrevia?.texto || null;
+  let anteriorEn = ultimaPrevia?.creadoEn || null;
+  const puedeContinuar = (orden) => esContinuacion(orden) && continuacionReciente(anteriorEn);
 
   const recortarNombre = (s) => (typeof s === 'string' && s.length > MAX_NOMBRE_PRODUCTO
     ? s.slice(0, MAX_NOMBRE_PRODUCTO).trim()
@@ -411,10 +423,11 @@ async function interpretar(req, inventario, texto, idEnvio) {
 
     let modoForzado = null;
     const motivosRegla = [...(orden.motivos || []), ...motivosMatch];
-    if (!sinSeparar && debeConsultarIa({ orden, productId, motivos: motivosRegla })) {
+    const sigue = !sinSeparar && puedeContinuar(orden);
+    if (!sinSeparar && debeConsultarIa({ orden, productId, motivos: motivosRegla, continuacion: sigue })) {
       const propuesta = await proponerInterpretacion({
         texto: String(orden.textoOriginal || orden.textoProducto || ''),
-        anterior: esContinuacion(orden) ? textoAnterior : null,
+        anterior: sigue ? textoAnterior : null,
         productos: plantilla,
       });
       if (propuesta) {
@@ -426,7 +439,9 @@ async function interpretar(req, inventario, texto, idEnvio) {
             candidatos = [{ productId, nombre: enLista.nombre, puntuacion: 0.5 }, ...candidatos].slice(0, 5);
           }
         }
-        if (propuesta.cantidad != null && orden.tipo !== 'borrar') cantidad = cantidadTotal(propuesta.cantidad);
+        if (propuesta.cantidad != null && orden.tipo !== 'borrar' && productId) {
+          cantidad = cantidadTotal(propuesta.cantidad);
+        }
         if (propuesta.modo) modoForzado = propuesta.modo;
         motivosMatch = motivosMatch.filter((m) => m !== 'sin_coincidencia' && m !== 'no_en_plantilla');
         motivosMatch = [...motivosMatch, 'propuesto_ia'];
@@ -438,6 +453,8 @@ async function interpretar(req, inventario, texto, idEnvio) {
       if (!motivosMatch.includes('no_en_plantilla')) motivosMatch.push('no_en_plantilla');
       confirmarMatch = true;
     }
+    if (!productId && esContinuacion(orden)) cantidad = null;
+    candidatos = filtrarCandidatosParecidos(String(orden.textoOriginal || orden.textoProducto || ''), candidatos);
 
     const modo = modoForzado || modoDeOrden(orden.tipo);
     const lineaConteo = productId ? conteo.get(productId) : null;
@@ -501,6 +518,7 @@ async function interpretar(req, inventario, texto, idEnvio) {
     });
     if (!sinSeparar) ultima = { productId, productoNombre, pendiente: confirmar || !productId };
     textoAnterior = String(orden.textoOriginal || texto).slice(0, 500);
+    anteriorEn = new Date().toISOString();
   }
   await volcar();
   const sesion = await obtenerSesion(inventarioId, uid);

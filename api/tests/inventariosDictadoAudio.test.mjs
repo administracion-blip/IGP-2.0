@@ -21,7 +21,7 @@ const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 const { crearPlantilla } = await import('../lib/inventarios/plantillas.js');
 const { crearInventario, cambiarEstado } = await import('../lib/inventarios/inventarios.js');
 const { guardarAlias } = await import('../lib/inventarios/dictado/alias.js');
-const { configurarTranscripcion, prepararPrompt, restablecerTranscripcion } = await import('../lib/inventarios/dictado/transcripcion.js');
+const { configurarTranscripcion, prepararPrompt, restablecerTranscripcion, transcripcionInservible } = await import('../lib/inventarios/dictado/transcripcion.js');
 const { transcribirAudio, MAX_PROMPT_TRANSCRIPCION } = await import('../lib/ia/openaiClient.js');
 const { detectarTipo } = await import('../lib/seguridad/subidas.js');
 const { crearRouterDictado } = await import('../routes/inventariosDictado.js');
@@ -316,8 +316,9 @@ test('el prompt lleva nombres y alias, nunca stock', async () => {
   assert.equal(r.status, 201);
   const { prompt } = llamadas[0].opts;
   assert.ok(prompt.startsWith('Conteo de inventario de bar: nombre de producto y cantidad.'));
-  assert.ok(prompt.includes('Ballantines 10, 14'));
-  assert.ok(prompt.includes('tres filas de diez cajas por 24'));
+  assert.equal(prompt.includes('Ballantines 10, 14'), false);
+  assert.equal(prompt.includes('tres filas de diez cajas por 24'), false);
+  assert.equal(prompt.includes('Ejemplos'), false);
   for (const t of ['ROKU GIN 70CL', 'JOHNNIE WALKER', 'LARIOS GIN', 'rokku', 'larios rosa']) {
     assert.ok(prompt.includes(t), t);
   }
@@ -326,6 +327,43 @@ test('el prompt lleva nombres y alias, nunca stock', async () => {
   assert.equal(prompt.includes(String(STOCK_SECRETO)), false);
   assert.equal(/stockTeorico|stockReal|teórico/i.test(prompt), false);
   assert.ok(prompt.length <= MAX_PROMPT_TRANSCRIPCION);
+});
+
+test('el silencio que devuelve el prompt no crea líneas ni un 720', async () => {
+  const id = await nuevoInventario();
+  respuesta = 'Conteo de inventario de bar, nombre de producto y cantidad, Ejemplos, Ballantines 10, 14';
+  const r = await enviarAudio(id, { idEnvio: 'eco-prompt' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.texto, '');
+  assert.deepEqual(r.body.lineas, []);
+  assert.equal(lineasDictado().length, 0);
+  assert.equal(r.body.aviso, 'No se ha entendido nada en el audio.');
+});
+
+test('una transcripción casi vacía no crea líneas', async () => {
+  const id = await nuevoInventario();
+  respuesta = '...';
+  const r = await enviarAudio(id, { idEnvio: 'eco-vacio' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.lineas, []);
+  assert.equal(lineasDictado().length, 0);
+  respuesta = 'eh';
+  const r2 = await enviarAudio(id, { idEnvio: 'eco-eh' });
+  assert.equal(r2.status, 200);
+  assert.equal(lineasDictado().length, 0);
+});
+
+test('transcripcionInservible deja pasar un conteo real y tira el eco y el vacío', () => {
+  const prompt = prepararPrompt([{ productId: '826', nombre: 'BALLANTINES 10' }], []);
+  const eco = 'Conteo de inventario de bar, nombre de producto y cantidad, Ejemplos, Ballantines 10, 14';
+  assert.equal(transcripcionInservible(eco, prompt), true);
+  assert.equal(transcripcionInservible(`${eco}. tres filas de diez cajas por 24`, prompt), true);
+  assert.equal(transcripcionInservible(prompt, prompt), true);
+  assert.equal(transcripcionInservible('.', prompt), true);
+  assert.equal(transcripcionInservible('mm', prompt), true);
+  assert.equal(transcripcionInservible('Ballantines 10, 14', prompt), false);
+  assert.equal(transcripcionInservible('tres filas de diez cajas por 24', prompt), false);
+  assert.equal(transcripcionInservible('Larios 2', prompt), false);
 });
 
 test('prepararPrompt recorta a ~1000 caracteres dando prioridad a los alias más usados', () => {

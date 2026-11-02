@@ -9,12 +9,23 @@ import {
   MENSAJE_TRANSCRIPCION_FALLIDA,
   transcribirAudio,
 } from '../../ia/openaiClient.js';
-import { vocabularioTranscripcion } from './matcher.js';
+import { normalizarTexto, vocabularioTranscripcion } from './matcher.js';
 
 export const CONTEXTO_TRANSCRIPCION = 'Conteo de inventario de bar: nombre de producto y cantidad.';
 
-/** Frases de ejemplo fijas: van delante del vocabulario para que el recorte de 1000 caracteres no se las lleve. */
-export const EJEMPLOS_TRANSCRIPCION = 'Ejemplos: «Ballantines 10, 14»; «tres filas de diez cajas por 24».';
+/**
+ * Ecos del prompt que el modelo devuelve cuando el trozo es silencio. Un conteo real
+ * («Ballantines 10, 14» o «tres filas de diez cajas por 24» a solas) no está aquí.
+ */
+const ECOS_PROMPT = [
+  'conteo de inventario de bar',
+  'nombre de producto y cantidad',
+  'ejemplos ballantines 10 14',
+  'ejemplos tres filas de diez cajas por 24',
+  'ballantines 10 14 tres filas de diez cajas por 24',
+];
+
+const RELLENO = new Set(['eh', 'ah', 'mm', 'mmm', 'hmm', 'em', 'um', 'mhm', 'aja']);
 
 let transcribirFn = transcribirAudio;
 
@@ -30,23 +41,42 @@ export function restablecerTranscripcion() {
 }
 
 /**
- * Contexto, ejemplos de frase y vocabulario (alias más usados, luego nombres cortos) hasta
- * MAX_PROMPT_TRANSCRIPCION caracteres. Solo se leen `nombre` de los productos y `texto`/`usos`
- * de los alias. Quien llama debe pasar la plantilla de este conteo, no el maestro global.
+ * Contexto y vocabulario (alias más usados, luego nombres cortos) hasta
+ * MAX_PROMPT_TRANSCRIPCION caracteres. Sin frases de ejemplo: el modelo las devolvía en los
+ * silencios. Solo se leen `nombre` de los productos y `texto`/`usos` de los alias. Quien llama
+ * debe pasar la plantilla de este conteo, no el maestro global.
  *
  * @param {Iterable<{ productId: string, nombre: string, activo?: boolean }>} productos
  * @param {Iterable<{ texto: string, productId: string, usos?: number }>} [alias]
  * @returns {string}
  */
 export function prepararPrompt(productos, alias = []) {
-  const prefijo = `${CONTEXTO_TRANSCRIPCION} ${EJEMPLOS_TRANSCRIPCION}`;
-  let prompt = prefijo;
+  let prompt = CONTEXTO_TRANSCRIPCION;
   for (const termino of vocabularioTranscripcion(productos, alias)) {
     const siguiente = `${prompt}, ${termino}`;
     if (siguiente.length > MAX_PROMPT_TRANSCRIPCION) break;
     prompt = siguiente;
   }
   return prompt;
+}
+
+/**
+ * true si la transcripción no debe crear líneas: vacía o casi vacía, eco del prompt
+ * (el texto coincide con él o lo contiene) o eco de sus ejemplos juntos.
+ *
+ * @param {unknown} texto
+ * @param {string} [prompt]
+ * @returns {boolean}
+ */
+export function transcripcionInservible(texto, prompt = '') {
+  const t = normalizarTexto(texto);
+  if (!t || t.length < 2) return true;
+  const tokens = t.split(' ').filter(Boolean);
+  if (tokens.length > 0 && tokens.every((p) => RELLENO.has(p))) return true;
+  if (ECOS_PROMPT.some((f) => t.includes(f))) return true;
+  const p = normalizarTexto(prompt);
+  if (p && (t === p || t.includes(p))) return true;
+  return false;
 }
 
 /**
@@ -81,5 +111,7 @@ export async function transcribir(file, { productos = [], alias = [] } = {}) {
       detalle: String(err?.message || err).slice(0, 500),
     });
   }
-  return String(salida?.texto ?? '').trim();
+  const texto = String(salida?.texto ?? '').trim();
+  if (transcripcionInservible(texto, prompt)) return '';
+  return texto;
 }
