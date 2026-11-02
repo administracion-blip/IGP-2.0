@@ -4,7 +4,9 @@
  * inventario.gestionar — plantillas, cabecera, estados y borrado.
  * inventario.contar — crear el conteo, anotar líneas y pasarlo a «contado».
  */
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { Router } from 'express';
+import { docClient, tables } from '../lib/db.js';
 import { hasPermission, requireAnyPermission, requirePermission } from '../middleware/auth.js';
 import { exportStocks } from '../lib/agora/client.js';
 import { permiteAlmacen } from '../lib/alcanceAlmacenes.js';
@@ -30,7 +32,8 @@ import {
   ultimoImportado,
 } from '../lib/inventarios/inventarios.js';
 import { abrirConteo, anadirProducto } from '../lib/inventarios/conteo.js';
-import { bufferInventario } from '../lib/inventarios/excel.js';
+import { bufferInventario, nombreFicheroInventario } from '../lib/inventarios/excel.js';
+import { contarPendientesConfirmar, textoPendientesConfirmar } from '../lib/inventarios/dictado/sesion.js';
 import { guardarUmbral, leerUmbral } from '../lib/inventarios/umbral.js';
 import { listarProductosInventario } from '../lib/inventarios/productos.js';
 import {
@@ -221,10 +224,44 @@ router.post('/inventarios', ver, async (req, res) => {
   }
 });
 
+async function nombreDelAlmacen(warehouseId) {
+  try {
+    const r = await docClient.send(new GetCommand({
+      TableName: tables.almacenes,
+      Key: { Id: warehouseId },
+    }));
+    const nombre = r.Item?.Nombre;
+    return typeof nombre === 'string' && nombre.trim() ? nombre.trim() : warehouseId;
+  } catch {
+    return warehouseId;
+  }
+}
+
 router.get('/inventarios/:id/excel', gestionar, async (req, res) => {
   try {
     const inventario = await obtenerInventario(req.params.id);
     if (!(await conAlmacen(req, res, inventario.warehouseId))) return;
+    const desdeConteo = req.query.origen === 'conteo';
+    if (desdeConteo) {
+      if (inventario.estado !== 'contado') {
+        return res.status(409).json({ error: 'Marca el conteo como contado antes de descargar el Excel.' });
+      }
+      const pendientes = await contarPendientesConfirmar(inventario.inventarioId);
+      if (pendientes > 0 && req.query.igualmente !== '1') {
+        return res.status(409).json({
+          error: textoPendientesConfirmar(pendientes),
+          pendientes,
+        });
+      }
+      const buffer = await bufferInventario(inventario);
+      const nombre = nombreFicheroInventario(
+        await nombreDelAlmacen(inventario.warehouseId),
+        inventario.fecha,
+      );
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+      return res.send(buffer);
+    }
     if (inventario.estado !== 'revisado' && inventario.estado !== 'exportado') {
       return res.status(409).json({ error: 'Solo se exporta un inventario revisado' });
     }

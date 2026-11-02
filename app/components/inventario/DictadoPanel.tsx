@@ -28,6 +28,7 @@ import {
 } from '../../hooks/useDictado';
 import { MAX_TROZO_MS } from '../../lib/dictado/grabadora';
 import { guardarModoVoz, leerModoVoz, type ModoVoz } from '../../lib/dictado/voz';
+import { descargarExcelConteo } from '../../lib/inventarioExcel';
 import { apiFetch } from '../../utils/api';
 import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplegable';
 import { BotonPeligro } from '../ui/BotonPeligro';
@@ -48,6 +49,8 @@ type Props = {
   onCerrar: () => void;
   /** Tras aplicar o deshacer líneas: la pantalla recarga el conteo. */
   onAplicado: () => void;
+  /** Quien tiene inventario.gestionar y el conteo ya está contado. */
+  puedeDescargar?: boolean;
 };
 
 const MOTIVOS: Record<string, string> = {
@@ -640,7 +643,7 @@ function TarjetaLinea({
 
 // ─── Panel ───
 
-export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
+export function DictadoPanel({ inventarioId, onCerrar, onAplicado, puedeDescargar = false }: Props) {
   const { isPhone, isPortrait, shouldStackPanels, shouldStackToolbar } = useBreakpoint();
   const insets = useSafeAreaInsets();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -651,6 +654,8 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
   const [cerrando, setCerrando] = useState(false);
   const [terminando, setTerminando] = useState(false);
   const [enRed, setEnRed] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
+  const [descargandoExcel, setDescargandoExcel] = useState(false);
+  const [errorExcel, setErrorExcel] = useState<string | null>(null);
 
   const pantallaCompleta = isPhone || (shouldStackPanels && isPortrait);
   const { fase, cola } = dictado;
@@ -816,6 +821,18 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
       setCerrando(false);
     }
     if (salir) onCerrar();
+  }
+
+  async function bajarExcel() {
+    if (descargandoExcel) return;
+    setDescargandoExcel(true);
+    setErrorExcel(null);
+    try {
+      const r = await descargarExcelConteo(inventarioId, confirmar);
+      if (r.resultado === 'error') setErrorExcel(r.error || 'No se ha podido generar el Excel');
+    } finally {
+      setDescargandoExcel(false);
+    }
   }
 
   async function terminar() {
@@ -1115,6 +1132,22 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
               </View>
             ))}
           </ScrollView>
+          {errorExcel ? <Text style={styles.error}>{errorExcel}</Text> : null}
+          {puedeDescargar ? (
+            <Pressable
+              style={[styles.boton, descargandoExcel && styles.botonOff]}
+              disabled={descargandoExcel}
+              onPress={() => void bajarExcel()}
+              accessibilityRole="button"
+              accessibilityLabel="Descargar Excel"
+            >
+              {descargandoExcel ? (
+                <ActivityIndicator color={colors.surface} />
+              ) : (
+                <Text style={styles.botonTexto}>Descargar Excel</Text>
+              )}
+            </Pressable>
+          ) : null}
           <Pressable
             style={styles.boton}
             onPress={onCerrar}

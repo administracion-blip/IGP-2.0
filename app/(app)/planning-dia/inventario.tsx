@@ -26,6 +26,7 @@ import { stockContado } from '../../lib/inventarioDiferencia';
 import { productosSinContar } from '../../lib/inventarioNoContados';
 import { FotoDobleConteo } from './FotoDobleConteo';
 import { DictadoPanel } from '../../components/inventario/DictadoPanel';
+import { descargarExcelConteo } from '../../lib/inventarioExcel';
 import { usePendientesDictado } from '../../hooks/useDictado';
 import {
   alSubirFoto,
@@ -285,6 +286,7 @@ export default function InventarioConteoScreen() {
   const [numerosReservados, setNumerosReservados] = useState<number[]>([]);
   const [capturando, setCapturando] = useState(false);
   const [dictando, setDictando] = useState(false);
+  const [descargandoExcel, setDescargandoExcel] = useState(false);
   const [sinContarAviso, setSinContarAviso] = useState<Linea[] | null>(null);
   const [marcandoContado, setMarcandoContado] = useState(false);
   const marcandoContadoRef = useRef(false);
@@ -836,6 +838,19 @@ export default function InventarioConteoScreen() {
     }
   }
 
+  async function bajarExcel() {
+    if (!inventario || descargandoExcel) return;
+    setDescargandoExcel(true);
+    setError(null);
+    try {
+      const r = await descargarExcelConteo(inventario.inventarioId, confirmar);
+      if (r.resultado === 'revisar') setDictando(true);
+      else if (r.resultado === 'error') setError(r.error || 'No se ha podido generar el Excel');
+    } finally {
+      setDescargandoExcel(false);
+    }
+  }
+
   async function marcarContado() {
     if (!inventario || inventario.estado !== 'borrador' || marcandoContadoRef.current) return;
     const guardados = await guardarTextosPendientes();
@@ -943,6 +958,7 @@ export default function InventarioConteoScreen() {
               inventarioId={inventario.inventarioId}
               onCerrar={() => setDictando(false)}
               onAplicado={() => void abrirExistente(inventario.inventarioId)}
+              puedeDescargar={puedeGestionar && inventario.estado === 'contado'}
             />
           ) : null}
           {editable ? (
@@ -1106,6 +1122,21 @@ export default function InventarioConteoScreen() {
           ) : (
             <Text style={styles.aviso}>Estado: {inventario.estado}. El conteo sigue guardado.</Text>
           )}
+          {puedeGestionar && inventario.estado === 'contado' ? (
+            <Pressable
+              style={[styles.boton, descargandoExcel && styles.botonOff]}
+              disabled={descargandoExcel}
+              onPress={() => void bajarExcel()}
+              accessibilityRole="button"
+              accessibilityLabel="Descargar Excel"
+            >
+              {descargandoExcel ? (
+                <ActivityIndicator color={colors.surface} />
+              ) : (
+                <Text style={styles.botonTexto}>Descargar Excel</Text>
+              )}
+            </Pressable>
+          ) : null}
           {puedeGestionar && inventario.estado !== 'importado' ? (
             <Pressable
               style={styles.botonBorrar}

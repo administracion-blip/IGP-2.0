@@ -37,7 +37,7 @@ import {
   texto,
   usuarioSegmento,
 } from '../claves.js';
-import { tablaInventarios } from '../store.js';
+import { queryPk, tablaInventarios } from '../store.js';
 
 export const MAX_LINEAS_POR_ENVIO = 50;
 const MAX_TEXTO = 2000;
@@ -686,4 +686,27 @@ export async function reanudarSesion(inventarioId, usuario) {
 /** → cerrada (idempotente). No borra líneas. 404 sin sesión. */
 export function cerrarSesion(inventarioId, usuario) {
   return cambiarEstadoSesion(inventarioId, usuario, 'cerrada', ['activa', 'pausada', 'cerrada']);
+}
+
+/** Aviso antes de descargar el Excel. N es el número de líneas aún sin aplicar. */
+export function textoPendientesConfirmar(n) {
+  const cantidad = Math.max(0, Math.trunc(Number(n) || 0));
+  if (cantidad === 1) return 'Hay 1 línea pendiente de confirmar';
+  return `Hay ${cantidad} líneas pendientes de confirmar`;
+}
+
+/**
+ * Líneas de dictado de cualquier usuario que aún no están en el conteo
+ * (pendiente o confirmada, no aplicada). El Excel no las suma.
+ */
+export async function contarPendientesConfirmar(inventarioId) {
+  const id = idSegmento(inventarioId, 'inventarioId');
+  const items = await queryPk(pkInventario(id));
+  let n = 0;
+  for (const it of items) {
+    const sk = String(it?.SK || '');
+    if (!sk.includes('#LINEA#')) continue;
+    if (it.estado === 'pendiente' || it.estado === 'confirmada') n += 1;
+  }
+  return n;
 }
