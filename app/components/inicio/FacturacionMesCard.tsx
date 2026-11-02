@@ -791,6 +791,7 @@ export function FacturacionMesCard({
   const onCambioRef = useRef(onCambioFiltro);
   const filaRef = useRef<View>(null);
   const [anchoTarjeta, setAnchoTarjeta] = useState(0);
+  const [anchoPie, setAnchoPie] = useState(0);
   const [nivelExtra, setNivelExtra] = useState(0);
   onCambioRef.current = onCambioFiltro;
 
@@ -868,6 +869,12 @@ export function FacturacionMesCard({
   const hayObjetivo = listo && datos != null && datos.objetivoMes > 0;
   const logro = hayObjetivo && datos != null ? clamp01(datos.totalReal / datos.objetivoMes) : 0;
   const ritmo = hayObjetivo && datos != null ? clamp01(datos.objetivoAHoy / datos.objetivoMes) : 0;
+  // «Hoy» va bajo la marca, pero no puede tapar «% del mes» (a la izquierda).
+  const ANCHO_PIE_MES = 92;
+  const ANCHO_HOY = 96;
+  const centroHoy = ritmo * anchoPie;
+  const hoyPegadoIzq = anchoPie <= 0 || centroHoy < ANCHO_PIE_MES + ANCHO_HOY / 2;
+  const hoyPegadoDer = !hoyPegadoIzq && centroHoy > anchoPie - ANCHO_HOY / 2;
   const hoyPct =
     hayObjetivo && datos != null ? Math.round((datos.objetivoAHoy / datos.objetivoMes) * 1000) / 10 : null;
   const mesPct =
@@ -1106,7 +1113,13 @@ export function FacturacionMesCard({
                 </View>
                 {hayObjetivo ? <View style={[styles.marca, { left: `${ritmo * 100}%` }]} /> : null}
               </View>
-              <View style={styles.barraPie}>
+              <View
+                style={styles.barraPie}
+                onLayout={(e) => {
+                  const w = Math.round(e.nativeEvent.layout.width);
+                  setAnchoPie((actual) => (actual === w ? actual : w));
+                }}
+              >
                 <Text style={styles.barraPieTexto}>
                   {mesPct == null ? '— del mes' : `${textoPorcentaje(mesPct)} del mes`}
                 </Text>
@@ -1115,7 +1128,11 @@ export function FacturacionMesCard({
                     pointerEvents="none"
                     style={[
                       styles.hoyAncla,
-                      ritmo < 0.14 ? styles.hoyAnclaIzq : ritmo > 0.86 ? styles.hoyAnclaDer : { left: `${ritmo * 100}%` },
+                      hoyPegadoIzq
+                        ? styles.hoyAnclaIzq
+                        : hoyPegadoDer
+                          ? styles.hoyAnclaDer
+                          : { left: `${ritmo * 100}%` },
                     ]}
                   >
                     <Text style={styles.hoyTexto}>{`Hoy ${textoPorcentaje(hoyPct)}`}</Text>
@@ -1416,7 +1433,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   hoyAnclaIzq: {
-    left: 0,
+    left: 92,
     marginLeft: 0,
     alignItems: 'flex-start',
   },

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView, Pressable } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { tasksUi } from '../constants/tasksUiTokens';
 import { useBreakpoint } from '../hooks/useBreakpoint';
@@ -91,18 +91,30 @@ type WeatherData = {
   };
 };
 
+function mensajeTiempo(motivo: string): string {
+  const t = motivo.toLowerCase();
+  if (t.includes('overload') || t.includes('too many') || t.includes('rate')) {
+    return 'El servicio del tiempo está saturado. Inténtalo en unos minutos.';
+  }
+  return 'No se ha podido cargar el tiempo.';
+}
+
 export default function WeatherWidget() {
   const { shouldStackPanels } = useBreakpoint();
   const [data, setData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const cargar = useCallback(() => {
+    setLoading(true);
+    setError(null);
     fetch(OPEN_METEO_URL)
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.error) {
-          setError(json.reason || 'Error al cargar');
+      .then(async (res) => {
+        const json = await res.json().catch(() => null);
+        if (!res.ok || json?.error) {
+          const motivo = String(json?.reason || res.status || '');
+          console.warn('[tiempo]', motivo);
+          setError(mensajeTiempo(motivo));
           return;
         }
         setData({
@@ -120,9 +132,16 @@ export default function WeatherWidget() {
           },
         });
       })
-      .catch((err) => setError(err.message || 'Error de conexión'))
+      .catch((err) => {
+        console.warn('[tiempo]', err);
+        setError('No hay conexión con el servicio del tiempo.');
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
 
   if (loading) {
     return (
@@ -143,7 +162,20 @@ export default function WeatherWidget() {
         <View style={styles.widget}>
           <View style={styles.mainRow}>
             <Text style={styles.headline}>Tiempo · Granada</Text>
-            <Text style={styles.error}>{error || 'Sin datos'}</Text>
+            <View style={styles.avisoFila}>
+              <Text style={styles.error} numberOfLines={2}>
+                {error || 'Sin datos'}
+              </Text>
+              <Pressable
+                onPress={cargar}
+                accessibilityRole="button"
+                accessibilityLabel="Reintentar el tiempo"
+                hitSlop={8}
+                style={({ pressed }) => [styles.reintentar, pressed && styles.reintentarPulsado]}
+              >
+                <Text style={styles.reintentarTexto}>Reintentar</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </View>
@@ -341,10 +373,32 @@ const styles = StyleSheet.create({
     ...tasksUi.tipo.micro,
     marginTop: 2,
   },
+  avisoFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    marginLeft: 12,
+    gap: 8,
+  },
   error: {
     ...tasksUi.tipo.etiqueta,
     color: tasksUi.color.peligro,
-    flex: 1,
-    marginLeft: 8,
+    flexShrink: 1,
+  },
+  reintentar: {
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: tasksUi.radius.control,
+    borderWidth: 1,
+    borderColor: tasksUi.color.bordeSutil,
+    backgroundColor: tasksUi.color.superficie,
+  },
+  reintentarPulsado: {
+    backgroundColor: tasksUi.color.acentoSuave,
+  },
+  reintentarTexto: {
+    ...tasksUi.tipo.micro,
+    color: tasksUi.color.textoSecundario,
   },
 });
