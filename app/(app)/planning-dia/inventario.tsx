@@ -24,6 +24,8 @@ import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { stockContado } from '../../lib/inventarioDiferencia';
 import { FotoDobleConteo } from './FotoDobleConteo';
+import { DictadoPanel } from '../../components/inventario/DictadoPanel';
+import { usePendientesDictado } from '../../hooks/useDictado';
 import {
   alSubirFoto,
   drenarCola,
@@ -272,6 +274,8 @@ export default function InventarioConteoScreen() {
   const lecturasEnCurso = useRef(new Set<number>());
   const [numerosReservados, setNumerosReservados] = useState<number[]>([]);
   const [capturando, setCapturando] = useState(false);
+  const [dictando, setDictando] = useState(false);
+  const audioSinEnviar = usePendientesDictado(inventario?.inventarioId);
   const [colaTick, setColaTick] = useState(0);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -849,7 +853,27 @@ export default function InventarioConteoScreen() {
                 <Text style={styles.botonFotoTexto}>{`Foto (${cupo.ocupados}/6)`}</Text>
               </Pressable>
             ) : null}
+            {editable && Platform.OS === 'web' ? (
+              <Pressable
+                style={styles.botonFoto}
+                onPress={() => setDictando(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Dictar el conteo por voz"
+              >
+                <MaterialIcons name="mic" size={18} color={colors.surface} />
+                <Text style={styles.botonFotoTexto}>
+                  {audioSinEnviar > 0 ? `Dictar (${audioSinEnviar} ${audioSinEnviar === 1 ? 'pendiente' : 'pendientes'})` : 'Dictar'}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
+          {dictando ? (
+            <DictadoPanel
+              inventarioId={inventario.inventarioId}
+              onCerrar={() => setDictando(false)}
+              onAplicado={() => void abrirExistente(inventario.inventarioId)}
+            />
+          ) : null}
           {editable ? (
             <View key={`cola-${colaTick}`}>
               <Text style={styles.colaFotos}>
