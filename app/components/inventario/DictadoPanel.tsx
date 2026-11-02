@@ -1,5 +1,5 @@
 /**
- * Panel del dictado por voz del conteo: pantallas «Dictando» y «En pausa».
+ * Panel del dictado por voz del conteo: pantallas «Dictando», «En pausa» y «Resumen».
  * Modal a pantalla completa en móvil/tablet vertical; ventana ancha en tablet horizontal y escritorio.
  * Solo muestra lo contado: nunca stock teórico.
  */
@@ -226,6 +226,14 @@ function necesitaFormato(l: LineaDictado): boolean {
 
 function esEditable(l: LineaDictado): boolean {
   return l.estado === 'pendiente' || l.estado === 'confirmada';
+}
+
+/** Nombre del producto o, si no hay, el texto dictado entre comillas. */
+function textoResumenLinea(l: LineaDictado): string {
+  const nombre = l.productoNombre?.trim();
+  if (nombre) return nombre;
+  const texto = l.texto?.trim();
+  return texto ? `«${texto}»` : 'Sin nombre';
 }
 
 function estaEditada(l: LineaDictado, editadas: Set<number>): boolean {
@@ -678,6 +686,15 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
       .sort((a, b) => b.n - a.n),
     [dictado.lineas],
   );
+  const resumenGrupos = useMemo(() => {
+    const lineas = dictado.lineas;
+    return [
+      { titulo: 'Aplicadas', lineas: lineas.filter((l) => l.estado === 'aplicada') },
+      { titulo: 'Pendientes', lineas: lineas.filter((l) => l.estado === 'pendiente' || l.estado === 'confirmada') },
+      { titulo: 'Descartadas', lineas: lineas.filter((l) => l.estado === 'descartada') },
+      { titulo: 'Deshechas', lineas: lineas.filter((l) => l.estado === 'deshecha') },
+    ];
+  }, [dictado.lineas]);
   const aplicadas = dictado.lineas.filter((l) => l.estado === 'aplicada').length;
   const porConfirmar = dictado.lineas.filter((l) => esEditable(l) && (l.confirmar || dictado.rechazos[l.n])).length;
   /** Pendientes de confirmar (sin las de trozos descartados): las que se pueden confirmar ya y las que no. */
@@ -752,9 +769,14 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
   /**
    * La X: pausa (o, si se está esperando al terminar, deja de esperar) y cierra sin descartar audio.
    * Si queda audio sin enviar, avisa antes: se enviará al volver a abrir el dictado.
+   * En el resumen ya no queda audio pendiente: cierra sin ese aviso.
    */
   async function cerrar() {
     if (cerrando) return;
+    if (fase === 'terminada') {
+      onCerrar();
+      return;
+    }
     setCerrando(true);
     let salir = true;
     try {
@@ -793,7 +815,8 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
         );
         return descartar ? 'descartar' : 'cancelar';
       });
-      if (ok) onCerrar();
+      // La fase queda en «terminada»: el resumen sigue en este modal.
+      if (ok) return;
     } finally {
       setTerminando(false);
     }
@@ -900,9 +923,11 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
     >
       <View style={styles.cabecera}>
         <View style={styles.cabeceraTexto}>
-          <Text style={styles.titulo}>Dictado</Text>
+          <Text style={styles.titulo}>{fase === 'terminada' ? 'Resumen' : 'Dictado'}</Text>
           <Text style={styles.subtitulo}>
-            {`${dictado.lineas.length} ${dictado.lineas.length === 1 ? 'línea' : 'líneas'} · ${aplicadas} aplicadas${porConfirmar > 0 ? ` · ${porConfirmar} por confirmar` : ''}`}
+            {fase === 'terminada'
+              ? `${dictado.lineas.length} ${dictado.lineas.length === 1 ? 'línea' : 'líneas'} en este dictado`
+              : `${dictado.lineas.length} ${dictado.lineas.length === 1 ? 'línea' : 'líneas'} · ${aplicadas} aplicadas${porConfirmar > 0 ? ` · ${porConfirmar} por confirmar` : ''}`}
           </Text>
         </View>
         <Pressable
@@ -918,7 +943,7 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
 
       {!dictado.disponible ? <Text style={styles.aviso}>El dictado solo está disponible en la web</Text> : null}
 
-      {fase === 'cargando' ? (
+      {fase === 'terminada' ? null : fase === 'cargando' ? (
         <View style={styles.banner}>
           <ActivityIndicator color={colors.accent} />
           <Text style={styles.bannerTexto}>Preparando el micrófono…</Text>
@@ -944,6 +969,7 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
         </View>
       )}
 
+      {fase === 'terminada' ? null : (
       <View style={[styles.barra, shouldStackToolbar && styles.filaApilada]}>
         {fase === 'dictando' ? (
           <Pressable
@@ -984,6 +1010,7 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
           <Text style={styles.botonBorrarTexto}>Terminar</Text>
         </Pressable>
       </View>
+      )}
 
       <View style={styles.cola}>
         <MaterialIcons name={estadoCola.icono} size={18} color={estadoCola.color} />
@@ -1029,49 +1056,77 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
       {dictado.error ? <Text style={styles.error}>{dictado.error}</Text> : null}
       {dictado.aviso ? <Text style={styles.aviso}>{dictado.aviso}</Text> : null}
 
-      {confirmables.length >= 2 || confirmandoTodas ? (
-        <Pressable
-          style={[styles.botonAnadir, styles.botonTodas, confirmandoTodas && styles.botonOff]}
-          disabled={confirmandoTodas}
-          onPress={() => void confirmarTodas()}
-          accessibilityRole="button"
-        >
-          {confirmandoTodas ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <MaterialIcons name="done-all" size={20} color={colors.accent} />
-          )}
-          <Text style={styles.botonAnadirTexto}>{`Confirmar todas (${confirmables.length})`}</Text>
-        </Pressable>
-      ) : null}
-      {resultadoTodas ? <Text style={styles.avisoDiscreto}>{resultadoTodas}</Text> : null}
+      {fase === 'terminada' ? (
+        <>
+          <ScrollView style={styles.flex} contentContainerStyle={styles.lista} keyboardShouldPersistTaps="handled">
+            {resumenGrupos.map((grupo) => (
+              <View key={grupo.titulo} style={styles.tarjeta}>
+                <View style={styles.tarjetaCab}>
+                  <Text style={styles.producto}>{grupo.titulo}</Text>
+                  <Text style={styles.cantidad}>{grupo.lineas.length}</Text>
+                </View>
+                {grupo.lineas.map((l) => (
+                  <Text key={l.n} style={styles.resumenLinea}>{textoResumenLinea(l)}</Text>
+                ))}
+              </View>
+            ))}
+          </ScrollView>
+          <Pressable
+            style={styles.boton}
+            onPress={onCerrar}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar el resumen"
+          >
+            <Text style={styles.botonTexto}>Cerrar</Text>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          {confirmables.length >= 2 || confirmandoTodas ? (
+            <Pressable
+              style={[styles.botonAnadir, styles.botonTodas, confirmandoTodas && styles.botonOff]}
+              disabled={confirmandoTodas}
+              onPress={() => void confirmarTodas()}
+              accessibilityRole="button"
+            >
+              {confirmandoTodas ? (
+                <ActivityIndicator color={colors.accent} />
+              ) : (
+                <MaterialIcons name="done-all" size={20} color={colors.accent} />
+              )}
+              <Text style={styles.botonAnadirTexto}>{`Confirmar todas (${confirmables.length})`}</Text>
+            </Pressable>
+          ) : null}
+          {resultadoTodas ? <Text style={styles.avisoDiscreto}>{resultadoTodas}</Text> : null}
 
-      <ScrollView style={styles.flex} contentContainerStyle={styles.lista} keyboardShouldPersistTaps="handled">
-        {lineasVisibles.length === 0 && fase !== 'cargando' ? (
-          <Text style={styles.vacio}>
-            {'Di el producto y la cantidad, por ejemplo «Larios 3 y media» o «Coca-Cola 2 cajas de 24».'}
-          </Text>
-        ) : null}
-        {lineasVisibles.map((l) => (
-          <TarjetaLinea
-            key={l.n}
-            linea={l}
-            rechazo={dictado.rechazos[l.n]}
-            nueva={dictado.nuevas.has(l.n)}
-            editada={estaEditada(l, dictado.editadas)}
-            aMano={aMano.has(l.n)}
-            ocupada={dictado.ocupadas.has(l.n)}
-            apilar={shouldStackToolbar}
-            catalogo={catalogo}
-            cargandoCatalogo={cargandoCatalogo}
-            onPedirCatalogo={() => void pedirCatalogo()}
-            onConfirmar={(x) => void confirmarLinea(x)}
-            onBorrar={(x) => void borrarLinea(x)}
-            onEditar={(x, cambios) => void dictado.editarLinea(x.n, cambios)}
-            onFormato={formato}
-          />
-        ))}
-      </ScrollView>
+          <ScrollView style={styles.flex} contentContainerStyle={styles.lista} keyboardShouldPersistTaps="handled">
+            {lineasVisibles.length === 0 && fase !== 'cargando' ? (
+              <Text style={styles.vacio}>
+                {'Di el producto y la cantidad, por ejemplo «Larios 3 y media» o «Coca-Cola 2 cajas de 24».'}
+              </Text>
+            ) : null}
+            {lineasVisibles.map((l) => (
+              <TarjetaLinea
+                key={l.n}
+                linea={l}
+                rechazo={dictado.rechazos[l.n]}
+                nueva={dictado.nuevas.has(l.n)}
+                editada={estaEditada(l, dictado.editadas)}
+                aMano={aMano.has(l.n)}
+                ocupada={dictado.ocupadas.has(l.n)}
+                apilar={shouldStackToolbar}
+                catalogo={catalogo}
+                cargandoCatalogo={cargandoCatalogo}
+                onPedirCatalogo={() => void pedirCatalogo()}
+                onConfirmar={(x) => void confirmarLinea(x)}
+                onBorrar={(x) => void borrarLinea(x)}
+                onEditar={(x, cambios) => void dictado.editarLinea(x.n, cambios)}
+                onFormato={formato}
+              />
+            ))}
+          </ScrollView>
+        </>
+      )}
     </View>
   );
 
@@ -1183,6 +1238,7 @@ const styles = StyleSheet.create({
   },
   badgeIdTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[12], color: statusColors.info.text },
   producto: { flex: 1, fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.textStrong },
+  resumenLinea: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary },
   sinProducto: { color: colors.warning },
   cantidad: { fontFamily: fontFamily.bold, fontSize: fontSizes[18], color: colors.textStrong },
   previsto: { fontFamily: fontFamily.medium, fontSize: fontSizes[13], color: colors.textPrimary },
