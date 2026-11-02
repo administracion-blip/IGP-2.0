@@ -81,6 +81,9 @@ import { transcribir } from '../lib/inventarios/dictado/transcripcion.js';
 import { multerPerfil, rechazaArchivo } from '../lib/seguridad/subidas.js';
 
 const MAX_TEXTO = 2000;
+/** Tope de `textoProducto` al guardar la línea. Por encima, el parser no separó el trozo. */
+const MAX_NOMBRE_PRODUCTO = 200;
+const AVISO_SIN_SEPARAR = 'No he podido separar una parte del dictado. Haz una pausa de un segundo entre productos.';
 const MAX_IDS_FORMATOS = 200;
 const MAX_CANTIDAD = 100000;
 const MAX_MOTIVOS = 20;
@@ -298,6 +301,13 @@ async function interpretar(req, inventario, texto, idEnvio) {
   const nuevas = [];
   let pendientes = [];
   let ultima = ultimaPrevia ? { productId: ultimaPrevia.productId, productoNombre: ultimaPrevia.productoNombre } : null;
+  let aviso = null;
+
+  const recortarNombre = (s) => (typeof s === 'string' && s.length > MAX_NOMBRE_PRODUCTO
+    ? s.slice(0, MAX_NOMBRE_PRODUCTO).trim()
+    : s);
+  const ordenDemasiadoLarga = (o) => (o.textoProducto || '').length > MAX_NOMBRE_PRODUCTO
+    || (o.alternativas || []).some((a) => (a?.textoProducto || '').length > MAX_NOMBRE_PRODUCTO);
 
   const volcar = async () => {
     for (let i = 0; i < pendientes.length; i += MAX_LINEAS_POR_ENVIO) {
@@ -330,8 +340,28 @@ async function interpretar(req, inventario, texto, idEnvio) {
     let confirmarMatch = false;
     let via = null;
     let candidatos = [];
+    // Un nombre de más de 200 caracteres tumba el trozo entero («textoProducto es demasiado
+    // largo») y se pierden los conteos que sí se separaron. Se guarda la parte, sin emparejar,
+    // para que no se aplique un producto a ciegas.
+    let sinSeparar = false;
+    if (ordenDemasiadoLarga(orden)) {
+      aviso = AVISO_SIN_SEPARAR;
+      sinSeparar = true;
+      orden = {
+        ...orden,
+        textoProducto: recortarNombre(orden.textoProducto) || null,
+        alternativas: (orden.alternativas || []).map((a) => ({
+          ...a,
+          textoProducto: recortarNombre(a?.textoProducto || '') || null,
+        })),
+        confirmar: true,
+      };
+    }
 
-    if (orden.textoProducto == null) {
+    if (sinSeparar) {
+      motivosMatch = ['revisar_texto'];
+      confirmarMatch = true;
+    } else if (orden.textoProducto == null) {
       if (ultima?.productId) {
         productId = ultima.productId;
         productoNombre = ultima.productoNombre ?? null;
@@ -419,11 +449,11 @@ async function interpretar(req, inventario, texto, idEnvio) {
         ...(orden.calculo?.faltaFormato && { faltaFormato: { productId } }),
       },
     });
-    ultima = { productId, productoNombre };
+    if (!sinSeparar) ultima = { productId, productoNombre };
   }
   await volcar();
   const sesion = await obtenerSesion(inventarioId, uid);
-  return { sesion: sesion.meta, lineas: nuevas };
+  return { sesion: sesion.meta, lineas: nuevas, ...(aviso && { aviso }) };
 }
 
 // ─── Editar una línea ───

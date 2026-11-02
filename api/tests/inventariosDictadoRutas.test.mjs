@@ -225,6 +225,26 @@ test('interpretar crea líneas con producto, conteo actual y previsto; sin produ
   assert.deepEqual(sesion.body.lineas.map((x) => [x.n, x.estado]), [[1, 'descartada'], [2, 'pendiente'], [3, 'pendiente']]);
 });
 
+test('un nombre de producto demasiado largo no tumba el trozo: avisa y guarda el resto', async () => {
+  const id = await nuevoInventario();
+  const frase = `${'limonada con hielo '.repeat(20)}`.trim();
+  assert.ok(frase.length > 200);
+  const r = await dictar(id, `Roku 3, ${frase}`, CONTADOR);
+  assert.equal(r.status, 201);
+  assert.equal(r.body.error, undefined);
+  assert.equal(r.body.aviso, 'No he podido separar una parte del dictado. Haz una pausa de un segundo entre productos.');
+  const roku = r.body.lineas.find((l) => l.productId === '200');
+  const larga = r.body.lineas.find((l) => l.productId == null);
+  assert.ok(roku, 'el conteo corto se guarda');
+  assert.equal(roku.cantidad.total, 3);
+  assert.ok(larga);
+  assert.equal(larga.confirmar, true);
+  assert.ok(larga.motivos.includes('revisar_texto'));
+  assert.ok(larga.orden.textoProducto.length <= 200);
+  assert.ok(larga.texto.includes('limonada'));
+  assert.equal(lineaConteo(id, '200').stockReal ?? null, null, 'no se aplica sola');
+});
+
 test('pausa y sigue cambian la sesión y no crean líneas; cerrar bloquea interpretar', async () => {
   const id = await nuevoInventario();
   const r = await dictar(id, 'Roku 1, pausa', CONTADOR);
