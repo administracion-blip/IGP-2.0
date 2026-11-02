@@ -1,5 +1,7 @@
 /**
- * Dictado por voz del conteo de inventarios. El texto llega ya transcrito: aquí no hay audio.
+ * Dictado por voz del conteo de inventarios. Interpretar recibe el texto ya transcrito; /audio
+ * recibe la grabación, la transcribe (lib/inventarios/dictado/transcripcion.js) y sigue el mismo
+ * camino. El audio nunca se guarda: multer en memoria, sin S3, sin disco y sin logs del contenido.
  * IGP no escribe en Ágora (solo lee el teórico al añadir un producto, como POST /lineas).
  *
  * inventario.contar o inventario.gestionar (`ver`): sesión propia, interpretar, editar líneas,
@@ -28,7 +30,11 @@
  *   aplicar en la sesión, o repetido en el dictado, pide 'repetido_en_dictado'.
  * - Si lo que se guardará no cabe exacto en las fracciones de botella, 'redondeo' y el previsto
  *   muestra el valor real que se guardará.
- * - `idEnvio` (opcional, lo manda la UI por grabación) hace interpretar idempotente.
+ * - `idEnvio` (opcional, lo manda la UI por grabación) hace interpretar idempotente. En /audio es
+ *   obligatorio y un envío ya procesado no se vuelve a transcribir.
+ * - /audio: el servidor no mide la duración (sin dependencias); la UI corta a 60 s y aquí se
+ *   limita el tamaño (perfil 'audio', 25 MB). Permisos, almacén y estado se comprueban antes de
+ *   que multer lea el cuerpo.
  */
 
 import { Router } from 'express';
@@ -64,6 +70,8 @@ import {
   reservarEnvio,
 } from '../lib/inventarios/dictado/sesion.js';
 import { aplicarLineasDictado, calcularResultado } from '../lib/inventarios/dictado/aplicar.js';
+import { transcribir } from '../lib/inventarios/dictado/transcripcion.js';
+import { multerPerfil, rechazaArchivo } from '../lib/seguridad/subidas.js';
 
 const MAX_TEXTO = 2000;
 const MAX_IDS_FORMATOS = 200;
@@ -71,8 +79,11 @@ const MAX_CANTIDAD = 100000;
 const MAX_MOTIVOS = 20;
 const VIAS_A_APRENDER = new Set(['aproximado', 'palabras']);
 
+const AVISO_AUDIO_VACIO = 'No se ha entendido nada en el audio.';
+
 const ver = requireAnyPermission('inventario.gestionar', 'inventario.contar');
 const gestionar = requirePermission('inventario.gestionar');
+const subirAudio = multerPerfil('audio').single('audio');
 
 /** Igual que en routes/inventarios.js: lo que queda en actualizadoPor del inventario. */
 function quien(req) {
@@ -178,19 +189,42 @@ function modoDeOrden(tipo) {
  * las líneas que creó el primero, con `repetido: true`.
  */
 async function interpretarUnaVez(req, inventario, texto, idEnvio) {
-  if (!idEnvio) return interpretar(req, inventario, texto, null);
+  return (await interpretarEnvio(req, inventario, idEnvio, () => texto)).resultado;
+}
+
+/**
+ * Camino común de interpretar y /audio. `obtenerTexto` solo se llama si el envío es nuevo (un
+ * idEnvio repetido no vuelve a transcribir). Texto vacío: no crea líneas y libera la reserva; un
+ * error (también de transcripción) la libera para que el reintento con el mismo idEnvio funcione.
+ * @returns {Promise<{ texto: string|null, resultado: { sesion: object|null, lineas: object[], repetido?: true } }>}
+ *   `texto` es null en un repetido (el texto no se guarda).
+ */
+async function interpretarEnvio(req, inventario, idEnvio, obtenerTexto) {
+  if (!idEnvio) {
+    const texto = await obtenerTexto();
+    return { texto, resultado: await interpretar(req, inventario, texto, null) };
+  }
   const uid = usuarioId(req);
   const inventarioId = inventario.inventarioId;
   const reserva = await reservarEnvio(inventarioId, uid, idEnvio);
   if (!reserva.reservado) {
     const sesion = await obtenerSesion(inventarioId, uid);
     const ns = new Set(reserva.ns);
-    return { sesion: sesion.meta, lineas: sesion.lineas.filter((l) => ns.has(l.n)), repetido: true };
+    return {
+      texto: null,
+      resultado: { sesion: sesion.meta, lineas: sesion.lineas.filter((l) => ns.has(l.n)), repetido: true },
+    };
   }
   try {
+    const texto = await obtenerTexto();
+    if (!texto) {
+      await liberarEnvio(inventarioId, uid, idEnvio);
+      const sesion = await obtenerSesion(inventarioId, uid);
+      return { texto: '', resultado: { sesion: sesion.meta, lineas: [] } };
+    }
     const resultado = await interpretar(req, inventario, texto, idEnvio);
     await completarEnvio(inventarioId, uid, idEnvio, resultado.lineas.map((l) => l.n));
-    return resultado;
+    return { texto, resultado };
   } catch (err) {
     await liberarEnvio(inventarioId, uid, idEnvio).catch(() => {});
     throw err;
@@ -487,6 +521,74 @@ async function editarLinea(req, inventario, n, body, { soloContar }) {
   return { linea, previsto: previstoVisible, ...alias };
 }
 
+// ─── Audio ───
+
+/**
+ * Un audio en curso por usuario (req.user.sub) para acotar la memoria: hasta 25 MB por petición.
+ * Es POR PROCESO (Map en memoria): con varias instancias del API, cada una lleva la suya.
+ * usuario → testigo de la petición que lo tiene, para que una petición vieja no suelte el de otra.
+ */
+const audiosEnCurso = new Map();
+
+function liberarAudio(req) {
+  const t = req.testigoAudio;
+  if (t && audiosEnCurso.get(t.usuario) === t) audiosEnCurso.delete(t.usuario);
+}
+
+/**
+ * Antes de multer (no se lee el cuerpo si ya hay otro). Se libera en el finally del handler; si
+ * la petición no llega al handler (403, error de multer, cliente que corta), al cerrarse la
+ * respuesta. Mientras el handler procesa, cortar la conexión no lo libera: el audio sigue en uso.
+ */
+function unAudioPorUsuario(req, res, next) {
+  const usuario = String(req.user?.sub ?? '').trim() || 'interno';
+  if (audiosEnCurso.has(usuario)) {
+    return res.status(429).json({ error: 'Ya se está procesando otro audio. Espera a que termine.' });
+  }
+  const testigo = { usuario, procesando: false };
+  audiosEnCurso.set(usuario, testigo);
+  req.testigoAudio = testigo;
+  res.once('close', () => {
+    if (!testigo.procesando) liberarAudio(req);
+  });
+  return next();
+}
+
+/** Almacén y estado ANTES de multer: sin acceso no se acepta el cuerpo (hasta 25 MB). */
+async function contextoAudio(req, res, next) {
+  try {
+    const ctx = await inventarioDeRuta(req, res);
+    if (!ctx) {
+      liberarAudio(req);
+      return undefined;
+    }
+    req.dictadoCtx = ctx;
+    return next();
+  } catch (err) {
+    liberarAudio(req);
+    return atrapar(res, err, 'Error transcribiendo el dictado');
+  }
+}
+
+const MENSAJES_MULTER_AUDIO = {
+  LIMIT_FILE_SIZE: 'El audio supera el tamaño máximo (25 MB).',
+  LIMIT_PART_COUNT: 'Demasiadas partes en el envío: manda solo el audio y el idEnvio.',
+  LIMIT_FIELD_COUNT: 'Demasiados campos en el envío: manda solo el audio y el idEnvio.',
+  LIMIT_FIELD_VALUE: 'Un campo del envío es demasiado largo.',
+};
+
+/** multer en memoria (perfil 'audio'); sus errores, en 400 como el errorHandler global. */
+function recibirAudio(req, res, next) {
+  subirAudio(req, res, (err) => {
+    if (!err) return next();
+    req.file = undefined;
+    liberarAudio(req);
+    req.log?.warn?.({ code: err.code, name: err.name }, '[dictado] audio rechazado por multer');
+    const mensaje = MENSAJES_MULTER_AUDIO[err.code] || 'Envía un único audio en el campo «audio».';
+    return res.status(400).json({ error: mensaje });
+  });
+}
+
 // ─── Router ───
 
 /** `exportStocks` se inyecta para las pruebas; en producción es el cliente de Ágora (solo lectura). */
@@ -590,6 +692,37 @@ export function crearRouterDictado({ exportStocks = exportStocksAgora } = {}) {
       return res.status(status).json(resultado);
     } catch (err) {
       return atrapar(res, err, 'Error interpretando el dictado');
+    }
+  });
+
+  // multipart: `audio` (un fichero) e `idEnvio` (obligatorio). Respuesta { texto, sesion, lineas,
+  // repetido? }; un repetido no transcribe y devuelve texto null.
+  // Para la UI (fase 6): la transcripción puede tardar hasta 60 s más la interpretación, así que
+  // apiFetch debe usar timeoutMs >= 90000. Un 409 con el mismo idEnvio significa «se está
+  // procesando»: reintentar más tarde con el MISMO idEnvio, sin crear otro. 429: ya hay otro audio
+  // de este usuario en curso.
+  router.post('/inventarios/:id/dictado/audio', ver, unAudioPorUsuario, contextoAudio, recibirAudio, async (req, res) => {
+    const file = req.file;
+    req.file = undefined;
+    if (req.testigoAudio) req.testigoAudio.procesando = true;
+    try {
+      if (!file) return res.status(400).json({ error: 'Falta el audio (campo «audio»).' });
+      if (rechazaArchivo(res, file, 'audio')) return undefined;
+      const idEnvio = idEnvioDe(req.body?.idEnvio);
+      if (!idEnvio) return res.status(400).json({ error: 'idEnvio es obligatorio' });
+      const { inventario } = req.dictadoCtx;
+      const { texto, resultado } = await interpretarEnvio(req, inventario, idEnvio, async () => {
+        const [productos, alias] = await Promise.all([candidatosDelAlmacen(inventario), listarAlias()]);
+        return transcribir(file, { productos, alias });
+      });
+      if (resultado.repetido) return res.status(200).json({ texto, ...resultado });
+      if (!texto) return res.status(200).json({ texto, ...resultado, aviso: AVISO_AUDIO_VACIO });
+      return res.status(resultado.lineas.length === 0 ? 200 : 201).json({ texto, ...resultado });
+    } catch (err) {
+      return atrapar(res, err, 'Error transcribiendo el dictado');
+    } finally {
+      if (file) file.buffer = null;
+      liberarAudio(req);
     }
   });
 

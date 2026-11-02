@@ -264,6 +264,12 @@ export async function leerLineaDictado(inventarioId, usuario, n) {
 
 const ESPERA_ENVIO_MS = 50;
 const MAX_ESPERA_ENVIO_MS = 5000;
+/**
+ * Una reserva 'reservado' más antigua que esto se da por abandonada (el proceso murió a mitad,
+ * p. ej. transcribiendo) y otro envío con el mismo id puede retomarla. Muy por encima del timeout
+ * de la transcripción (60 s) más la interpretación.
+ */
+export const RESERVA_ABANDONADA_MS = 3 * 60 * 1000;
 
 function claveEnvio(inventarioId, usuario, idEnvio) {
   const { u, pk } = claves(inventarioId, usuario);
@@ -271,8 +277,32 @@ function claveEnvio(inventarioId, usuario, idEnvio) {
 }
 
 /**
+ * Retoma una reserva abandonada. La condición (sigue 'reservado' y es anterior al límite) hace
+ * que, de varios reintentos a la vez, solo uno la gane: el ganador renueva creadoEn.
+ */
+async function retomarEnvio(tabla, clave, idEnvio) {
+  const ahora = Date.now();
+  try {
+    await docClient.send(new PutCommand({
+      TableName: tabla,
+      Item: { ...clave, idEnvio, estado: 'reservado', creadoEn: new Date(ahora).toISOString() },
+      ConditionExpression: 'estado = :reservado AND creadoEn < :limite',
+      ExpressionAttributeValues: {
+        ':reservado': 'reservado',
+        ':limite': new Date(ahora - RESERVA_ABANDONADA_MS).toISOString(),
+      },
+    }));
+    return true;
+  } catch (err) {
+    if (!esCondicion(err)) throw err;
+    return false;
+  }
+}
+
+/**
  * Reserva un envío. @returns {Promise<{ reservado: true }|{ reservado: false, ns: number[] }>}
  *   reservado=false: otro ya lo procesó; `ns` son las líneas que creó (espera si está a medias).
+ *   Una reserva a medias más antigua que RESERVA_ABANDONADA_MS se retoma (reservado=true).
  * @throws errorInventario 409 si el otro envío no termina a tiempo.
  */
 export async function reservarEnvio(inventarioId, usuario, idEnvio) {
@@ -293,6 +323,9 @@ export async function reservarEnvio(inventarioId, usuario, idEnvio) {
     const { Item } = await docClient.send(new GetCommand({ TableName: tabla, Key: clave, ConsistentRead: true }));
     if (!Item) return reservarEnvio(inventarioId, usuario, idEnvio);
     if (Item.estado === 'hecho') return { reservado: false, ns: Array.isArray(Item.ns) ? Item.ns.map(Number) : [] };
+    const creado = Date.parse(Item.creadoEn || '');
+    const abandonada = !Number.isFinite(creado) || Date.now() - creado > RESERVA_ABANDONADA_MS;
+    if (abandonada && await retomarEnvio(tabla, clave, idEnvio)) return { reservado: true };
     if (Date.now() > limite) throw errorInventario('Este dictado se está procesando; vuelve a intentarlo.', 409);
     await new Promise((listo) => setTimeout(listo, ESPERA_ENVIO_MS));
   }
