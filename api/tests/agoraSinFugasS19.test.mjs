@@ -25,6 +25,7 @@ globalThis.fetch = async (url, opciones) => {
   const json = (cuerpo, status = 200) =>
     new Response(JSON.stringify(cuerpo), { status, headers: { 'Content-Type': 'application/json' } });
   if (u.includes('filter=SaleCenters')) return json({ message: DETALLE }, 400);
+  if (u.includes('filter=Vats')) return json({ Vats: [{ Id: 1, VatRate: 0.21, SurchargeRate: 0.052 }] });
   // Los proveedores se envían ordenados: el primero entra y el segundo lo rechaza Ágora.
   if (u.endsWith('/api/import/')) {
     importaciones += 1;
@@ -52,6 +53,7 @@ beforeEach(() => {
   db.crearTabla(tables.saleCenters, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.almacenes, { hashKey: 'Id' });
   db.crearTabla(tables.miaInformes, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.agoraProducts, { hashKey: 'PK', rangeKey: 'SK' });
   if (tables.miaInformeLineas !== tables.miaInformes) {
     db.crearTabla(tables.miaInformeLineas, { hashKey: 'PK', rangeKey: 'SK' });
   }
@@ -97,8 +99,10 @@ test('MIA aprobar: el proveedor rechazado por Ágora no lleva agoraBody y se lim
     agoraResultados: [{ proveedorId: '000999', ok: false, error: 'viejo', agoraBody: { interno: DETALLE } }],
   });
   for (const [prov, prod] of [['000101', '11'], ['000102', '12']]) {
+    db.sembrar(tables.agoraProducts, { PK: 'GLOBAL', SK: prod, VatId: 1 });
     db.sembrar(tables.miaInformeLineas, {
       PK: 'INFORME#I1', SK: `LINE#${prov}#${prod}`, proveedorId: prov, productId: prod, cantidadPedida: 2,
+      nombre: `Producto ${prod}`, purchaseUnitId: 1, unit: 'Caja',
     });
   }
 

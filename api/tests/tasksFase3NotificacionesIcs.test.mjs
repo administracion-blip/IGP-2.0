@@ -252,6 +252,7 @@ test('comentario con menciones emite mencion (excepto al autor)', async () => {
       titulo: 'Revisar carta',
       responsable_id: ANA.id_usuario,
       proyecto_id: OBRA,
+      fecha_limite: '2026-09-01',
     },
   });
   assert.equal(creada.ok, true, creada.error);
