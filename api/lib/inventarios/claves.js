@@ -8,7 +8,9 @@
  *   Clave = PLANTILLA#<id> | INV#<fecha>#<id>
  */
 
+import { createHash } from 'node:crypto';
 import { normalizeWarehouseId } from '../mia/keys.js';
+import { normalizarAlias } from './dictado/matcher.js';
 
 export const GSI_ALMACEN = 'WarehouseId-Clave-index';
 
@@ -130,4 +132,67 @@ export function botellasAbiertasDe(raw) {
     throw errorInventario('botellasAbiertas solo puede ser 0, 0.10, 0.25, 0.50, 0.75 o 0.90');
   }
   return canon;
+}
+
+// ─── Dictado por voz ───
+//
+// Alias y formatos son globales (no por almacén) y viven en su propia PK:
+//   PK = ALIAS#GLOBAL    SK = TXT#<texto normalizado>
+//   PK = FORMATO#GLOBAL  SK = PROD#<productId>
+// Las sesiones de dictado cuelgan del inventario, así que borrarInventario se las lleva:
+//   PK = INV#<id>        SK = DICTADO#<usuario>#META | DICTADO#<usuario>#LINEA#<000001>
+// Ninguno lleva WarehouseId ni Clave: no entran en el GSI de almacén.
+
+const LONGITUD_HASH_USUARIO = 24;
+const MAX_LINEA_DICTADO = 999999;
+
+export function pkAliasGlobal() {
+  return 'ALIAS#GLOBAL';
+}
+
+/** `norm` pasa por normalizarAlias; vacío tras normalizar → 400. */
+export function skAlias(norm) {
+  const n = normalizarAlias(norm);
+  if (!n) throw errorInventario('El alias no puede estar vacío.');
+  return `TXT#${n}`;
+}
+
+export function pkFormatoGlobal() {
+  return 'FORMATO#GLOBAL';
+}
+
+export function skFormato(productId) {
+  return `PROD#${idSegmento(productId, 'productId')}`;
+}
+
+/**
+ * Segmento de clave para un usuario. Un id válido (`idSegmento`) va tal cual; cualquier
+ * otro (email, espacios…) pasa a 'U' + sha256 hex recortado a 24, estable entre llamadas.
+ * Es idempotente: el resultado vuelve a cumplir idSegmento y no cambia.
+ */
+export function usuarioSegmento(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) throw errorInventario('usuario no válido');
+  try {
+    return idSegmento(s, 'usuario');
+  } catch {
+    return `U${createHash('sha256').update(s, 'utf8').digest('hex').slice(0, LONGITUD_HASH_USUARIO)}`;
+  }
+}
+
+export function prefijoDictado(usuario) {
+  return `DICTADO#${usuarioSegmento(usuario)}#`;
+}
+
+export function skDictadoMeta(usuario) {
+  return `${prefijoDictado(usuario)}META`;
+}
+
+/** `n` entero 1..999999, con ceros a 6 dígitos para que el SK ordene por número. */
+export function skDictadoLinea(usuario, n) {
+  const num = Number(n);
+  if (!Number.isInteger(num) || num < 1 || num > MAX_LINEA_DICTADO) {
+    throw errorInventario('Número de línea de dictado no válido.');
+  }
+  return `${prefijoDictado(usuario)}LINEA#${String(num).padStart(6, '0')}`;
 }
