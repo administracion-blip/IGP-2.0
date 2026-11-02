@@ -29,6 +29,7 @@ import {
 import { MAX_TROZO_MS } from '../../lib/dictado/grabadora';
 import { apiFetch } from '../../utils/api';
 import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplegable';
+import { BotonPeligro } from '../ui/BotonPeligro';
 import {
   colors,
   statusColors,
@@ -259,7 +260,7 @@ type PropsTarjeta = {
   cargandoCatalogo: boolean;
   onPedirCatalogo: () => void;
   onConfirmar: (l: LineaDictado) => void;
-  onDescartar: (l: LineaDictado) => void;
+  onBorrar: (l: LineaDictado) => void;
   onEditar: (l: LineaDictado, cambios: CambiosLinea) => void;
   onFormato: (
     l: LineaDictado,
@@ -279,7 +280,7 @@ function TarjetaLinea({
   cargandoCatalogo,
   onPedirCatalogo,
   onConfirmar,
-  onDescartar,
+  onBorrar,
   onEditar,
   onFormato,
 }: PropsTarjeta) {
@@ -361,7 +362,18 @@ function TarjetaLinea({
             </View>
           ) : null}
         </View>
-        {ocupada ? <ActivityIndicator color={colors.accent} /> : null}
+        {ocupada || linea.estado === 'aplicada' ? (
+          <View style={styles.cabAcciones}>
+            {ocupada ? <ActivityIndicator color={colors.accent} /> : null}
+            {linea.estado === 'aplicada' ? (
+              <BotonPeligro
+                disabled={ocupada}
+                accessibilityLabel="Borrar esta línea"
+                onPress={() => onBorrar(linea)}
+              />
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
       <Text style={styles.textoDictado}>{`«${linea.texto}»`}</Text>
@@ -585,15 +597,11 @@ function TarjetaLinea({
             >
               <Text style={styles.botonTexto}>{autoaplicable ? 'Aplicar' : 'Confirmar'}</Text>
             </Pressable>
-            <Pressable
-              style={[styles.botonBorrar, styles.flex, ocupada && styles.botonOff]}
+            <BotonPeligro
               disabled={ocupada}
-              onPress={() => onDescartar(linea)}
-              accessibilityRole="button"
-            >
-              <MaterialIcons name="close" size={18} color={colors.danger} />
-              <Text style={styles.botonBorrarTexto}>Descartar</Text>
-            </Pressable>
+              accessibilityLabel="Borrar esta línea"
+              onPress={() => onBorrar(linea)}
+            />
           </View>
         </View>
       ) : null}
@@ -664,7 +672,12 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
     }
   }, [catalogo, cargandoCatalogo]);
 
-  const lineasVisibles = useMemo(() => [...dictado.lineas].sort((a, b) => b.n - a.n), [dictado.lineas]);
+  const lineasVisibles = useMemo(
+    () => [...dictado.lineas]
+      .filter((l) => l.estado !== 'descartada' && l.estado !== 'deshecha')
+      .sort((a, b) => b.n - a.n),
+    [dictado.lineas],
+  );
   const aplicadas = dictado.lineas.filter((l) => l.estado === 'aplicada').length;
   const porConfirmar = dictado.lineas.filter((l) => esEditable(l) && (l.confirmar || dictado.rechazos[l.n])).length;
   /** Pendientes de confirmar (sin las de trozos descartados): las que se pueden confirmar ya y las que no. */
@@ -794,6 +807,15 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
       { variant: 'danger', confirmarLabel: 'Descartar' },
     );
     if (ok) await dictado.descartarErrores();
+  }
+
+  async function borrarLinea(l: LineaDictado) {
+    const ok = await confirmar('Borrar línea', '¿Borrar esta línea?', {
+      variant: 'danger',
+      confirmarLabel: 'Borrar',
+    });
+    if (!ok) return;
+    await dictado.borrarLinea(l.n);
   }
 
   async function deshacer() {
@@ -1044,7 +1066,7 @@ export function DictadoPanel({ inventarioId, onCerrar, onAplicado }: Props) {
             cargandoCatalogo={cargandoCatalogo}
             onPedirCatalogo={() => void pedirCatalogo()}
             onConfirmar={(x) => void confirmarLinea(x)}
-            onDescartar={(x) => void dictado.descartarLinea(x.n)}
+            onBorrar={(x) => void borrarLinea(x)}
             onEditar={(x, cambios) => void dictado.editarLinea(x.n, cambios)}
             onFormato={formato}
           />
@@ -1146,6 +1168,7 @@ const styles = StyleSheet.create({
   tarjetaNueva: { borderColor: colors.accent, borderWidth: 2, backgroundColor: colors.accentMuted },
   tarjetaApagada: { opacity: 0.6 },
   tarjetaCab: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm },
+  cabAcciones: { flexDirection: 'row', alignItems: 'center' },
   etiquetas: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs },
   chip: { borderRadius: radius.pill, paddingHorizontal: SPACING.sm, paddingVertical: 2 },
   chipTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[12] },

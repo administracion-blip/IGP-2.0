@@ -580,6 +580,34 @@ export function useDictado(inventarioId: string, { onAplicado }: { onAplicado?: 
     if (linea) quitarRechazo(n);
   }, [patch, quitarRechazo]);
 
+  /**
+   * POST .../lineas/:n/deshacer. Si no es ok, deja el mensaje del servidor y no toca la línea
+   * (el 409 de «cambiado después» tiene que verse tal cual). 'deshecha' recarga el conteo;
+   * 'descartada' no, porque el conteo no ha cambiado.
+   */
+  const deshacerLinea = useCallback(async (n: number, respaldo: string) => {
+    marcarOcupada(n, true);
+    setError(null);
+    try {
+      const res = await apiFetch(`${ruta}/lineas/${n}/deshacer`, { method: 'POST', body: JSON.stringify({}) });
+      const body = await leerJson(res);
+      if (!res.ok) {
+        if (vivo.current) setError(mensajeDe(body, respaldo));
+        return null;
+      }
+      const [linea] = listaLineas([body.linea]);
+      if (linea) ponerLineas((prev) => fusionar(prev, [linea]));
+      quitarRechazo(n);
+      if (linea?.estado === 'deshecha') onAplicadoRef.current?.();
+      return linea ?? null;
+    } catch (e) {
+      if (vivo.current) setError(errorTexto(e));
+      return null;
+    } finally {
+      marcarOcupada(n, false);
+    }
+  }, [ruta, marcarOcupada, ponerLineas, quitarRechazo]);
+
   const editarLinea = useCallback(async (n: number, cambios: CambiosLinea) => {
     const actual = lineasRef.current.find((l) => l.n === n);
     if (!actual) return null;
@@ -599,29 +627,13 @@ export function useDictado(inventarioId: string, { onAplicado }: { onAplicado?: 
   const deshacerUltimo = useCallback(async () => {
     const ultima = [...lineasRef.current].reverse().find((l) => l.estado !== 'descartada' && l.estado !== 'deshecha');
     if (!ultima) return null;
-    const n = ultima.n;
-    marcarOcupada(n, true);
-    setError(null);
-    try {
-      const res = await apiFetch(`${ruta}/lineas/${n}/deshacer`, { method: 'POST', body: JSON.stringify({}) });
-      const body = await leerJson(res);
-      if (!res.ok) {
-        if (vivo.current) setError(mensajeDe(body, 'No se ha podido deshacer'));
-        return null;
-      }
-      const [linea] = listaLineas([body.linea]);
-      if (linea) ponerLineas((prev) => fusionar(prev, [linea]));
-      quitarRechazo(n);
-      // 'deshecha' = se restauró el conteo (una pendiente pasa a 'descartada' sin tocarlo).
-      if (linea?.estado === 'deshecha') onAplicadoRef.current?.();
-      return linea ?? null;
-    } catch (e) {
-      if (vivo.current) setError(errorTexto(e));
-      return null;
-    } finally {
-      marcarOcupada(n, false);
-    }
-  }, [ruta, marcarOcupada, ponerLineas, quitarRechazo]);
+    return deshacerLinea(ultima.n, 'No se ha podido deshacer');
+  }, [deshacerLinea]);
+
+  /** Papelera de una línea: el mismo deshacer. No quita la línea si el servidor rechaza. */
+  const borrarLinea = useCallback((n: number) => {
+    return deshacerLinea(n, 'No se ha podido borrar la línea');
+  }, [deshacerLinea]);
 
   /**
    * Guarda (si se pide) el formato de caja del producto y fija la cantidad total de la línea.
@@ -750,6 +762,7 @@ export function useDictado(inventarioId: string, { onAplicado }: { onAplicado?: 
     cancelarEspera,
     abandonarTerminar,
     deshacerUltimo,
+    borrarLinea,
     confirmarLinea,
     confirmarTodas,
     esDescartada,

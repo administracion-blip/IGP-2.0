@@ -13,8 +13,8 @@ export type TrozoAudio = {
 
 export type OpcionesGrabadora = {
   /**
-   * Se llama con cada trozo cerrado: al llegar al máximo, al pausar, al terminar y al desmontar.
-   * Si devuelve una promesa (guardar el trozo), detener() no se resuelve hasta que termine.
+   * Se llama con cada trozo cerrado: al llegar al máximo, tras un silencio, al pausar, al terminar
+   * y al desmontar. Si devuelve una promesa (guardar el trozo), detener() no se resuelve hasta que termine.
    */
   onTrozo: (trozo: TrozoAudio) => Promise<void> | void;
   /** Fallo durante la grabación (micrófono perdido, error del navegador). La grabadora ya se ha parado. */
