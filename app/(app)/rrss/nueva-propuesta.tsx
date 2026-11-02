@@ -26,7 +26,7 @@ import {
 import { useLocalToast } from '../../components/Toast';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
-import { useLocalesMarketing, valorEnLocal } from '../../contexts/LocalesContext';
+import { useIdsLocalesUsuario, useLocalesMarketing, valorEnLocal } from '../../contexts/LocalesContext';
 import { IdentidadLocalPanel } from './components/IdentidadLocalPanel';
 import { formatId6 } from './lib/formatId6';
 import { esIsoFechaValida } from './lib/fechasUi';
@@ -39,15 +39,13 @@ type RefSegment = 'subir' | 'enlace';
 
 export default function NuevaPropuestaScreen() {
   const router = useRouter();
-  const { user, hasPermiso } = useAuth();
+  const { user, hasPermiso, permisosStatus } = useAuth();
+  const permisosListos = user?.Rol === 'Administrador' || permisosStatus === 'loaded';
   const { locales, loading: loadingLocales, refresh: refreshLocales } = useLocalesMarketing();
   const { show: showToast, ToastView } = useLocalToast();
   const esGestor = hasPermiso('marketing.gestionar');
 
-  const userLocalesNorm = useMemo(
-    () => (user?.Locales ?? []).map((l) => formatId6(l)).filter(Boolean),
-    [user?.Locales]
-  );
+  const userLocalesNorm = useIdsLocalesUsuario();
 
   const localesElegibles = useMemo(() => {
     if (esGestor) return locales;
@@ -73,9 +71,9 @@ export default function NuevaPropuestaScreen() {
 
   // Preselecciona local si proponente con uno solo.
   useEffect(() => {
-    if (esGestor) return;
+    if (!permisosListos || esGestor) return;
     if (userLocalesNorm.length === 1 && !idLocal) setIdLocal(userLocalesNorm[0]);
-  }, [esGestor, userLocalesNorm, idLocal]);
+  }, [permisosListos, esGestor, userLocalesNorm, idLocal]);
 
   function toggleRed(r: Red) {
     setRedesSel((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));

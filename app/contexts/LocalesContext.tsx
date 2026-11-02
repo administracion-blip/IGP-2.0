@@ -164,14 +164,65 @@ export function useLocalesPermitidos(): LocalesValue {
   return useMemo(() => ({ ...base, locales }), [base, locales]);
 }
 
+function idLocal6(val: string | undefined): string {
+  const s = String(val ?? '').trim();
+  if (!/^\d+$/.test(s)) return '';
+  return String(parseInt(s, 10)).padStart(6, '0');
+}
+
+/**
+ * Predicado de local permitido para Marketing: `localPermitido(nombre)` y, por compatibilidad,
+ * coincidencia por id si `user.Locales` contiene ids numéricos en lugar de nombres.
+ */
+function useFiltroLocalUsuario(): (l: LocalItem) => boolean {
+  const { user, localPermitido } = useAuth();
+  const idsUsuario = useMemo(
+    () =>
+      new Set(
+        (user?.Locales ?? [])
+          .map((v) => String(v ?? '').trim())
+          .filter((v) => /^\d+$/.test(v))
+          .map(idLocal6)
+      ),
+    [user?.Locales]
+  );
+  return useCallback(
+    (l: LocalItem) => {
+      if (localPermitido(nombreLocal(l))) return true;
+      const id = idLocal6(valorEnLocal(l, 'id_Locales'));
+      return !!id && idsUsuario.has(id);
+    },
+    [localPermitido, idsUsuario]
+  );
+}
+
 /** Con `marketing.gestionar` devuelve todos los locales; si no, filtra por `localPermitido`. */
 export function useLocalesMarketing(): LocalesValue {
   const base = useLocales();
-  const { localPermitido, hasPermiso } = useAuth();
+  const { hasPermiso } = useAuth();
   const esGestor = hasPermiso('marketing.gestionar');
+  const permitido = useFiltroLocalUsuario();
   const locales = useMemo(
-    () => (esGestor ? base.locales : base.locales.filter((l) => localPermitido(nombreLocal(l)))),
-    [base.locales, esGestor, localPermitido]
+    () => (esGestor ? base.locales : base.locales.filter(permitido)),
+    [base.locales, esGestor, permitido]
   );
   return useMemo(() => ({ ...base, locales }), [base, locales]);
+}
+
+/**
+ * Ids (6 dígitos) de los locales permitidos al usuario, sin depender de `marketing.gestionar`.
+ * Administrador o `Locales` vacío = todos los locales cargados.
+ */
+export function useIdsLocalesUsuario(): string[] {
+  const { locales } = useLocales();
+  const permitido = useFiltroLocalUsuario();
+  return useMemo(() => {
+    const ids: string[] = [];
+    for (const l of locales) {
+      if (!permitido(l)) continue;
+      const id = idLocal6(valorEnLocal(l, 'id_Locales'));
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+    return ids;
+  }, [locales, permitido]);
 }

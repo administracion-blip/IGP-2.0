@@ -22,10 +22,11 @@ import {
   typography,
   SPACING,
 } from '../../constants/theme';
+import { MIN_TOUCH } from '../../constants/layout';
 import { useLocalToast } from '../../components/Toast';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
-import { useLocalesMarketing, valorEnLocal } from '../../contexts/LocalesContext';
+import { useIdsLocalesUsuario, useLocalesMarketing, valorEnLocal } from '../../contexts/LocalesContext';
 import { formatId6 } from './lib/formatId6';
 import { IdentidadLocalPanel } from './components/IdentidadLocalPanel';
 import { esIsoFechaValida, isoToDmy } from './lib/fechasUi';
@@ -128,15 +129,18 @@ function badgeStyles(estado: string): { backgroundColor: string; color: string }
 
 export default function RrssIndexScreen() {
   const router = useRouter();
-  const { user, hasPermiso } = useAuth();
-  const { locales, loading: loadingLocales, refresh: refreshLocales } = useLocalesMarketing();
+  const { user, hasPermiso, permisosStatus } = useAuth();
+  const permisosListos = user?.Rol === 'Administrador' || permisosStatus === 'loaded';
+  const {
+    locales,
+    loading: loadingLocales,
+    error: errorLocales,
+    refresh: refreshLocales,
+  } = useLocalesMarketing();
   const { show: showToast, ToastView } = useLocalToast();
   const esGestor = hasPermiso('marketing.gestionar');
 
-  const userLocalesNorm = useMemo(
-    () => (user?.Locales ?? []).map((l) => formatId6(l)).filter(Boolean),
-    [user?.Locales]
-  );
+  const userLocalesNorm = useIdsLocalesUsuario();
 
   // Local seleccionado: para proponente con varios locales o gestor con filtro.
   const [idLocalSel, setIdLocalSel] = useState<string>('');
@@ -157,11 +161,11 @@ export default function RrssIndexScreen() {
 
   // Inicializa idLocalSel para proponente con un solo local.
   useEffect(() => {
-    if (esGestor) return;
+    if (!permisosListos || esGestor) return;
     if (userLocalesNorm.length === 1 && !idLocalSel) {
       setIdLocalSel(userLocalesNorm[0]);
     }
-  }, [esGestor, userLocalesNorm, idLocalSel]);
+  }, [permisosListos, esGestor, userLocalesNorm, idLocalSel]);
 
   const localesFiltrables = useMemo(() => {
     if (esGestor) return locales;
@@ -281,10 +285,29 @@ export default function RrssIndexScreen() {
       <View style={styles.container}>
         <Text style={styles.title}>Marketing</Text>
         <View style={styles.emptyWrap}>
-          <MaterialIcons name="info-outline" size={32} color={colors.textMuted} />
-          <Text style={styles.emptyText}>
-            No tienes locales asignados. Contacta con el administrador.
-          </Text>
+          {loadingLocales ? (
+            <ActivityIndicator size="small" color={colors.accent} />
+          ) : (
+            <>
+              <MaterialIcons name="info-outline" size={32} color={colors.textMuted} />
+              <Text style={styles.emptyText}>
+                {errorLocales
+                  ? 'No se pudieron cargar los locales.'
+                  : 'No tienes locales asignados. Contacta con el administrador.'}
+              </Text>
+              {!!errorLocales && (
+                <TouchableOpacity
+                  style={[styles.primaryBtnCompact, styles.btnReintentar]}
+                  onPress={() => void refreshLocales()}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Reintentar carga de locales"
+                >
+                  <MaterialIcons name="refresh" size={18} color={colors.surface} />
+                  <Text style={styles.primaryBtnCompactText}>Reintentar</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
         </View>
       </View>
     );
@@ -557,6 +580,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     borderRadius: RADIO_MEDIO,
   },
+  btnReintentar: { minHeight: MIN_TOUCH, justifyContent: 'center' },
   primaryBtnCompactText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
   iconBtnCompact: {
     paddingVertical: SPACING.sm,

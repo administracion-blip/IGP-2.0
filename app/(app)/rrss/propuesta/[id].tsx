@@ -29,7 +29,7 @@ import {
 import { useLocalToast } from '../../../components/Toast';
 import { InputFecha } from '../../../components/InputFecha';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
-import { useLocalesMarketing, valorEnLocal } from '../../../contexts/LocalesContext';
+import { useIdsLocalesUsuario, useLocalesMarketing, valorEnLocal } from '../../../contexts/LocalesContext';
 import { IdentidadLocalPanel } from '../components/IdentidadLocalPanel';
 import { formatId6 } from '../lib/formatId6';
 import { appendImagenAlFormData } from '../lib/appendImagenFormData';
@@ -116,10 +116,7 @@ export default function PropuestaDetailScreen() {
   const { show: showToast, ToastView } = useLocalToast();
   const esGestor = hasPermiso('marketing.gestionar');
 
-  const userLocalesNorm = useMemo(
-    () => (user?.Locales ?? []).map((l) => formatId6(l)).filter(Boolean),
-    [user?.Locales]
-  );
+  const userLocalesNorm = useIdsLocalesUsuario();
 
   const [propuesta, setPropuesta] = useState<Propuesta | null>(null);
   const [loading, setLoading] = useState(true);

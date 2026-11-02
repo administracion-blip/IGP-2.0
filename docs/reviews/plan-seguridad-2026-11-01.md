@@ -184,7 +184,7 @@ Sin cambios: `GET /agora/products` (lo carga `ProductosCache` en el layout globa
 ### Pendientes abiertos
 
 - **Decisión:** un usuario con solo `marketing.proponer` y `Local` vacío puede ahora editar propuestas y el estilo visual de cualquier local (antes no veía nada por el fallo de `getUserLocales`). Si no debe, exigir `marketing.gestionar` en `PATCH /marketing/locales/:id/estilo` cuando el alcance es global.
-- Frontend de RRSS (`rrss/index.tsx`, `config-estilo.tsx`, `nueva-propuesta.tsx`, `propuesta/[id].tsx`) trata `user.Locales` como ids con `formatId6(nombre)`: los no gestores siguen sin ver sus locales en pantalla. Cruzar `localPermitido` con `/api/locales`.
+- ~~Frontend de RRSS trata `user.Locales` como ids~~ — resuelto: hook `useIdsLocalesUsuario()` en `LocalesContext` (`localPermitido` + `/api/locales`).
 - Sugerencias de conciliación: el límite se aplica antes de filtrar por sociedad; un usuario restringido puede ver menos sugerencias sin aviso.
 - Movimientos sin sociedad: los usuarios restringidos reciben 404 genérico al aplicar, deshacer, descartar o ignorar.
 - `GET /locales` devuelve `estilo_visual_imagen_keys` de todos los locales.
