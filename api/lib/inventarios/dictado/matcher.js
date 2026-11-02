@@ -145,6 +145,15 @@ function marcasTalla(tokens) {
 
 const esVariante = (t) => VARIANTES.has(t) || RE_NUMERO.test(t);
 
+/**
+ * Palabras de envase que no eligen una marca: «bot Ballantines» no es el producto BOT BALLANTINES
+ * si en la plantilla hay más Ballantines.
+ */
+const GENERICOS_MARCA = new Set([
+  'bot', 'bots', 'botella', 'botellas', 'caja', 'cajas', 'fila', 'filas',
+  'pack', 'packs', 'unidad', 'unidades',
+]);
+
 // ---------------------------------------------------------------------------
 // Distancia de edición (Damerau-Levenshtein, variante OSA) acotada
 // ---------------------------------------------------------------------------
@@ -552,6 +561,8 @@ function emparejarLectura(textoProducto, indice, memo) {
  *   indice?: Indice }|null} [opciones]
  *   Pasa `indice` (de `prepararIndice`) para no recalcularlo en cada orden; si no, se usan
  *   `productos`, `alias` (prioridad sobre la semilla) y `semilla` (por defecto ALIAS_SEMILLA).
+ *   `plantilla` (productos de ESTE conteo) deja ambiguo un nombre de marca que casa con varios
+ *   («Bot Ballantines» si hay Ballantines 10 y 12). Un número dicho que solo está en uno no se toca.
  * @returns {Emparejamiento}
  */
 export function emparejarProducto(orden, opciones = {}) {
@@ -629,7 +640,7 @@ export function emparejarProducto(orden, opciones = {}) {
       puntuacion: redondear(puntuacion),
     }));
 
-  return {
+  return aplicarPlantilla({
     productId: resuelto ? ind.productos[idxGanador].productId : null,
     nombre: resuelto ? ind.productos[idxGanador].nombre : null,
     lectura: ganadora.lectura,
@@ -638,15 +649,60 @@ export function emparejarProducto(orden, opciones = {}) {
     candidatos: ordenados,
     confirmar: motivos.length > 0,
     motivos,
+  }, ganadora.lectura.textoProducto, (opciones ?? {}).plantilla);
+}
+
+/**
+ * Si la marca dicha está en dos o más productos de la plantilla y lo dicho no nombra un número
+ * o una palabra que solo tenga uno, no se elige producto (`marca_ambigua`). «Bot» y «caja» no
+ * desempata. Sin `plantilla`, el resultado no cambia.
+ *
+ * @param {Emparejamiento} resultado
+ * @param {string|null} textoProducto
+ * @param {Iterable<Producto>|null|undefined} plantilla
+ * @returns {Emparejamiento}
+ */
+export function aplicarPlantilla(resultado, textoProducto, plantilla) {
+  const dichos = significativos(tokensDe(normalizarTexto(textoProducto)));
+  const marca = dichos.filter((t) => !RE_NUMERO.test(t) && !GENERICOS_MARCA.has(t) && !esUnidadTalla(t));
+  if (!resultado || marca.length === 0) return resultado;
+  const productos = [...iterable(plantilla)].filter((p) => p && p.activo !== false && claveId(p.productId) && p.nombre);
+  const familia = productos.filter((p) => {
+    const tokens = tokensDe(normalizarTexto(p.nombre));
+    return marca.every((t) => tokens.includes(t));
+  });
+  if (familia.length < 2) return resultado;
+  const distingue = dichos.some((t) => {
+    if (GENERICOS_MARCA.has(t) || esUnidadTalla(t)) return false;
+    return familia.filter((p) => tokensDe(normalizarTexto(p.nombre)).includes(t)).length === 1;
+  });
+  if (distingue) return resultado;
+  const motivos = [...resultado.motivos];
+  if (!motivos.includes('ambiguo')) motivos.push('ambiguo');
+  if (!motivos.includes('marca_ambigua')) motivos.push('marca_ambigua');
+  return {
+    ...resultado,
+    productId: null,
+    nombre: null,
+    via: null,
+    confianza: redondear(Math.min(resultado.confianza || 0, CONFIANZA_CON_AVISO)),
+    candidatos: familia.slice(0, MAX_CANDIDATOS).map((p) => ({
+      productId: p.productId,
+      nombre: p.nombre,
+      puntuacion: 0.5,
+    })),
+    confirmar: true,
+    motivos,
   };
 }
 
 /**
- * Vocabulario para el prompt del transcriptor (fase 5): alias más usados y nombres del almacén.
- * Primero hasta la mitad de `max` con los alias de más `usos` (desc.), luego los nombres de los
- * productos activos en su orden y, si queda hueco, el resto de alias. Sin duplicados (por texto
- * normalizado). Solo textos: nunca stock ni cantidades. Los alias a productos inactivos o que no
- * están en la lista se ignoran. Entradas null o no iterables se tratan como vacías.
+ * Vocabulario para el prompt del transcriptor: alias más usados y nombres de la lista que se le
+ * pase (la plantilla de este conteo). Primero como mucho 8 alias de más `usos` (no la mitad de
+ * la lista: si no, el recorte de 1000 caracteres se queda sin nombres), luego los nombres de más
+ * corto a más largo y, si queda hueco, el resto de alias. Sin duplicados (por texto normalizado).
+ * Solo textos: nunca
+ * stock ni cantidades. Los alias a productos inactivos o que no están en la lista se ignoran.
  *
  * @param {Iterable<Producto>} productos
  * @param {Iterable<Alias>} [alias]
@@ -671,12 +727,18 @@ export function vocabularioTranscripcion(productos, alias = [], opciones = {}) {
     vistos.add(n);
     out.push(String(texto).trim());
   };
-  const mitad = Math.floor(limite / 2);
+  const porCorto = [...activos].sort((a, b) => {
+    const na = String(a.nombre || '').trim();
+    const nb = String(b.nombre || '').trim();
+    if (na.length !== nb.length) return na.length - nb.length;
+    return na.localeCompare(nb, 'es');
+  });
+  const topeAlias = Math.min(8, Math.floor(limite / 2));
   for (const a of aliasValidos) {
-    if (out.length >= mitad) break;
+    if (out.length >= topeAlias) break;
     anadir(a.texto);
   }
-  for (const p of activos) anadir(p.nombre);
+  for (const p of porCorto) anadir(p.nombre);
   for (const a of aliasValidos) anadir(a.texto);
   return out;
 }

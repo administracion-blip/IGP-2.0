@@ -20,9 +20,35 @@ import { DeleteCommand, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/l
 import { docClient } from '../../db.js';
 import { errorInventario, idSegmento, pkAliasGlobal, skAlias, texto } from '../claves.js';
 import { queryPk, tablaInventarios } from '../store.js';
-import { normalizarAlias } from './matcher.js';
+import { normalizarAlias, normalizarTexto } from './matcher.js';
 
 const MAX_INTENTOS = 3;
+
+/** Tope al aprender: un alias de conteo es un nombre corto, no una frase con la cuenta. */
+export const MAX_ALIAS_DICTADO = 40;
+
+const PALABRAS_CUENTA = new Set(['por', 'fila', 'filas', 'caja', 'cajas']);
+
+/**
+ * Un alias se puede guardar si no es una cuenta dictada.
+ * El número se permite solo cuando ese mismo número está en el nombre del producto
+ * («818» → 818 Tequila, «Ballantines 10» → Ballantines 10).
+ * Siempre se rechaza `por`, `fila(s)`, `caja(s)`, cualquier `multiplica…` y más de 40 caracteres.
+ *
+ * @param {unknown} textoDicho
+ * @param {unknown} nombreProducto
+ * @returns {boolean}
+ */
+export function aliasAceptable(textoDicho, nombreProducto) {
+  const norm = normalizarAlias(textoDicho);
+  if (!norm || norm.length > MAX_ALIAS_DICTADO) return false;
+  const tokens = norm.split(' ');
+  if (tokens.some((t) => PALABRAS_CUENTA.has(t) || t.startsWith('multiplica'))) return false;
+  const numerosNombre = new Set(
+    normalizarTexto(nombreProducto).split(' ').filter((t) => /^\d+$/.test(t)),
+  );
+  return tokens.every((t) => !/^\d+$/.test(t) || numerosNombre.has(t));
+}
 
 function esCondicion(err) {
   return err?.name === 'ConditionalCheckFailedException';
@@ -70,6 +96,12 @@ export async function guardarAlias(textoDicho, productId, quien, { productosActi
   const producto = (Array.isArray(productosActivos) ? productosActivos : [])
     .find((p) => p && p.activo !== false && String(p.productId ?? '').trim() === pid);
   if (!pid || !producto) throw errorInventario('El alias debe apuntar a un producto activo del almacén.');
+  if (!aliasAceptable(textoDicho, producto.nombre)) {
+    throw Object.assign(
+      errorInventario('Ese alias no se puede guardar: parece una cuenta o es demasiado largo.'),
+      { code: 'alias_no_valido' },
+    );
+  }
   idSegmento(pid, 'productId');
   const productoNombre = texto(producto.nombre, 'productoNombre', { max: 200 });
   const usuario = String(quien ?? '');

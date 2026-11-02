@@ -316,9 +316,12 @@ test('el prompt lleva nombres y alias, nunca stock', async () => {
   assert.equal(r.status, 201);
   const { prompt } = llamadas[0].opts;
   assert.ok(prompt.startsWith('Conteo de inventario de bar: nombre de producto y cantidad.'));
-  for (const t of ['ROKU GIN 70CL', 'JOHNNIE WALKER', 'LARIOS GIN', 'COCA COLA 35CL', 'rokku', 'larios rosa']) {
+  assert.ok(prompt.includes('Ballantines 10, 14'));
+  assert.ok(prompt.includes('tres filas de diez cajas por 24'));
+  for (const t of ['ROKU GIN 70CL', 'JOHNNIE WALKER', 'LARIOS GIN', 'rokku', 'larios rosa']) {
     assert.ok(prompt.includes(t), t);
   }
+  assert.equal(prompt.includes('COCA COLA 35CL'), false, 'lo que no está en este conteo no va al prompt');
   assert.equal(prompt.includes('BOMBAY'), false, 'los inactivos no van al prompt');
   assert.equal(prompt.includes(String(STOCK_SECRETO)), false);
   assert.equal(/stockTeorico|stockReal|teórico/i.test(prompt), false);

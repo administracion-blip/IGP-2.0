@@ -406,7 +406,7 @@ test('vocabularioTranscripcion: alias más usados + nombres, sin duplicados y li
     { texto: 'fantasma', productId: 'NO-EXISTE', usos: 100 },
   ];
   const v = vocabularioTranscripcion(productos, alias);
-  assert.deepEqual(v.slice(0, 4), ['roku', 'coca', 'el negro', 'LARIOS 12'], 'orden por usos; ROKU no se repite');
+  assert.deepEqual(v.slice(0, 4), ['roku', 'coca', 'el negro', 'LARIOS'], 'alias por usos y luego el nombre más corto; ROKU no se repite');
   assert.ok(!v.includes('ROKU') && !v.includes('Coca'));
   assert.equal(new Set(v.map(normalizarTexto)).size, v.length);
   assert.equal(v.length, NOMBRES.length + 2);
@@ -589,4 +589,30 @@ test('normalizarAlias recorta a MAX_LONGITUD_ALIAS; normalizarTexto no', () => {
   const r = emparejarProducto(una(`${largo} 2`), { productos: PRODUCTOS, alias: [{ texto: largo, productId: id('ROKU') }] });
   assert.equal(r.productId, id('ROKU'));
   assert.equal(r.via, 'alias');
+});
+
+test('Bot Ballantines 14 queda ambiguo si la plantilla tiene varios Ballantines', () => {
+  const plantilla = solo('BOT BALLANTINES', 'BALLANTINES 10', 'BALLANTINES 12');
+  const r = emparejarProducto(una('Bot Ballantines 14'), { productos: plantilla, plantilla });
+  assert.equal(r.productId, null);
+  assert.equal(r.via, null);
+  assert.equal(r.confirmar, true);
+  assert.ok(r.motivos.includes('ambiguo'));
+  assert.ok(r.motivos.includes('marca_ambigua'));
+  assert.deepEqual(r.candidatos.map((c) => c.nombre).sort(), ['BALLANTINES 10', 'BALLANTINES 12', 'BOT BALLANTINES']);
+});
+
+test('Bot Ballantines 14 se resuelve si la plantilla solo tiene ese Ballantines', () => {
+  const uno = solo('BOT BALLANTINES');
+  const r = emparejarProducto(una('Bot Ballantines 14'), { productos: uno, plantilla: uno });
+  assert.equal(r.productId, id('BOT BALLANTINES'));
+  assert.equal(r.confirmar, false);
+  assert.equal(r.motivos.includes('marca_ambigua'), false);
+});
+
+test('Ballantines 10, 14 señala el 10 aunque la plantilla tenga varios', () => {
+  const plantilla = solo('BOT BALLANTINES', 'BALLANTINES 10', 'BALLANTINES 12');
+  const r = emparejarProducto(una('Ballantines 10, 14'), { productos: plantilla, plantilla });
+  assert.equal(r.productId, id('BALLANTINES 10'));
+  assert.equal(r.motivos.includes('marca_ambigua'), false);
 });

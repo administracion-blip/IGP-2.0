@@ -54,7 +54,8 @@ import { exigirConteo, leerLineaConteo, obtenerInventario, versionLinea } from '
 import { listarProductosInventario } from '../lib/inventarios/productos.js';
 import { parsearDictado, partirCantidad } from '../lib/inventarios/dictado/parser.js';
 import { emparejarProducto, normalizarAlias, prepararIndice } from '../lib/inventarios/dictado/matcher.js';
-import { borrarAlias, guardarAlias, listarAlias, sumarUso } from '../lib/inventarios/dictado/alias.js';
+import { debeConsultarIa, esContinuacion, proponerInterpretacion } from '../lib/inventarios/dictado/interpretarIa.js';
+import { aliasAceptable, borrarAlias, guardarAlias, listarAlias, sumarUso } from '../lib/inventarios/dictado/alias.js';
 import {
   borrarFormato,
   crearFormato,
@@ -180,6 +181,13 @@ function candidatosDelAlmacen(_inventario) {
   return listarProductosInventario({ todos: true });
 }
 
+/** Productos de la plantilla de este conteo: id y nombre. Sin stock. */
+function plantillaDe(inventario) {
+  return (inventario?.lineas || [])
+    .filter((l) => l && l.productId && l.nombre)
+    .map((l) => ({ productId: String(l.productId), nombre: String(l.nombre), activo: l.activo !== false }));
+}
+
 /** Lo que verá la línea de conteo si se aplica la previsión (para la siguiente orden del dictado). */
 function conteoSimulado(lineaConteo, prev) {
   return { ...(lineaConteo || {}), stockReal: prev.stockReal, botellasAbiertas: prev.botellasAbiertas };
@@ -252,6 +260,7 @@ async function interpretar(req, inventario, texto, idEnvio) {
     aplicadasDelCiclo(inventarioId, uid),
   ]);
   const indice = prepararIndice(activos, alias);
+  const plantilla = plantillaDe(inventario);
   const conteo = new Map((inventario.lineas || []).map((l) => [l.productId, l]));
   // Conteo tal como quedaría tras aplicar las órdenes anteriores de este mismo dictado.
   const simulado = new Map(conteo);
@@ -279,8 +288,9 @@ async function interpretar(req, inventario, texto, idEnvio) {
   const pidDeTexto = (t) => {
     if (t == null) return null;
     if (!memoTexto.has(t)) {
-      const m = emparejarProducto({ tipo: 'linea', textoProducto: t, cantidad: { total: 1 } }, { indice });
-      memoTexto.set(t, m.productId == null ? null : String(m.productId));
+      const m = emparejarProducto({ tipo: 'linea', textoProducto: t, cantidad: { total: 1 } }, { indice, plantilla });
+      const ambiguo = m.motivos?.includes('marca_ambigua');
+      memoTexto.set(t, ambiguo || m.productId == null ? null : String(m.productId));
     }
     return memoTexto.get(t);
   };
@@ -300,8 +310,15 @@ async function interpretar(req, inventario, texto, idEnvio) {
 
   const nuevas = [];
   let pendientes = [];
-  let ultima = ultimaPrevia ? { productId: ultimaPrevia.productId, productoNombre: ultimaPrevia.productoNombre } : null;
+  let ultima = ultimaPrevia
+    ? {
+      productId: ultimaPrevia.productId,
+      productoNombre: ultimaPrevia.productoNombre,
+      pendiente: ultimaPrevia.confirmar !== false,
+    }
+    : null;
   let aviso = null;
+  let textoAnterior = ultimaPrevia?.texto || null;
 
   const recortarNombre = (s) => (typeof s === 'string' && s.length > MAX_NOMBRE_PRODUCTO
     ? s.slice(0, MAX_NOMBRE_PRODUCTO).trim()
@@ -365,6 +382,7 @@ async function interpretar(req, inventario, texto, idEnvio) {
       if (ultima?.productId) {
         productId = ultima.productId;
         productoNombre = ultima.productoNombre ?? null;
+        if (ultima.pendiente) confirmarMatch = true;
         if (orden.calculo?.faltaFormato) {
           if (!formatos.has(productId)) {
             for (const [k, v] of await obtenerFormatos([productId])) formatos.set(k, v);
@@ -379,7 +397,7 @@ async function interpretar(req, inventario, texto, idEnvio) {
         confirmarMatch = true;
       }
     } else {
-      const m = emparejarProducto(orden, { indice });
+      const m = emparejarProducto(orden, { indice, plantilla });
       productId = m.productId == null ? null : String(m.productId);
       productoNombre = m.nombre;
       cantidad = m.lectura?.cantidad ?? orden.cantidad;
@@ -389,7 +407,31 @@ async function interpretar(req, inventario, texto, idEnvio) {
       candidatos = m.candidatos.map((c) => ({ productId: String(c.productId), nombre: c.nombre, puntuacion: c.puntuacion }));
     }
 
-    const modo = modoDeOrden(orden.tipo);
+    let modoForzado = null;
+    const motivosRegla = [...(orden.motivos || []), ...motivosMatch];
+    if (!sinSeparar && debeConsultarIa({ orden, productId, motivos: motivosRegla })) {
+      const propuesta = await proponerInterpretacion({
+        texto: String(orden.textoOriginal || orden.textoProducto || ''),
+        anterior: esContinuacion(orden) ? textoAnterior : null,
+        productos: plantilla,
+      });
+      if (propuesta) {
+        if (propuesta.productId) {
+          productId = propuesta.productId;
+          productoNombre = propuesta.nombre;
+          const enLista = plantilla.find((p) => p.productId === productId);
+          if (enLista && !candidatos.some((c) => c.productId === productId)) {
+            candidatos = [{ productId, nombre: enLista.nombre, puntuacion: 0.5 }, ...candidatos].slice(0, 5);
+          }
+        }
+        if (propuesta.cantidad != null && orden.tipo !== 'borrar') cantidad = cantidadTotal(propuesta.cantidad);
+        if (propuesta.modo) modoForzado = propuesta.modo;
+        motivosMatch = [...motivosMatch, 'propuesto_ia'];
+        confirmarMatch = true;
+      }
+    }
+
+    const modo = modoForzado || modoDeOrden(orden.tipo);
     const lineaConteo = productId ? conteo.get(productId) : null;
     const lineaSimulada = productId ? simulado.get(productId) : null;
     const yaContado = stockContado(lineaSimulada) != null;
@@ -446,10 +488,11 @@ async function interpretar(req, inventario, texto, idEnvio) {
             ahora: { stockReal: prev.stockReal, botellasAbiertas: prev.botellasAbiertas },
           },
         }),
-        ...(orden.calculo?.faltaFormato && { faltaFormato: { productId } }),
+        ...(orden.calculo?.faltaFormato && cantidad == null && { faltaFormato: { productId } }),
       },
     });
-    if (!sinSeparar) ultima = { productId, productoNombre };
+    if (!sinSeparar) ultima = { productId, productoNombre, pendiente: confirmar || !productId };
+    textoAnterior = String(orden.textoOriginal || texto).slice(0, 500);
   }
   await volcar();
   const sesion = await obtenerSesion(inventarioId, uid);
@@ -488,6 +531,10 @@ async function aprenderAlias(req, previo, linea, activos, { soloContar }) {
   const norm = normalizarAlias(textoProducto);
   if (!textoProducto || !norm || !linea.productId) return { aliasAprendido: false, aliasMotivo: 'sin_texto' };
   const pid = String(linea.productId);
+  const destino = (activos || []).find((p) => String(p.productId) === pid);
+  if (!aliasAceptable(textoProducto, destino?.nombre || linea.productoNombre || '')) {
+    return { aliasAprendido: false, aliasMotivo: 'alias_no_valido' };
+  }
   const alias = await listarAlias();
   const existente = alias.find((a) => a.texto === norm);
   if (existente && String(existente.productId) === pid) {
@@ -509,6 +556,7 @@ async function aprenderAlias(req, previo, linea, activos, { soloContar }) {
     return { aliasAprendido: true, alias: { texto: a.texto, productId: a.productId, usos: a.usos } };
   } catch (err) {
     if (err?.code === 'alias_existente') return { aliasAprendido: false, aliasMotivo: 'alias_existente' };
+    if (err?.code === 'alias_no_valido') return { aliasAprendido: false, aliasMotivo: 'alias_no_valido' };
     if (err?.status !== 400 && err?.status !== 409) throw err;
     req.log?.warn?.({ err }, '[dictado] alias no aprendido');
     return { aliasAprendido: false, aliasMotivo: 'conflicto' };
@@ -783,7 +831,9 @@ export function crearRouterDictado({ exportStocks = exportStocksAgora } = {}) {
       if (!idEnvio) return res.status(400).json({ error: 'idEnvio es obligatorio' });
       const { inventario } = req.dictadoCtx;
       const { texto, resultado } = await interpretarEnvio(req, inventario, idEnvio, async () => {
-        const [productos, alias] = await Promise.all([candidatosDelAlmacen(inventario), listarAlias()]);
+        const productos = plantillaDe(inventario);
+        const ids = new Set(productos.map((p) => p.productId));
+        const alias = (await listarAlias()).filter((a) => ids.has(String(a.productId)));
         return transcribir(file, { productos, alias });
       });
       if (resultado.repetido) return res.status(200).json({ texto, ...resultado });

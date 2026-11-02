@@ -51,6 +51,8 @@ type Props = {
 
 const MOTIVOS: Record<string, string> = {
   ambiguo: 'Hay varios productos parecidos',
+  marca_ambigua: 'Hay varios de esa marca; elige cuál',
+  propuesto_ia: 'Sugerencia, confirma antes de aplicar',
   aproximado: 'Nombre parecido, comprueba',
   ya_contado: 'Ya estaba contado',
   redondeo: 'Se redondea la botella abierta',

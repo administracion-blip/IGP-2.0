@@ -149,6 +149,28 @@ test('alias: mismo producto suma usos; otro producto sobrescribe y reinicia usos
   assert.equal(item.Clave, undefined);
 });
 
+test('alias: el número solo vale si está en el producto; una cuenta no se guarda', async () => {
+  const productos = [
+    ...PRODUCTOS,
+    { productId: '818', nombre: '818 Tequila' },
+    { productId: '826', nombre: 'Ballantines 10' },
+  ];
+  const msg = 'Ese alias no se puede guardar: parece una cuenta o es demasiado largo.';
+  await rejecta(guardarAlias('10 filas por 10 cajas por', '200', 'ana', { productosActivos: productos }), 400, msg);
+  await rejecta(guardarAlias('multiplícalo por 24', '200', 'ana', { productosActivos: productos }), 400, msg);
+  await rejecta(guardarAlias('cuatro filas', '200', 'ana', { productosActivos: productos }), 400, msg);
+  await rejecta(guardarAlias('a'.repeat(41), '200', 'ana', { productosActivos: productos }), 400, msg);
+  await rejecta(guardarAlias('coca 3', '200', 'ana', { productosActivos: productos }), 400, msg);
+  assert.equal(db.listar(T()).filter((it) => it.PK === 'ALIAS#GLOBAL').length, 0);
+
+  const tequila = await guardarAlias('818', '818', 'ana', { productosActivos: productos });
+  assert.equal(tequila.texto, '818');
+  assert.equal(tequila.productId, '818');
+  const ballantines = await guardarAlias('Ballantines 10', '826', 'ana', { productosActivos: productos });
+  assert.equal(ballantines.texto, 'ballantines 10');
+  assert.equal(ballantines.productId, '826');
+});
+
 test('alias: sumarUso, listar (paginado) y borrar idempotente', async () => {
   preparar({ paginaTam: 1 });
   assert.equal(await sumarUso('no existe'), false);

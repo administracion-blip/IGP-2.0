@@ -13,6 +13,9 @@ import { vocabularioTranscripcion } from './matcher.js';
 
 export const CONTEXTO_TRANSCRIPCION = 'Conteo de inventario de bar: nombre de producto y cantidad.';
 
+/** Frases de ejemplo fijas: van delante del vocabulario para que el recorte de 1000 caracteres no se las lleve. */
+export const EJEMPLOS_TRANSCRIPCION = 'Ejemplos: «Ballantines 10, 14»; «tres filas de diez cajas por 24».';
+
 let transcribirFn = transcribirAudio;
 
 /** En pruebas se sustituye la llamada al modelo. Devuelve la función que restaura. */
@@ -27,17 +30,19 @@ export function restablecerTranscripcion() {
 }
 
 /**
- * Contexto + vocabulario (alias más usados primero, luego nombres) hasta MAX_PROMPT_TRANSCRIPCION
- * caracteres. Solo se leen `nombre` de los productos y `texto`/`usos` de los alias.
+ * Contexto, ejemplos de frase y vocabulario (alias más usados, luego nombres cortos) hasta
+ * MAX_PROMPT_TRANSCRIPCION caracteres. Solo se leen `nombre` de los productos y `texto`/`usos`
+ * de los alias. Quien llama debe pasar la plantilla de este conteo, no el maestro global.
  *
  * @param {Iterable<{ productId: string, nombre: string, activo?: boolean }>} productos
  * @param {Iterable<{ texto: string, productId: string, usos?: number }>} [alias]
  * @returns {string}
  */
 export function prepararPrompt(productos, alias = []) {
-  let prompt = CONTEXTO_TRANSCRIPCION;
+  const prefijo = `${CONTEXTO_TRANSCRIPCION} ${EJEMPLOS_TRANSCRIPCION}`;
+  let prompt = prefijo;
   for (const termino of vocabularioTranscripcion(productos, alias)) {
-    const siguiente = `${prompt}${prompt === CONTEXTO_TRANSCRIPCION ? ' ' : ', '}${termino}`;
+    const siguiente = `${prompt}, ${termino}`;
     if (siguiente.length > MAX_PROMPT_TRANSCRIPCION) break;
     prompt = siguiente;
   }
