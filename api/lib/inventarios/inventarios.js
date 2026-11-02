@@ -5,6 +5,8 @@
  */
 
 import { randomUUID } from 'crypto';
+import { GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { docClient } from '../db.js';
 import {
   ESTADOS,
   TRANSICIONES,
@@ -78,11 +80,46 @@ function partir(items) {
   return { meta, vista: presentarMeta(meta, lineas) };
 }
 
+/** Ítem exacto con lectura consistente, o null. */
+async function leerClave(pk, sk) {
+  const { Item } = await docClient.send(new GetCommand({
+    TableName: tablaInventarios(),
+    Key: { PK: pk, SK: sk },
+    ConsistentRead: true,
+  }));
+  return Item || null;
+}
+
+/** Solo las LINE# de la partición: no lee fotos, lecturas ni sesiones de dictado. */
+async function leerLineas(pk) {
+  const items = [];
+  let lastKey;
+  do {
+    const r = await docClient.send(new QueryCommand({
+      TableName: tablaInventarios(),
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :p)',
+      ExpressionAttributeValues: { ':pk': pk, ':p': 'LINE#' },
+      ConsistentRead: true,
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(r.Items || []));
+    lastKey = r.LastEvaluatedKey || null;
+  } while (lastKey);
+  return items;
+}
+
 async function cargar(inventarioId) {
   const id = idSegmento(inventarioId, 'inventarioId');
-  const partido = partir(await queryPk(pkInventario(id), { consistente: true }));
-  if (!partido) throw errorInventario('Inventario no encontrado', 404);
-  return partido;
+  const pk = pkInventario(id);
+  const meta = await leerClave(pk, skMeta());
+  if (!meta) throw errorInventario('Inventario no encontrado', 404);
+  return partir([meta, ...(await leerLineas(pk))]);
+}
+
+/** LINE#<productId> tal cual está en Dynamo (con stockTeorico), o null. Uso interno del backend. */
+export async function leerLineaConteo(inventarioId, productId) {
+  const id = idSegmento(inventarioId, 'inventarioId');
+  return leerClave(pkInventario(id), skLinea(idSegmento(productId, 'productId')));
 }
 
 function exigirEditable(meta) {
@@ -91,7 +128,8 @@ function exigirEditable(meta) {
   }
 }
 
-function exigirConteo(meta, soloContar) {
+/** Mismas reglas que guardarLinea: importado → 409; quien solo cuenta, solo en borrador/contado (403). */
+export function exigirConteo(meta, soloContar) {
   exigirEditable(meta);
   if (soloContar && !ESTADOS_CONTEO.has(meta.estado)) {
     throw errorInventario('El conteo ya no se puede modificar', 403);
@@ -308,20 +346,38 @@ export async function guardarLinea(inventarioId, productId, body, usuario, { sol
   exigirConteo(meta, soloContar);
   const pid = idSegmento(productId, 'productId');
   const pk = pkInventario(meta.inventarioId);
-  const items = await queryPk(pk, { consistente: true });
-  const previa = items.find((it) => it.SK === skLinea(pid)) || null;
+  const previa = await leerClave(pk, skLinea(pid));
   if (crear && meta.estado !== 'borrador' && meta.estado !== 'contado') {
     throw errorInventario('El conteo ya no se puede modificar', 403);
   }
   if (previa && crear) throw errorInventario('Este producto ya está en el conteo', 409);
   if (!previa && !crear) throw errorInventario('La línea no está en el conteo', 404);
-  const linea = lineaDesde({ ...body, productId: pid }, { previa, soloContar });
+  const { linea, operaciones } = escrituraLinea(meta, previa, { ...body, productId: pid }, usuario, { soloContar });
+  await transaccion(operaciones);
+  return linea;
+}
+
+/**
+ * Operaciones de TransactWrite que guardan una línea del conteo: Update del META (exige que
+ * siga en el mismo estado y no importado) + Put de LINE#. guardarLinea y el dictado escriben
+ * con esto, así que ambos guardan exactamente los mismos campos.
+ *
+ * `condicionExtra` ({ expresion, valores }) se añade con AND a la condición del Put.
+ * @returns {{ linea: ReturnType<typeof lineaDesde>, operaciones: object[] }}
+ */
+export function escrituraLinea(meta, previa, body, usuario, { soloContar = false, condicionExtra = null } = {}) {
+  const pk = pkInventario(meta.inventarioId);
+  const linea = lineaDesde(body, { previa, soloContar });
   const ahora = new Date().toISOString();
   const tabla = tablaInventarios();
-  const condicionLinea = previa
+  const base = previa
     ? (soloContar ? 'stockTeorico = :teorico' : 'attribute_exists(PK)')
     : 'attribute_not_exists(PK)';
-  await transaccion([
+  const valores = {
+    ...(previa && soloContar && { ':teorico': previa.stockTeorico }),
+    ...(condicionExtra?.valores || {}),
+  };
+  const operaciones = [
     {
       Update: {
         TableName: tabla,
@@ -340,14 +396,12 @@ export async function guardarLinea(inventarioId, productId, body, usuario, { sol
       Put: {
         TableName: tabla,
         Item: itemLinea(pk, linea),
-        ConditionExpression: condicionLinea,
-        ...(previa && soloContar && {
-          ExpressionAttributeValues: { ':teorico': previa.stockTeorico },
-        }),
+        ConditionExpression: condicionExtra ? `(${base}) AND (${condicionExtra.expresion})` : base,
+        ...(Object.keys(valores).length > 0 && { ExpressionAttributeValues: valores }),
       },
     },
-  ]);
-  return linea;
+  ];
+  return { linea, operaciones };
 }
 
 export async function borrarLinea(inventarioId, productId) {

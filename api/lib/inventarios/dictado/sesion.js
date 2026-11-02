@@ -21,7 +21,9 @@
  * Esta capa no llama a Ágora.
  */
 
-import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DeleteCommand, GetCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { docClient } from '../../db.js';
 import {
   BOTELLAS_ABIERTAS,
@@ -55,10 +57,15 @@ export const TRANSICIONES_LINEA = Object.freeze({
   descartada: Object.freeze(['pendiente']),
 });
 
-/** Únicos atributos que puede tener una línea en Dynamo. */
+/**
+ * Únicos atributos que puede tener una línea en Dynamo. `aplicado` ({ stockReal, botellasAbiertas,
+ * en }) solo lo escribe aplicar.js al pasar la línea a 'aplicada', para que un reintento devuelva
+ * el mismo resultado. `idEnvio` es el envío de la UI que creó la línea (ver reservarEnvio).
+ */
 export const CAMPOS_LINEA = Object.freeze([
   'PK', 'SK', 'n', 'texto', 'orden', 'productId', 'productoNombre', 'cantidad', 'modo',
   'motivos', 'confirmar', 'estado', 'creadoEn', 'creadoPor', 'actualizadoEn', 'actualizadoPor',
+  'aplicado', 'idEnvio',
 ]);
 
 /** Únicos atributos que puede tener el META de una sesión en Dynamo. */
@@ -179,7 +186,15 @@ function lineaNueva(raw) {
       ? (orden ? orden.confirmar : true) || motivos.length > 0
       : booleano(raw.confirmar, 'confirmar'),
     estado: 'pendiente',
+    idEnvio: idEnvioDe(raw.idEnvio),
   };
+}
+
+/** Id de envío de la UI (UUID por grabación): 1..64 de [A-Za-z0-9._-], o null. */
+export function idEnvioDe(raw) {
+  if (raw == null || raw === '') return null;
+  if (typeof raw !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(raw)) throw errorInventario('idEnvio no válido.');
+  return raw;
 }
 
 /** Ítem de línea construido solo con CAMPOS_LINEA. */
@@ -201,6 +216,7 @@ function itemLinea(clave, n, c) {
     creadoPor: c.creadoPor,
     actualizadoEn: c.actualizadoEn,
     actualizadoPor: c.actualizadoPor,
+    ...(c.idEnvio && { idEnvio: c.idEnvio }),
   };
 }
 
@@ -218,7 +234,89 @@ function presentarLinea(it) {
     estado: it.estado,
     creadoEn: it.creadoEn || null,
     actualizadoEn: it.actualizadoEn || null,
+    ...(it.idEnvio && { idEnvio: it.idEnvio }),
+    ...(it.aplicado && {
+      aplicado: {
+        stockReal: it.aplicado.stockReal ?? null,
+        botellasAbiertas: it.aplicado.botellasAbiertas ?? 0,
+        en: it.aplicado.en || null,
+      },
+    }),
   };
+}
+
+/** Línea tal como está en Dynamo (sin presentar), o null. Para aplicar.js. */
+export async function leerLineaDictado(inventarioId, usuario, n) {
+  const { u, pk } = claves(inventarioId, usuario);
+  const { Item } = await docClient.send(new GetCommand({
+    TableName: tablaInventarios(),
+    Key: { PK: pk, SK: skDictadoLinea(u, n) },
+    ConsistentRead: true,
+  }));
+  return Item || null;
+}
+
+// ─── Envíos (idempotencia de interpretar) ───
+//
+//   SK = DICTADO#<usuario>#ENVIO#<idEnvio>  { idEnvio, estado: 'reservado'|'hecho', ns, creadoEn }
+// Se crea con attribute_not_exists ANTES de crear las líneas: de dos envíos con el mismo id
+// (reintento o dos peticiones en paralelo) solo uno crea líneas.
+
+const ESPERA_ENVIO_MS = 50;
+const MAX_ESPERA_ENVIO_MS = 5000;
+
+function claveEnvio(inventarioId, usuario, idEnvio) {
+  const { u, pk } = claves(inventarioId, usuario);
+  return { PK: pk, SK: `${prefijoDictado(u)}ENVIO#${idEnvioDe(idEnvio)}` };
+}
+
+/**
+ * Reserva un envío. @returns {Promise<{ reservado: true }|{ reservado: false, ns: number[] }>}
+ *   reservado=false: otro ya lo procesó; `ns` son las líneas que creó (espera si está a medias).
+ * @throws errorInventario 409 si el otro envío no termina a tiempo.
+ */
+export async function reservarEnvio(inventarioId, usuario, idEnvio) {
+  const clave = claveEnvio(inventarioId, usuario, idEnvio);
+  const tabla = tablaInventarios();
+  try {
+    await docClient.send(new PutCommand({
+      TableName: tabla,
+      Item: { ...clave, idEnvio, estado: 'reservado', creadoEn: new Date().toISOString() },
+      ConditionExpression: 'attribute_not_exists(PK)',
+    }));
+    return { reservado: true };
+  } catch (err) {
+    if (!esCondicion(err)) throw err;
+  }
+  const limite = Date.now() + MAX_ESPERA_ENVIO_MS;
+  for (;;) {
+    const { Item } = await docClient.send(new GetCommand({ TableName: tabla, Key: clave, ConsistentRead: true }));
+    if (!Item) return reservarEnvio(inventarioId, usuario, idEnvio);
+    if (Item.estado === 'hecho') return { reservado: false, ns: Array.isArray(Item.ns) ? Item.ns.map(Number) : [] };
+    if (Date.now() > limite) throw errorInventario('Este dictado se está procesando; vuelve a intentarlo.', 409);
+    await new Promise((listo) => setTimeout(listo, ESPERA_ENVIO_MS));
+  }
+}
+
+export async function completarEnvio(inventarioId, usuario, idEnvio, ns) {
+  await docClient.send(new UpdateCommand({
+    TableName: tablaInventarios(),
+    Key: claveEnvio(inventarioId, usuario, idEnvio),
+    UpdateExpression: 'SET estado = :hecho, ns = :ns',
+    ExpressionAttributeValues: { ':hecho': 'hecho', ':ns': ns },
+  }));
+}
+
+/** Si el envío falla a medias, se libera para que el reintento lo procese. */
+export async function liberarEnvio(inventarioId, usuario, idEnvio) {
+  await docClient.send(new DeleteCommand({
+    TableName: tablaInventarios(),
+    Key: claveEnvio(inventarioId, usuario, idEnvio),
+    ConditionExpression: 'estado = :reservado',
+    ExpressionAttributeValues: { ':reservado': 'reservado' },
+  })).catch((err) => {
+    if (!esCondicion(err)) throw err;
+  });
 }
 
 function presentarMeta(it) {
@@ -390,6 +488,7 @@ export async function actualizarLinea(inventarioId, usuario, n, cambios, quien) 
     estado: previo.estado,
     creadoEn: previo.creadoEn,
     creadoPor: previo.creadoPor,
+    idEnvio: previo.idEnvio ?? null,
   };
   const validadores = {
     productId: productIdDe,

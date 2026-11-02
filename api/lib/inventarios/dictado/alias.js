@@ -56,10 +56,13 @@ export async function listarAlias() {
  * @param {string} productId
  * @param {string} quien
  * @param {{ productosActivos?: Array<{ productId: string|number, nombre?: string, activo?: boolean }> }} opciones
+ * `noReasignar`: si el alias ya apunta a otro producto de `productosActivos` no lo toca (409,
+ *   code 'alias_existente'); uno que apunta a un producto que ya no está activo sí se reasigna.
+ *   Lo usan las rutas para quien solo tiene inventario.contar.
  * @throws errorInventario 400 si el texto queda vacío o el producto no está activo;
  *   409 si el alias cambia a la vez tres veces seguidas.
  */
-export async function guardarAlias(textoDicho, productId, quien, { productosActivos = [] } = {}) {
+export async function guardarAlias(textoDicho, productId, quien, { productosActivos = [], noReasignar = false } = {}) {
   const norm = normalizarAlias(textoDicho);
   const sk = skAlias(norm);
   const textoOriginal = texto(textoDicho, 'texto', { max: 200 });
@@ -91,6 +94,11 @@ export async function guardarAlias(textoDicho, productId, quien, { productosActi
           ReturnValues: 'ALL_NEW',
         }));
         return presentar(r.Attributes);
+      }
+      const previoActivo = previo && (Array.isArray(productosActivos) ? productosActivos : [])
+        .some((p) => p && p.activo !== false && String(p.productId ?? '').trim() === previo.productId);
+      if (noReasignar && previoActivo) {
+        throw Object.assign(errorInventario('Ese alias ya apunta a otro producto.', 409), { code: 'alias_existente' });
       }
       const item = {
         ...clave,
