@@ -28,6 +28,7 @@ let servidor = null;
 let base = '';
 let db = null;
 let bucket = null;
+let modeloVisto = null;
 let restaurar = null;
 let restaurarIa = null;
 let respuestaIa = { propuestas: [], noIdentificados: [] };
@@ -82,6 +83,7 @@ beforeEach(() => {
   bucket = new Map();
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.inventarios, {
     hashKey: 'PK',
     rangeKey: 'SK',
@@ -114,7 +116,7 @@ beforeEach(() => {
   };
   restaurarIa = configurarLecturaIa(async ({ user, model, imagenes }) => {
     ultimoPrompt = user;
-    assert.equal(model, 'gpt-4o');
+    modeloVisto = model;
     assert.equal(imagenes.length, 2);
     return { text: JSON.stringify(respuestaIa), model, usage: { prompt: 10, completion: 5 } };
   });
@@ -164,10 +166,21 @@ test('la lectura propone solo productos del conteo y no toca el stock', async ()
   assert.equal(res.body.stockTeorico, undefined);
   assert.equal(ultimoPrompt.includes('203'), false);
   assert.equal(ultimoPrompt.includes('Johnnie Walker'), true);
+  assert.equal(modeloVisto, 'gpt-4o');
 
   const linea = db.obtener(tables.inventarios, { PK: 'INV#inv1', SK: 'LINE#1367' });
   assert.equal(linea.stockReal, undefined);
   assert.equal(linea.stockTeorico, 203);
+});
+
+test('la lectura usa el modelo guardado en ajustes', async () => {
+  db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
+  db.sembrar(tables.ajustes, { PK: 'IA', SK: 'CONFIG', modeloLectura: 'gpt-4.1' });
+  await subir(2, 'frente');
+  await subir(2, 'superior');
+  const res = await api('POST', '/api/inventarios/inv1/fotos/2/leer', {});
+  assert.equal(res.status, 201);
+  assert.equal(modeloVisto, 'gpt-4.1');
 });
 
 test('el mismo producto en dos fotos se suma y pide revisión', () => {

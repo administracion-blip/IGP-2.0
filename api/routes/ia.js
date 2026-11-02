@@ -45,7 +45,9 @@ import {
 import {
   getAjustesIa,
   guardarAjustesIa,
+  probarModeloIa,
   MODELOS_SUGERIDOS,
+  MODELOS_TRANSCRIPCION,
 } from '../lib/ia/ajustes.js';
 import {
   listFamiliasIa,
@@ -172,10 +174,27 @@ router.get('/ia/ajustes', requirePermission('ia.informes'), async (req, res) => 
   try {
     const ajustes = await getAjustesIa();
     const puedeEditar = await hasPermission(req.user, 'ia.ajustes');
-    return res.json({ ajustes, modelosSugeridos: MODELOS_SUGERIDOS, iaDisponible: iaDisponible(), puedeEditar });
+    return res.json({
+      ajustes,
+      modelosSugeridos: MODELOS_SUGERIDOS,
+      modelosTranscripcion: MODELOS_TRANSCRIPCION,
+      iaDisponible: iaDisponible(),
+      puedeEditar,
+    });
   } catch (err) {
     console.error('[ia/ajustes:get]', err.message || err);
     return res.status(500).json({ error: 'No se pudieron cargar los ajustes' });
+  }
+});
+
+/** POST /api/ia/ajustes/probar — llamada mínima al modelo elegido, sin guardarlo. */
+router.post('/ia/ajustes/probar', requirePermission('ia.ajustes'), async (req, res) => {
+  try {
+    const resultado = await probarModeloIa(req.body?.uso, req.body?.modelo);
+    return res.json(resultado);
+  } catch (err) {
+    console.error('[ia/ajustes:probar]', err?.detalle || err.message || err);
+    return responderError(res, err, { mensaje: 'No se ha podido probar el modelo', statusPorDefecto: 400 });
   }
 });
 

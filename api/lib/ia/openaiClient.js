@@ -6,11 +6,18 @@
  *
  * Envs:
  * - OPENAI_API_KEY: clave (misma que usa OCR).
- * - IA_INFORMES_MODEL: modelo para informes (default gpt-4o-mini). Independiente
- *   de OCR_IA_MODEL para no interferir con el OCR.
+ * - IA_INFORMES_MODEL, OCR_IA_MODEL, IA_INVENTARIO_MODEL y OPENAI_TRANSCRIBE_MODEL
+ *   son el segundo escalón: solo se usan si en Ajustes de IA no hay modelo guardado
+ *   para ese uso. Quien llama debe pasar `model` / `modelo` con el valor ya resuelto.
  */
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_TRANSCRIPCION_URL = 'https://api.openai.com/v1/audio/transcriptions';
+
+export const MENSAJE_TRANSCRIPCION_NO_CONFIGURADA = 'La transcripción no está configurada.';
+export const MENSAJE_TRANSCRIPCION_FALLIDA = 'No se ha podido transcribir el audio. Inténtalo de nuevo.';
+/** whisper-1 solo usa ~224 tokens de prompt; los gpt-4o-*-transcribe aceptan más. Conservador. */
+export const MAX_PROMPT_TRANSCRIPCION = 1000;
 
 export function iaDisponible() {
   const k = process.env.OPENAI_API_KEY;
@@ -118,4 +125,96 @@ export async function chatCompletion({
       completion: Number(data?.usage?.completion_tokens) || 0,
     },
   };
+}
+
+/** Env OPENAI_TRANSCRIBE_MODEL (opcional); por defecto gpt-4o-mini-transcribe. */
+export function modeloTranscripcion() {
+  const m = process.env.OPENAI_TRANSCRIBE_MODEL;
+  return m && String(m).trim() ? String(m).trim() : 'gpt-4o-mini-transcribe';
+}
+
+/**
+ * Error publicable (`expose`): el mensaje es español y seguro; `detalle` solo va al log y nunca
+ * lleva el audio.
+ */
+function errorTranscripcion(status, mensaje, detalle, extra) {
+  return Object.assign(new Error(mensaje), { status, expose: true, ...(detalle && { detalle }), ...extra });
+}
+
+/**
+ * Transcribe un audio con audio/transcriptions (multipart con fetch/FormData/Blob nativos).
+ * El buffer solo viaja a OpenAI: no se guarda ni se registra.
+ *
+ * @param {Buffer|Uint8Array} buffer
+ * @param {object} [opts]
+ * @param {string} [opts.nombre='audio.webm'] — la API deduce el formato por la extensión.
+ * @param {string} [opts.tipo='audio/webm']
+ * @param {string} [opts.prompt] — vocabulario; se recorta a MAX_PROMPT_TRANSCRIPCION caracteres.
+ * @param {string} [opts.idioma='es']
+ * @param {string} [opts.modelo] — por defecto modeloTranscripcion().
+ * @param {number} [opts.timeoutMs=60000]
+ * @returns {Promise<{ texto: string }>}
+ * @throws 503 sin OPENAI_API_KEY; 502 si la API falla, no responde a tiempo o responde mal.
+ */
+export async function transcribirAudio(buffer, {
+  nombre = 'audio.webm',
+  tipo = 'audio/webm',
+  prompt,
+  idioma = 'es',
+  modelo,
+  timeoutMs = 60000,
+} = {}) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || String(apiKey).trim() === '') {
+    throw errorTranscripcion(503, MENSAJE_TRANSCRIPCION_NO_CONFIGURADA);
+  }
+  if (!buffer || !buffer.length) throw errorTranscripcion(400, 'No se recibió audio.');
+
+  // El Blob copia el buffer y se crea antes de cualquier await: quien llama puede soltar su
+  // referencia en cuanto recibe la promesa (transcripcion.js lo hace).
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: tipo }), nombre);
+  form.append('model', modelo || modeloTranscripcion());
+  if (idioma) form.append('language', idioma);
+  const textoPrompt = String(prompt ?? '').trim().slice(0, MAX_PROMPT_TRANSCRIPCION);
+  if (textoPrompt) form.append('prompt', textoPrompt);
+  form.append('response_format', 'json');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let res;
+    try {
+      res = await fetch(OPENAI_TRANSCRIPCION_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      const detalle = controller.signal.aborted ? `timeout ${timeoutMs} ms` : `red: ${err?.message || err}`;
+      throw errorTranscripcion(502, MENSAJE_TRANSCRIPCION_FALLIDA, detalle);
+    }
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      // 4xx (modelo desconocido, clave rechazada): no es un fallo de red. Quien llama
+      // puede avisar al momento en vez de reintentar.
+      const modelo = res.status >= 400 && res.status < 500;
+      throw errorTranscripcion(
+        502,
+        MENSAJE_TRANSCRIPCION_FALLIDA,
+        `OpenAI HTTP ${res.status}: ${errText.slice(0, 500)}`,
+        modelo ? { modelo: true } : {},
+      );
+    }
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw errorTranscripcion(502, MENSAJE_TRANSCRIPCION_FALLIDA, 'respuesta de OpenAI no es JSON');
+    }
+    return { texto: typeof data?.text === 'string' ? data.text.trim() : '' };
+  } finally {
+    clearTimeout(timeout);
+  }
 }

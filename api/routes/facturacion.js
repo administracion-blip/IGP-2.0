@@ -2749,8 +2749,8 @@ router.post('/facturacion/ocr/enriquecer-ia', requirePermission('facturacion.cre
 
     res.json({ ok: true, datos: merged });
   } catch (err) {
-    console.error('[OCR IA]', err);
-    responderError(res, err);
+    console.error('[OCR IA]', err?.detalle || err?.message || err);
+    responderError(res, err, { mensaje: 'No se ha podido leer la factura con IA. Complétala a mano.' });
   }
 });
 

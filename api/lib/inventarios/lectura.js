@@ -5,6 +5,7 @@
  */
 
 import { almacenAdjuntos } from '../tasks/adjuntos.js';
+import { getAjustesIa } from '../ia/ajustes.js';
 import { chatCompletion as chatOpenAi, iaDisponible } from '../ia/openaiClient.js';
 import {
   errorInventario,
@@ -196,7 +197,7 @@ export async function leerPar({ inventarioId, numero, reintentar = false }) {
   ]);
 
   let texto;
-  let modelo = modeloInventario();
+  let modelo = (await getAjustesIa()).modeloLectura;
   try {
     const salida = await chatFn({
       system: [

@@ -482,7 +482,7 @@ const PERMISOS_LABELS: Record<string, string> = {
   'ia.informe_dia_a_dia': 'Informes IA · Fuente Día a día',
   'ia.informe_ventas_articulo': 'Informes IA · Fuente Ventas por artículo',
   'ia.prompts_gestionar': 'Informes IA · Gestionar plantillas de prompt',
-  'ia.ajustes': 'Informes IA · Modificar ajustes de la IA',
+  'ia.ajustes': 'Ajustes de IA · Modificar el modelo de cada uso',
   // `proyectos.ver` y `reuniones.ver` los reescribirá el bucle de MODULOS cuando
   // la Fase 1A añada las entradas del menú; hasta entonces, etiqueta propia.
   'proyectos.ver': 'Proyectos · Ver módulo (menú)',

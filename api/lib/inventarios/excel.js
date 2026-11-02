@@ -35,6 +35,24 @@ function numeroCelda(raw) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Nombre de archivo del conteo: sin tildes ni espacios.
+ * «Almacén Central» y 2026-11-03 → inventario_almacen-central_2026-11-03.xlsx.
+ */
+export function nombreFicheroInventario(almacen, fecha) {
+  const base = String(almacen ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  const dia = /^\d{4}-\d{2}-\d{2}/.test(String(fecha || ''))
+    ? String(fecha).slice(0, 10)
+    : 'sin-fecha';
+  return `inventario_${base || 'almacen'}_${dia}.xlsx`;
+}
+
 export async function bufferInventario(inventario) {
   const wb = new ExcelJS.Workbook();
   const hoja = wb.addWorksheet('Inventario');

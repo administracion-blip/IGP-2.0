@@ -14,7 +14,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-prueba
 const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
-const { bufferInventario } = await import('../lib/inventarios/excel.js');
+const { bufferInventario, nombreFicheroInventario } = await import('../lib/inventarios/excel.js');
 const { crearPlantilla } = await import('../lib/inventarios/plantillas.js');
 const { crearInventario, cambiarEstado } = await import('../lib/inventarios/inventarios.js');
 const { default: inventariosRouter } = await import('../routes/inventarios.js');
@@ -106,6 +106,15 @@ test('el Excel tiene las columnas de la plantilla y no redondea el stock real', 
         stockReal: null,
         botellasAbiertas: 0.5,
       },
+      {
+        productId: '90',
+        familiaNombre: 'BOT WHISKYS',
+        nombre: 'Cero a mano',
+        unidad: 'Unidad',
+        stockTeorico: 2,
+        stockReal: 0,
+        botellasAbiertas: 0,
+      },
     ],
   });
   const hoja = await hojaDe(buffer);
@@ -125,7 +134,19 @@ test('el Excel tiene las columnas de la plantilla y no redondea el stock real', 
   assert.equal(hoja.getCell('H3').value, null);
   assert.equal(hoja.getCell('H4').value, 3.5);
   assert.equal(hoja.getCell('H5').value, 0.5);
+  assert.equal(hoja.getCell('H6').value, 0);
   assert.equal(hoja.getCell('I2').value, null);
+});
+
+test('el nombre del fichero quita tildes y espacios', () => {
+  assert.equal(
+    nombreFicheroInventario('Almacén Central', '2026-11-03'),
+    'inventario_almacen-central_2026-11-03.xlsx',
+  );
+  assert.equal(
+    nombreFicheroInventario('  Bar / Norte  ', '2026-11-03T10:00:00.000Z'),
+    'inventario_bar-norte_2026-11-03.xlsx',
+  );
 });
 
 test('descargar pasa a exportado, la segunda vez avisa y luego se puede marcar importado', async () => {
@@ -210,4 +231,107 @@ test('descargar pasa a exportado, la segunda vez avisa y luego se puede marcar i
   await cambiarEstado(otro.inventarioId, 'revisado', 'compras@test');
   assert.equal((await api('GET', `/api/inventarios/${otro.inventarioId}/excel`)).status, 403);
   assert.equal(db.operaciones.some((op) => op.tipo === 'ScanCommand'), false);
+});
+
+function celdaPorNombre(hoja, nombre, columna) {
+  for (let fila = 2; fila <= hoja.rowCount; fila += 1) {
+    if (hoja.getCell(fila, 3).value === nombre) return hoja.getCell(fila, columna).value;
+  }
+  return undefined;
+}
+
+test('desde contado el Excel no suma lo pendiente, deja vacío lo no contado y no pasa a exportado', async () => {
+  if (!servidor) {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.user = usuarioActual;
+      req.log = { info() {}, error() {}, warn() {} };
+      next();
+    });
+    app.use('/api', inventariosRouter);
+    servidor = http.createServer(app);
+    await new Promise((listo) => servidor.listen(0, '127.0.0.1', listo));
+    base = `http://127.0.0.1:${servidor.address().port}`;
+  }
+
+  db.crearTabla(tables.almacenes, { hashKey: 'Id' });
+  db.sembrar(tables.almacenes, { Id: '000001', Nombre: 'Almacén Central' });
+
+  const plantilla = await crearPlantilla({
+    warehouseId: '1',
+    nombre: 'Botellas',
+    modo: 'familias',
+    miembros: [{ id: '12', nombre: 'BOT WHISKYS' }],
+  }, 'compras@test');
+  const creado = await crearInventario({
+    warehouseId: '1',
+    fecha: '2026-11-03',
+    employeeId: '42',
+    employeeNombre: 'Ana',
+    plantillaId: plantilla.plantillaId,
+    lineas: [
+      {
+        productId: '1367', nombre: 'Cero a mano', familiaNombre: 'BOT WHISKYS',
+        unidad: 'Unidad', stockTeorico: 5, stockReal: 0, botellasAbiertas: 0,
+      },
+      {
+        productId: '50', nombre: 'Sin contar', familiaNombre: 'OTRA',
+        unidad: 'Unidad', stockTeorico: 3, stockReal: null,
+      },
+      {
+        productId: '88', nombre: 'Contado', familiaNombre: 'BOT WHISKYS',
+        unidad: 'Unidad', stockTeorico: 4, stockReal: 4, botellasAbiertas: 0,
+      },
+    ],
+  }, 'compras@test');
+  const id = creado.inventarioId;
+
+  const pronto = await api('GET', `/api/inventarios/${id}/excel?origen=conteo`);
+  assert.equal(pronto.status, 409);
+  assert.match(pronto.body.error, /contado/);
+
+  await cambiarEstado(id, 'contado', 'compras@test');
+  db.sembrar(tables.inventarios, {
+    PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000001',
+    estado: 'pendiente', cantidad: 99, productId: '88',
+  });
+  db.sembrar(tables.inventarios, {
+    PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000002',
+    estado: 'confirmada', cantidad: 7, productId: '50',
+  });
+  db.sembrar(tables.inventarios, {
+    PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000003',
+    estado: 'aplicada', cantidad: 4, productId: '88',
+  });
+  db.sembrar(tables.inventarios, {
+    PK: `INV#${id}`, SK: 'DICTADO#000020#LINEA#000004',
+    estado: 'descartada', cantidad: 3, productId: '1367',
+  });
+
+  const aviso = await api('GET', `/api/inventarios/${id}/excel?origen=conteo`);
+  assert.equal(aviso.status, 409);
+  assert.equal(aviso.body.error, 'Hay 2 líneas pendientes de confirmar');
+  assert.equal(aviso.body.pendientes, 2);
+  assert.equal((await api('GET', `/api/inventarios/${id}`)).body.estado, 'contado');
+
+  const bajado = await api('GET', `/api/inventarios/${id}/excel?origen=conteo&igualmente=1`);
+  assert.equal(bajado.status, 200);
+  assert.match(
+    bajado.headers.get('content-disposition') || '',
+    /inventario_almacen-central_2026-11-03\.xlsx/,
+  );
+  const hoja = await hojaDe(bajado.buffer);
+  assert.deepEqual(
+    [1, 2, 3, 4, 5, 6, 7, 8].map((c) => hoja.getCell(1, c).value),
+    ['Id', 'Familia', 'Nombre', 'Ubicación', 'Código Barras', 'Unidad', 'Stock Teórico (Uds. Venta)', 'Stock Real (Uds. Venta)'],
+  );
+  assert.equal(celdaPorNombre(hoja, 'Cero a mano', 8), 0);
+  assert.equal(celdaPorNombre(hoja, 'Sin contar', 8), null);
+  assert.equal(celdaPorNombre(hoja, 'Contado', 8), 4);
+  assert.equal(JSON.stringify(hoja.getSheetValues()).includes('99'), false);
+  assert.equal((await api('GET', `/api/inventarios/${id}`)).body.estado, 'contado');
+
+  usuarioActual = CONTADOR;
+  assert.equal((await api('GET', `/api/inventarios/${id}/excel?origen=conteo&igualmente=1`)).status, 403);
 });

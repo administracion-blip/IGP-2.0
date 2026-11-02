@@ -23,7 +23,11 @@ import { apiFetch } from '../../utils/api';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { stockContado } from '../../lib/inventarioDiferencia';
+import { productosSinContar } from '../../lib/inventarioNoContados';
 import { FotoDobleConteo } from './FotoDobleConteo';
+import { DictadoPanel } from '../../components/inventario/DictadoPanel';
+import { descargarExcelConteo } from '../../lib/inventarioExcel';
+import { usePendientesDictado } from '../../hooks/useDictado';
 import {
   alSubirFoto,
   drenarCola,
@@ -125,6 +129,15 @@ async function leerJson(res: Response): Promise<Record<string, unknown>> {
 
 function mensajeDe(body: Record<string, unknown>, respaldo: string): string {
   return typeof body.error === 'string' && body.error.trim() ? body.error : respaldo;
+}
+
+/** Nombre visible de una línea sin contar. Si no hay producto, se dice. */
+function textoLineaSinContar(linea: Linea): string {
+  const nombre = linea.nombre.trim();
+  const sinProducto = !linea.productId.trim();
+  if (nombre && sinProducto) return `${nombre} · falta el producto`;
+  if (nombre) return nombre;
+  return sinProducto ? 'Sin nombre · falta el producto' : linea.productId;
 }
 
 function textoCantidad(n: number | null | undefined): string {
@@ -242,7 +255,7 @@ export default function InventarioConteoScreen() {
   const { hasPermiso } = useAuth();
   const puede = hasPermiso('inventario.contar') || hasPermiso('inventario.gestionar');
   const puedeGestionar = hasPermiso('inventario.gestionar');
-  const { isPhone } = useBreakpoint();
+  const { isPhone, shouldStackPanels } = useBreakpoint();
   const { confirmar, ConfirmarView } = useConfirmar();
 
   const [fecha, setFecha] = useState(fechaJornadaNegocioIso);
@@ -272,8 +285,16 @@ export default function InventarioConteoScreen() {
   const lecturasEnCurso = useRef(new Set<number>());
   const [numerosReservados, setNumerosReservados] = useState<number[]>([]);
   const [capturando, setCapturando] = useState(false);
+  const [dictando, setDictando] = useState(false);
+  const [descargandoExcel, setDescargandoExcel] = useState(false);
+  const [sinContarAviso, setSinContarAviso] = useState<Linea[] | null>(null);
+  const [marcandoContado, setMarcandoContado] = useState(false);
+  const marcandoContadoRef = useRef(false);
+  const audioSinEnviar = usePendientesDictado(inventario?.inventarioId);
   const [colaTick, setColaTick] = useState(0);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  /** La última lectura del inventario gana: una respuesta antigua no pisa el conteo. */
+  const cargaRef = useRef(0);
 
   const lineasVisibles = useMemo(() => {
     const q = filtro.trim().toLocaleLowerCase('es');
@@ -523,7 +544,7 @@ export default function InventarioConteoScreen() {
     setNumerosReservados((prev) => prev.filter((n) => !enCola.has(n) && !enServidor.has(n)));
   }, [inventario?.inventarioId, fotosServidor, colaTick]);
 
-  function entrar(inv: Inventario) {
+  function pintarInventario(inv: Inventario) {
     const lineas = (inv.lineas || []).map((l) => ({
       productId: String(l.productId),
       nombre: String(l.nombre || l.productId),
@@ -538,6 +559,11 @@ export default function InventarioConteoScreen() {
     setFiltro('');
     setError(null);
     setAnadiendo(false);
+  }
+
+  function entrar(inv: Inventario) {
+    cargaRef.current += 1;
+    pintarInventario(inv);
   }
 
   async function prepararAnadir() {
@@ -617,20 +643,23 @@ export default function InventarioConteoScreen() {
   }
 
   async function abrirExistente(id: string) {
+    const token = ++cargaRef.current;
     setAbriendo(true);
     setError(null);
     try {
       const res = await apiFetch(`/api/inventarios/${encodeURIComponent(id)}`);
       const body = await leerJson(res);
+      if (token !== cargaRef.current) return;
       if (!res.ok) {
         setError(mensajeDe(body, 'No se ha podido abrir el inventario'));
         return;
       }
-      entrar(body as unknown as Inventario);
+      pintarInventario(body as unknown as Inventario);
     } catch (e) {
+      if (token !== cargaRef.current) return;
       setError(e instanceof Error ? e.message : 'Error de conexión');
     } finally {
-      setAbriendo(false);
+      if (token === cargaRef.current) setAbriendo(false);
     }
   }
 
@@ -652,6 +681,7 @@ export default function InventarioConteoScreen() {
       if (inventario?.inventarioId === id) {
         setInventario(null);
         setAnadiendo(false);
+        setSinContarAviso(null);
       }
       if (warehouseId) await cargarAbiertos(warehouseId);
     } catch (e) {
@@ -690,7 +720,7 @@ export default function InventarioConteoScreen() {
   }
 
   const persistir = useCallback(async (productId: string, stockReal: number | null, botellasAbiertas: number) => {
-    if (!inventario) return;
+    if (!inventario) return false;
     setGuardandoId(productId);
     try {
       const res = await apiFetch(
@@ -704,7 +734,7 @@ export default function InventarioConteoScreen() {
       const body = await leerJson(res);
       if (!res.ok) {
         setError(mensajeDe(body, 'No se ha podido guardar la línea'));
-        return;
+        return false;
       }
       setInventario((actual) => {
         if (!actual?.lineas) return actual;
@@ -715,8 +745,10 @@ export default function InventarioConteoScreen() {
           )),
         };
       });
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
+      return false;
     } finally {
       setGuardandoId((id) => (id === productId ? null : id));
     }
@@ -760,14 +792,30 @@ export default function InventarioConteoScreen() {
     void persistir(linea.productId, stockReal, valor);
   }
 
-  async function marcarContado() {
-    if (!inventario || inventario.estado !== 'borrador') return;
-    const ok = await confirmar(
-      'Marcar como contado',
-      'El conteo quedará listo para revisarlo en Compras.',
-      { confirmarLabel: 'Marcar contado' },
-    );
-    if (!ok) return;
+  /** Guarda ya lo escrito en los campos (el 0 incluido) antes de decidir si falta algo. */
+  async function guardarTextosPendientes(): Promise<boolean> {
+    if (!inventario?.lineas) return true;
+    const ids = Object.keys(timers.current);
+    for (const id of ids) {
+      const timer = timers.current[id];
+      if (timer) clearTimeout(timer);
+      delete timers.current[id];
+    }
+    const resultados = await Promise.all(ids.map(async (productId) => {
+      const linea = inventario.lineas?.find((l) => l.productId === productId);
+      if (!linea) return true;
+      const parsed = parseCantidad(textos[productId] ?? '');
+      if (parsed === 'mal') return true;
+      return persistir(productId, parsed, linea.botellasAbiertas);
+    }));
+    return resultados.every(Boolean);
+  }
+
+  async function aplicarEstadoContado() {
+    if (!inventario || marcandoContadoRef.current) return;
+    marcandoContadoRef.current = true;
+    setMarcandoContado(true);
+    setError(null);
     try {
       const res = await apiFetch(`/api/inventarios/${encodeURIComponent(inventario.inventarioId)}/estado`, {
         method: 'PATCH',
@@ -779,11 +827,53 @@ export default function InventarioConteoScreen() {
         setError(mensajeDe(body, 'No se ha podido marcar el conteo'));
         return;
       }
+      setSinContarAviso(null);
       setInventario((actual) => (actual ? { ...actual, estado: 'contado' } : actual));
       if (warehouseId) await cargarAbiertos(warehouseId);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      marcandoContadoRef.current = false;
+      setMarcandoContado(false);
     }
+  }
+
+  async function bajarExcel() {
+    if (!inventario || descargandoExcel) return;
+    setDescargandoExcel(true);
+    setError(null);
+    try {
+      const r = await descargarExcelConteo(inventario.inventarioId, confirmar);
+      if (r.resultado === 'revisar') setDictando(true);
+      else if (r.resultado === 'error') setError(r.error || 'No se ha podido generar el Excel');
+    } finally {
+      setDescargandoExcel(false);
+    }
+  }
+
+  async function marcarContado() {
+    if (!inventario || inventario.estado !== 'borrador' || marcandoContadoRef.current) return;
+    const guardados = await guardarTextosPendientes();
+    if (!guardados) return;
+    const faltan = (inventario.lineas ?? []).filter((linea) => {
+      const texto = textos[linea.productId];
+      if (texto != null) {
+        const parsed = parseCantidad(texto);
+        if (parsed !== 'mal') return parsed == null;
+      }
+      return productosSinContar([linea]).length > 0;
+    });
+    if (faltan.length > 0) {
+      setSinContarAviso(faltan);
+      return;
+    }
+    const ok = await confirmar(
+      'Marcar como contado',
+      'El conteo quedará listo para revisarlo en Compras.',
+      { confirmarLabel: 'Marcar contado' },
+    );
+    if (!ok) return;
+    await aplicarEstadoContado();
   }
 
   if (!puede) {
@@ -813,7 +903,7 @@ export default function InventarioConteoScreen() {
           <View style={styles.cabecera}>
             <Pressable
               style={styles.iconoBtn}
-              onPress={() => { setInventario(null); setAnadiendo(false); }}
+              onPress={() => { setInventario(null); setAnadiendo(false); setSinContarAviso(null); }}
               accessibilityRole="button"
               accessibilityLabel="Volver"
             >
@@ -849,7 +939,28 @@ export default function InventarioConteoScreen() {
                 <Text style={styles.botonFotoTexto}>{`Foto (${cupo.ocupados}/6)`}</Text>
               </Pressable>
             ) : null}
+            {editable && Platform.OS === 'web' ? (
+              <Pressable
+                style={styles.botonFoto}
+                onPress={() => setDictando(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Dictar el conteo por voz"
+              >
+                <MaterialIcons name="mic" size={18} color={colors.surface} />
+                <Text style={styles.botonFotoTexto}>
+                  {audioSinEnviar > 0 ? `Dictar (${audioSinEnviar} ${audioSinEnviar === 1 ? 'pendiente' : 'pendientes'})` : 'Dictar'}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
+          {dictando ? (
+            <DictadoPanel
+              inventarioId={inventario.inventarioId}
+              onCerrar={() => setDictando(false)}
+              onAplicado={() => void abrirExistente(inventario.inventarioId)}
+              puedeDescargar={puedeGestionar && inventario.estado === 'contado'}
+            />
+          ) : null}
           {editable ? (
             <View key={`cola-${colaTick}`}>
               <Text style={styles.colaFotos}>
@@ -1011,6 +1122,21 @@ export default function InventarioConteoScreen() {
           ) : (
             <Text style={styles.aviso}>Estado: {inventario.estado}. El conteo sigue guardado.</Text>
           )}
+          {puedeGestionar && inventario.estado === 'contado' ? (
+            <Pressable
+              style={[styles.boton, descargandoExcel && styles.botonOff]}
+              disabled={descargandoExcel}
+              onPress={() => void bajarExcel()}
+              accessibilityRole="button"
+              accessibilityLabel="Descargar Excel"
+            >
+              {descargandoExcel ? (
+                <ActivityIndicator color={colors.surface} />
+              ) : (
+                <Text style={styles.botonTexto}>Descargar Excel</Text>
+              )}
+            </Pressable>
+          ) : null}
           {puedeGestionar && inventario.estado !== 'importado' ? (
             <Pressable
               style={styles.botonBorrar}
@@ -1023,6 +1149,64 @@ export default function InventarioConteoScreen() {
             </Pressable>
           ) : null}
         </View>
+        {sinContarAviso && sinContarAviso.length > 0 ? (
+          <View style={styles.avisoCapa}>
+            <View style={[styles.avisoPanel, isPhone && styles.avisoPanelMovil]}>
+              <Text style={styles.titulo}>
+                {sinContarAviso.length === 1
+                  ? 'Queda 1 producto sin contar'
+                  : `Quedan ${sinContarAviso.length} productos sin contar`}
+              </Text>
+              <Text style={styles.aviso}>
+                No se pondrán a cero. Si marcas el conteo igualmente, esas cantidades se quedan vacías.
+              </Text>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <ScrollView
+                style={styles.avisoLista}
+                contentContainerStyle={styles.avisoListaContenido}
+                keyboardShouldPersistTaps="handled"
+              >
+                {sinContarAviso.map((linea, index) => (
+                  <Text key={`${linea.productId || 'sin'}-${index}`} style={styles.avisoNombre}>
+                    {textoLineaSinContar(linea)}
+                  </Text>
+                ))}
+              </ScrollView>
+              <View style={[styles.avisoAcciones, (isPhone || shouldStackPanels) && styles.avisoAccionesApiladas]}>
+                <Pressable
+                  style={[
+                    styles.botonAnadir,
+                    isPhone || shouldStackPanels ? styles.avisoAccionPila : styles.avisoAccionFila,
+                    marcandoContado && styles.botonOff,
+                  ]}
+                  disabled={marcandoContado}
+                  onPress={() => setSinContarAviso(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Volver a contar"
+                >
+                  <Text style={styles.botonAnadirTexto}>Volver a contar</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.boton,
+                    isPhone || shouldStackPanels ? styles.avisoAccionPila : styles.avisoAccionFila,
+                    marcandoContado && styles.botonOff,
+                  ]}
+                  disabled={marcandoContado}
+                  onPress={() => void aplicarEstadoContado()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Marcar contado igualmente"
+                >
+                  {marcandoContado ? (
+                    <ActivityIndicator color={colors.surface} />
+                  ) : (
+                    <Text style={styles.botonTexto}>Marcar contado igualmente</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        ) : null}
         {ConfirmarView}
       </View>
     );
@@ -1152,7 +1336,7 @@ export default function InventarioConteoScreen() {
 }
 
 const styles = StyleSheet.create({
-  pagina: { flex: 1, backgroundColor: colors.bg },
+  pagina: { flex: 1, backgroundColor: colors.bg, position: 'relative' },
   columna: { flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center', padding: SPACING.lg },
   formularioScroll: { flex: 1, width: '100%' },
   formulario: {
@@ -1444,4 +1628,39 @@ const styles = StyleSheet.create({
   botonBorrarTexto: { fontFamily: fontFamily.semibold, fontSize: fontSizes[16], color: colors.danger },
   aviso: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.warning, marginTop: SPACING.sm },
   error: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.danger, marginBottom: SPACING.sm },
+  avisoCapa: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 40,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    padding: SPACING.lg,
+    ...(Platform.OS === 'web' ? {} : { elevation: 16 }),
+  },
+  avisoPanel: {
+    width: '100%',
+    maxWidth: 560,
+    maxHeight: '100%',
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: SPACING.lg,
+    minHeight: 0,
+  },
+  avisoPanelMovil: { maxWidth: '100%', alignSelf: 'stretch' },
+  avisoLista: { flexGrow: 0, flexShrink: 1, minHeight: 0, marginTop: SPACING.sm },
+  avisoListaContenido: { gap: SPACING.xs, paddingBottom: SPACING.xs },
+  avisoNombre: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[16],
+    color: colors.textStrong,
+    paddingVertical: 2,
+  },
+  avisoAcciones: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md },
+  avisoAccionesApiladas: { flexDirection: 'column' },
+  avisoAccionFila: { flexGrow: 1, flexBasis: 0, marginTop: 0, marginBottom: 0 },
+  avisoAccionPila: { marginTop: 0, marginBottom: 0 },
 });

@@ -21,6 +21,18 @@ const OFFICE = [
   'application/msword',
   'application/vnd.ms-excel',
 ];
+/** Grabaciones de MediaRecorder (Chrome: webm/opus; Safari: mp4) y formatos de audio comunes. */
+const AUDIO = [
+  'audio/webm',
+  'audio/ogg',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/m4a',
+  'audio/mpeg',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/wave',
+];
 
 export const PERFILES = Object.freeze({
   /** Fotos, carteles, tickets, justificantes. */
@@ -37,6 +49,18 @@ export const PERFILES = Object.freeze({
     maxBytes: 10 * MB,
     maxFicheros: 1,
   },
+  /**
+   * Audio del dictado (trozos de hasta 60 s que corta la UI). Sin dependencias no se puede medir
+   * la duración: el servidor solo limita el tamaño (25 MB, el máximo que acepta la transcripción).
+   * `multipart`: además del fichero solo viajan campos cortos (idEnvio), así que se acotan las
+   * partes y los campos para que el cuerpo no pueda inflar la memoria por otra vía.
+   */
+  audio: {
+    tipos: AUDIO,
+    maxBytes: 25 * MB,
+    maxFicheros: 1,
+    multipart: { fields: 5, fieldSize: 1024, parts: 3 },
+  },
 });
 
 const EXTENSION = {
@@ -52,6 +76,11 @@ const EXTENSION = {
   'application/msword': 'doc',
   'application/vnd.ms-excel': 'xls',
   'text/csv': 'csv',
+  'audio/webm': 'webm',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'audio/mpeg': 'mp3',
+  'audio/wav': 'wav',
 };
 
 export function extensionDeTipo(mime) {
@@ -94,6 +123,24 @@ function tipoOfficeZip(b) {
   return null;
 }
 
+/**
+ * Audio por cabecera: WebM/Matroska (EBML 1A45DFA3), Ogg (`OggS`), MP4/M4A (`ftyp` en el byte 4,
+ * después de descartar HEIC/AVIF), WAV (`RIFF....WAVE`) y MP3 (cabecera ID3v2 real: `ID3`,
+ * versión 2-4 y revisión distinta de 0xFF, para no tomar por audio un CSV que empiece por «ID3;»;
+ * o sincronía de trama MPEG con versión y capa válidas, que deja fuera el ADTS de AAC).
+ */
+function tipoAudio(b) {
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return 'audio/webm';
+  const cabeza = b.toString('latin1', 0, 4);
+  if (cabeza === 'OggS') return 'audio/ogg';
+  if (b.length >= 12 && cabeza === 'RIFF' && b.toString('latin1', 8, 12) === 'WAVE') return 'audio/wav';
+  if (b.length >= 12 && b.toString('latin1', 4, 8) === 'ftyp') return 'audio/mp4';
+  if (b.length >= 5 && cabeza.startsWith('ID3') && b[3] >= 2 && b[3] <= 4 && b[4] !== 0xff) return 'audio/mpeg';
+  const sincronia = b[0] === 0xff && (b[1] & 0xe0) === 0xe0;
+  if (sincronia && ((b[1] >> 3) & 0x03) !== 0x01 && ((b[1] >> 1) & 0x03) !== 0x00) return 'audio/mpeg';
+  return null;
+}
+
 const OLE = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
 
 /** CSV: texto (UTF-8/Latin-1) sin bytes de control ni marcas de HTML/XML. */
@@ -121,6 +168,8 @@ export function detectarTipo(buffer, nombre = '') {
   const office = tipoOfficeZip(b);
   if (office) return office;
   if (esPdfDesplazado(b)) return 'application/pdf';
+  const audio = tipoAudio(b);
+  if (audio) return audio;
   const ext = extensionDeclarada(nombre);
   if (b.length >= 8 && b.subarray(0, 8).equals(OLE)) {
     if (ext === 'doc') return 'application/msword';
@@ -223,6 +272,7 @@ export function multerPerfil(perfil, { maxBytes, maxFicheros } = {}) {
   return multer({
     storage: multer.memoryStorage(),
     limits: {
+      ...p.multipart,
       fileSize: Math.min(maxBytes || p.maxBytes, p.maxBytes),
       files: maxFicheros || p.maxFicheros,
     },

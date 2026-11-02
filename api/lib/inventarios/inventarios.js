@@ -5,6 +5,8 @@
  */
 
 import { randomUUID } from 'crypto';
+import { GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { docClient } from '../db.js';
 import {
   ESTADOS,
   TRANSICIONES,
@@ -78,11 +80,46 @@ function partir(items) {
   return { meta, vista: presentarMeta(meta, lineas) };
 }
 
+/** Ítem exacto con lectura consistente, o null. */
+async function leerClave(pk, sk) {
+  const { Item } = await docClient.send(new GetCommand({
+    TableName: tablaInventarios(),
+    Key: { PK: pk, SK: sk },
+    ConsistentRead: true,
+  }));
+  return Item || null;
+}
+
+/** Solo las LINE# de la partición: no lee fotos, lecturas ni sesiones de dictado. */
+async function leerLineas(pk) {
+  const items = [];
+  let lastKey;
+  do {
+    const r = await docClient.send(new QueryCommand({
+      TableName: tablaInventarios(),
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :p)',
+      ExpressionAttributeValues: { ':pk': pk, ':p': 'LINE#' },
+      ConsistentRead: true,
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(r.Items || []));
+    lastKey = r.LastEvaluatedKey || null;
+  } while (lastKey);
+  return items;
+}
+
 async function cargar(inventarioId) {
   const id = idSegmento(inventarioId, 'inventarioId');
-  const partido = partir(await queryPk(pkInventario(id), { consistente: true }));
-  if (!partido) throw errorInventario('Inventario no encontrado', 404);
-  return partido;
+  const pk = pkInventario(id);
+  const meta = await leerClave(pk, skMeta());
+  if (!meta) throw errorInventario('Inventario no encontrado', 404);
+  return partir([meta, ...(await leerLineas(pk))]);
+}
+
+/** LINE#<productId> tal cual está en Dynamo (con stockTeorico), o null. Uso interno del backend. */
+export async function leerLineaConteo(inventarioId, productId) {
+  const id = idSegmento(inventarioId, 'inventarioId');
+  return leerClave(pkInventario(id), skLinea(idSegmento(productId, 'productId')));
 }
 
 function exigirEditable(meta) {
@@ -91,7 +128,8 @@ function exigirEditable(meta) {
   }
 }
 
-function exigirConteo(meta, soloContar) {
+/** Mismas reglas que guardarLinea: importado → 409; quien solo cuenta, solo en borrador/contado (403). */
+export function exigirConteo(meta, soloContar) {
   exigirEditable(meta);
   if (soloContar && !ESTADOS_CONTEO.has(meta.estado)) {
     throw errorInventario('El conteo ya no se puede modificar', 403);
@@ -129,7 +167,18 @@ function lineaDesde(raw, { previa, soloContar }) {
   };
 }
 
-function itemLinea(pk, linea) {
+/**
+ * Versión de una LINE#: entero que sube en 1 en cada escritura. Las de la plantilla nacen en 1 con
+ * crearInventario; las que crea escrituraLinea (o una sin versión que escribe) parten de la hora en
+ * ms. Las líneas anteriores a este campo no lo tienen y cuentan como 0. Es interna: presentarLinea
+ * no la expone.
+ */
+export function versionLinea(item) {
+  const v = Number(item?.version);
+  return Number.isInteger(v) && v > 0 ? v : 0;
+}
+
+function itemLinea(pk, linea, version) {
   const item = {
     PK: pk,
     SK: skLinea(linea.productId),
@@ -139,6 +188,7 @@ function itemLinea(pk, linea) {
     unidad: linea.unidad,
     stockTeorico: linea.stockTeorico,
     botellasAbiertas: linea.botellasAbiertas,
+    version,
   };
   if (linea.stockReal != null) item.stockReal = linea.stockReal;
   return item;
@@ -215,7 +265,7 @@ export async function crearInventario(body, usuario) {
   }, { crear: true });
   for (const raw of lineasRaw) {
     const linea = lineaDesde({ ...raw }, { previa: null, soloContar: false });
-    await poner(itemLinea(pk, linea), { exigir: false });
+    await poner(itemLinea(pk, linea, 1), { exigir: false });
   }
   return obtenerInventario(id);
 }
@@ -303,25 +353,76 @@ export async function anotarExportacion(inventarioId, usuario, veces) {
   return obtenerInventario(meta.inventarioId);
 }
 
+const MAX_INTENTOS_LINEA = 3;
+
+/**
+ * El conflicto se debió solo a que otro escribió la línea (cambió su versión) y, sin la condición
+ * de versión, la escritura habría pasado igual: mismo estado del inventario y, para quien solo
+ * cuenta, mismo teórico. Entonces se reintenta y gana la última escritura, como antes.
+ */
+async function soloCambioLaVersion(pk, meta, previa, pid, soloContar) {
+  const [ahoraMeta, ahoraLinea] = await Promise.all([leerClave(pk, skMeta()), leerClave(pk, skLinea(pid))]);
+  return Boolean(ahoraMeta && ahoraLinea)
+    && ahoraMeta.estado === meta.estado
+    && versionLinea(ahoraLinea) !== versionLinea(previa)
+    && (!soloContar || ahoraLinea.stockTeorico === previa.stockTeorico);
+}
+
 export async function guardarLinea(inventarioId, productId, body, usuario, { soloContar = false, crear = false } = {}) {
-  const { meta } = await cargar(inventarioId);
-  exigirConteo(meta, soloContar);
-  const pid = idSegmento(productId, 'productId');
-  const pk = pkInventario(meta.inventarioId);
-  const items = await queryPk(pk, { consistente: true });
-  const previa = items.find((it) => it.SK === skLinea(pid)) || null;
-  if (crear && meta.estado !== 'borrador' && meta.estado !== 'contado') {
-    throw errorInventario('El conteo ya no se puede modificar', 403);
+  for (let intento = 1; ; intento += 1) {
+    const { meta } = await cargar(inventarioId);
+    exigirConteo(meta, soloContar);
+    const pid = idSegmento(productId, 'productId');
+    const pk = pkInventario(meta.inventarioId);
+    const previa = await leerClave(pk, skLinea(pid));
+    if (crear && meta.estado !== 'borrador' && meta.estado !== 'contado') {
+      throw errorInventario('El conteo ya no se puede modificar', 403);
+    }
+    if (previa && crear) throw errorInventario('Este producto ya está en el conteo', 409);
+    if (!previa && !crear) throw errorInventario('La línea no está en el conteo', 404);
+    const { linea, operaciones } = escrituraLinea(meta, previa, { ...body, productId: pid }, usuario, { soloContar });
+    try {
+      await transaccion(operaciones);
+      return linea;
+    } catch (err) {
+      if (err?.status !== 409 || !previa || intento >= MAX_INTENTOS_LINEA) throw err;
+      if (!(await soloCambioLaVersion(pk, meta, previa, pid, soloContar))) throw err;
+    }
   }
-  if (previa && crear) throw errorInventario('Este producto ya está en el conteo', 409);
-  if (!previa && !crear) throw errorInventario('La línea no está en el conteo', 404);
-  const linea = lineaDesde({ ...body, productId: pid }, { previa, soloContar });
+}
+
+/**
+ * Operaciones de TransactWrite que guardan una línea del conteo: Update del META (exige que
+ * siga en el mismo estado y no importado) + Put de LINE#. guardarLinea y el dictado escriben
+ * con esto, así que ambos guardan exactamente los mismos campos.
+ *
+ * Cada escritura sube `version` de LINE# en 1 y exige la versión leída en `previa`
+ * (attribute_not_exists(version) si era 0), así que dos escrituras nunca dejan la misma versión.
+ * Si no hay versión leída (línea nueva, también la recreada tras borrarLinea, o antigua sin
+ * versión) se parte de Date.now() y no de 1: el dictado compara la versión actual con
+ * `aplicado.version`, y una línea borrada y vuelta a crear no debe repetir versiones anteriores.
+ *
+ * `condicionExtra` ({ expresion, valores }) se añade con AND a la condición del Put.
+ * @returns {{ linea: ReturnType<typeof lineaDesde>, operaciones: object[], version: number }}
+ *   `version`: la que tendrá LINE# tras escribir.
+ */
+export function escrituraLinea(meta, previa, body, usuario, { soloContar = false, condicionExtra = null } = {}) {
+  const pk = pkInventario(meta.inventarioId);
+  const linea = lineaDesde(body, { previa, soloContar });
   const ahora = new Date().toISOString();
   const tabla = tablaInventarios();
-  const condicionLinea = previa
-    ? (soloContar ? 'stockTeorico = :teorico' : 'attribute_exists(PK)')
+  const leida = versionLinea(previa);
+  const version = leida > 0 ? leida + 1 : Date.now();
+  const condicionLeida = leida === 0 ? 'attribute_not_exists(#version)' : '#version = :versionLeida';
+  const base = previa
+    ? `${soloContar ? 'stockTeorico = :teorico' : 'attribute_exists(PK)'} AND ${condicionLeida}`
     : 'attribute_not_exists(PK)';
-  await transaccion([
+  const valores = {
+    ...(previa && soloContar && { ':teorico': previa.stockTeorico }),
+    ...(previa && leida > 0 && { ':versionLeida': leida }),
+    ...(condicionExtra?.valores || {}),
+  };
+  const operaciones = [
     {
       Update: {
         TableName: tabla,
@@ -339,15 +440,14 @@ export async function guardarLinea(inventarioId, productId, body, usuario, { sol
     {
       Put: {
         TableName: tabla,
-        Item: itemLinea(pk, linea),
-        ConditionExpression: condicionLinea,
-        ...(previa && soloContar && {
-          ExpressionAttributeValues: { ':teorico': previa.stockTeorico },
-        }),
+        Item: itemLinea(pk, linea, version),
+        ConditionExpression: condicionExtra ? `(${base}) AND (${condicionExtra.expresion})` : base,
+        ...(Object.keys(valores).length > 0 && { ExpressionAttributeValues: valores }),
+        ...(previa && { ExpressionAttributeNames: { '#version': 'version' } }),
       },
     },
-  ]);
-  return linea;
+  ];
+  return { linea, operaciones, version };
 }
 
 export async function borrarLinea(inventarioId, productId) {
