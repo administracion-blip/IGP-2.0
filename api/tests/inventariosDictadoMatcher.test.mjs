@@ -84,6 +84,24 @@ test('prefijo único: «Bombay» → BOMBAY SAPPHIRE sin confirmar; «818» → 
   assert.equal(t.confirmar, false);
 });
 
+test('marca con dos variantes en la plantilla: «Bombay» y «818» son ambiguos', () => {
+  const casos = [
+    ['Bombay 7', ['BOMBAY SAPPHIRE', 'BOMBAY ORIGINAL'], 7],
+    ['818 4', ['818 SILVER', '818 REPOSADO'], 4],
+  ];
+  for (const [texto, nombres, cantidad] of casos) {
+    const productos = [...PRODUCTOS.filter((p) => !p.nombre.startsWith(nombres[0].split(' ')[0])), ...solo(...nombres)];
+    for (const semilla of [ALIAS_SEMILLA, []]) {
+      const r = emparejarProducto(una(texto), { productos, semilla });
+      assert.equal(r.productId, null, texto);
+      assert.equal(r.confirmar, true, texto);
+      assert.ok(r.motivos.includes('ambiguo'), texto);
+      assert.deepEqual(ids(r).slice(0, 2).sort(), nombres.map(id).sort(), texto);
+      assert.equal(r.lectura.cantidad.total, cantidad, texto);
+    }
+  }
+});
+
 test('«Johnnie» con RED y BLACK LABEL es ambiguo', () => {
   for (const semilla of [ALIAS_SEMILLA, []]) {
     const r = emparejar('Johnnie 3', { semilla });
