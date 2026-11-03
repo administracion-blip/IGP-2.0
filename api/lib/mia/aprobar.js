@@ -21,6 +21,7 @@ import {
   updateMeta,
 } from './informes.js';
 import { normalizeWarehouseId, pkInforme, skInformeMeta } from './keys.js';
+import { MENSAJE_SIN_NUMERO, SERIE_PEDIDO_MIA, reservarNumeroPedido } from './contadorPedido.js';
 
 const SIN_PROVEEDOR = 'SIN_PROVEEDOR';
 const ESTADOS_APROBABLES = new Set(['calculado', 'revisado']);
@@ -53,29 +54,12 @@ export function parseSupplierIdAgora(proveedorId) {
 }
 
 /**
- * Serie PO: env → maestro almacén.PurchaseOrderSerie → 'MIA'.
- * @param {string} warehouseId
+ * Serie fija MIA. No usa la serie operativa del almacén ni AGORA_PURCHASE_ORDER_SERIE:
+ * un número de esa serie pisaría un pedido real.
+ * @param {string} [_warehouseId]
  */
-export async function resolvePurchaseOrderSerie(warehouseId) {
-  const fromEnv = String(process.env.AGORA_PURCHASE_ORDER_SERIE || '').trim();
-  if (fromEnv) return fromEnv;
-
-  const wid = normalizeWarehouseId(warehouseId);
-  if (wid && wid !== '000000') {
-    try {
-      const r = await docClient.send(
-        new GetCommand({
-          TableName: tables.almacenes,
-          Key: { Id: wid },
-        }),
-      );
-      const serie = String(r.Item?.PurchaseOrderSerie ?? r.Item?.purchaseOrderSerie ?? '').trim();
-      if (serie) return serie;
-    } catch {
-      // maestro opcional
-    }
-  }
-  return 'MIA';
+export async function resolvePurchaseOrderSerie(_warehouseId) {
+  return SERIE_PEDIDO_MIA;
 }
 
 /** Nombre del almacén en el maestro (Ágora exige Warehouse.Name en el import). */
@@ -469,6 +453,19 @@ export async function aprobarInformeMia(informeId, opts = {}) {
   for (const proveedorId of proveedorIds) {
     const group = porProveedor[proveedorId];
     const supplierId = parseSupplierIdAgora(proveedorId);
+    let numeroPedido;
+    try {
+      numeroPedido = await reservarNumeroPedido();
+    } catch (err) {
+      agoraResultadosNuevos.push({
+        proveedorId,
+        supplierId,
+        ok: false,
+        error: mensajeSeguro(err, MENSAJE_SIN_NUMERO),
+        lineas: group.length,
+      });
+      continue;
+    }
     let poLines;
     let payload;
     try {
@@ -490,6 +487,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
       }
       payload = buildPurchaseOrderPayload({
         serie,
+        number: numeroPedido,
         warehouseId: warehouseIdNum,
         warehouseName,
         warehouse: maestros.warehouse,

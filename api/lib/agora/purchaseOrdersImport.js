@@ -12,22 +12,16 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**
  * Number del pedido: Ágora usa Serie+Number como identidad.
- * - Si Number es inferior al último de la serie, sobrescribe ese documento.
- * - Si es superior, avanza el contador de la serie.
- * Usamos Date.now() % 1e9 como correlativo corto único-ish. Si en tu Ágora
- * se acepta omitir Number (asignación automática), preferir omitirlo para no
- * saltar el contador de la serie del almacén.
+ * El número lo reserva IGP (contador en Igp_Ajustes). No se inventa aquí:
+ * un Date.now() repetido puede sobrescribir un pedido de la misma serie.
  */
-export function nextPurchaseOrderNumber() {
-  return Date.now() % 1_000_000_000;
-}
 
 /**
  * Construye un PurchaseOrder mínimo para import.
  *
  * @param {{
  *   serie: string,
- *   number?: number|null,
+ *   number: number,
  *   warehouseId: number|string,
  *   warehouseName?: string|null,
  *   warehouse?: object|null,   maestro Ágora (export-master Warehouses)
@@ -183,13 +177,13 @@ export function buildPurchaseOrderPayload(input) {
     Lines,
   };
 
-  // Number: ver comentario de nextPurchaseOrderNumber. Si input.number === null, se omite.
-  if (input?.number !== null && input?.number !== undefined) {
-    const n = Number(input.number);
-    if (Number.isFinite(n) && n >= 0) po.Number = Math.floor(n);
-  } else if (input?.number === undefined) {
-    po.Number = nextPurchaseOrderNumber();
+  const numero = Number(input?.number);
+  if (!Number.isInteger(numero) || numero <= 0) {
+    const err = new Error('El número de pedido es obligatorio; no se envía a Ágora sin número');
+    err.status = 400;
+    throw err;
   }
+  po.Number = numero;
 
   const date = input?.date != null ? String(input.date).trim() : '';
   if (date) po.Date = date;

@@ -53,6 +53,7 @@ beforeEach(() => {
   db.crearTabla(tables.saleCenters, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.almacenes, { hashKey: 'Id' });
   db.crearTabla(tables.miaInformes, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.agoraProducts, { hashKey: 'PK', rangeKey: 'SK' });
   if (tables.miaInformeLineas !== tables.miaInformes) {
     db.crearTabla(tables.miaInformeLineas, { hashKey: 'PK', rangeKey: 'SK' });

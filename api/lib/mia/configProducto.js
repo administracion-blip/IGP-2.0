@@ -28,10 +28,16 @@ export const CONFIG_PRESERVE_KEYS = [
   'notas',
   'plazoProveedorDias',
   'frecuenciaPedidoDias',
+  'maximo',
+  'purchaseUnitId',
+  'purchaseUnitName',
 ];
 
 /** Días de plazo/frecuencia por producto: vacío o null los quita (se usa el del proveedor). */
 const CAMPOS_DIAS = ['plazoProveedorDias', 'frecuenciaPedidoDias'];
+
+/** Textos de la unidad de compra: vacío los quita. */
+const CAMPOS_UNIDAD = ['purchaseUnitId', 'purchaseUnitName'];
 
 export async function getConfigProducto(warehouseId, productId) {
   const PK = pkWarehouse(warehouseId);
@@ -109,6 +115,29 @@ export async function upsertConfigProducto(input) {
       throw Object.assign(new Error(`${key} debe ser un número de días ≥ 0`), { status: 400 });
     }
     Item[key] = n;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'maximo')) {
+    const raw = input.maximo;
+    if (raw === null || raw === undefined || raw === '') {
+      delete Item.maximo;
+    } else {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) {
+        throw Object.assign(new Error('maximo debe ser un número ≥ 0'), { status: 400 });
+      }
+      Item.maximo = n;
+    }
+  }
+
+  for (const key of CAMPOS_UNIDAD) {
+    if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
+    const raw = input[key];
+    if (raw === null || raw === undefined || String(raw).trim() === '') {
+      delete Item[key];
+      continue;
+    }
+    Item[key] = String(raw).trim().slice(0, 80);
   }
 
   if (Item.activo === undefined) Item.activo = existing.activo !== false;

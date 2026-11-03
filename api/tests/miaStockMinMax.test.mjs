@@ -26,7 +26,7 @@ const {
 } = await import('../lib/mia/demanda.js');
 const { buildLineaPedido } = await import('../lib/mia/motor.js');
 const { recalcTotales } = await import('../lib/mia/informes.js');
-const { upsertConfigProducto, CONFIG_PRESERVE_KEYS } = await import('../lib/mia/configProducto.js');
+const { upsertConfigProducto, mergeStockIntoItem, CONFIG_PRESERVE_KEYS } = await import('../lib/mia/configProducto.js');
 const {
   PK_MIA_PROVEEDORES,
   claveProveedor,
@@ -255,6 +255,47 @@ test('config de producto: plazo y frecuencia se guardan, se validan y vacío los
   });
   assert.equal(sinPlazo.plazoProveedorDias, undefined);
   assert.equal(sinPlazo.frecuenciaPedidoDias, 7, 'el campo que no viene se conserva');
+});
+
+test('máximo y unidad de compra se guardan y el sync de stock no los pisa', async () => {
+  assert.ok(CONFIG_PRESERVE_KEYS.includes('maximo'));
+  assert.ok(CONFIG_PRESERVE_KEYS.includes('purchaseUnitId'));
+
+  const db = crearDynamoMemoria();
+  db.crearTabla(tables.miaConfigProducto, { hashKey: 'PK', rangeKey: 'SK' });
+  db.instalar(docClient);
+
+  const item = await upsertConfigProducto({
+    warehouseId: '101',
+    productId: '501',
+    maximo: '24',
+    purchaseUnitId: '185',
+    purchaseUnitName: 'Botella 1L',
+    proveedorId: '42',
+    proveedorNombre: 'Distribuciones Costa',
+    formatoCompra: 6,
+  });
+  assert.equal(item.maximo, 24);
+  assert.equal(item.purchaseUnitId, '185');
+  assert.equal(item.purchaseUnitName, 'Botella 1L');
+  assert.equal(item.proveedorId, '42');
+
+  await assert.rejects(
+    upsertConfigProducto({ warehouseId: '101', productId: '501', maximo: -1 }),
+    (err) => err.status === 400,
+  );
+
+  const fusion = mergeStockIntoItem(item, {
+    warehouseId: '101',
+    productId: '501',
+    quantity: 3,
+    stockSyncedAt: '2026-11-03T00:00:00.000Z',
+  });
+  assert.equal(fusion.Quantity, 3);
+  assert.equal(fusion.maximo, 24);
+  assert.equal(fusion.purchaseUnitName, 'Botella 1L');
+  assert.equal(fusion.formatoCompra, 6);
+  assert.equal(fusion.proveedorId, '42');
 });
 
 test('config de proveedor: Igp_Ajustes con PK mia_proveedores y SK = id sin ceros', async () => {

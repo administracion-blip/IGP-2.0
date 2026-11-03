@@ -104,6 +104,7 @@ beforeEach(() => {
   db.crearTabla(tables.miaInformes, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.miaInformeLineas, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.agoraProducts, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
   db.instalar(docClient);
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#SuperUser', SK: 'PERMISO#mia.aprobar' });
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Direccion', SK: 'PERMISO#mia.aprobar' });
@@ -134,6 +135,7 @@ test('la línea tiene la forma del export (PCFI 2757), con la unidad de compra d
     serie: 'MIA',
     warehouseId: 1,
     supplierId: 20,
+    number: 1,
     lines: [
       { productId: '6740', productName: '  vaso plastico conico ', orderedQuantity: 1, price: 0.92, ...CAJA, ...IVA_LINEA },
       { productId: 100, productName: 'Agua', orderedQuantity: 1, price: 1, ...CAJA, ...IVA_LINEA },
@@ -166,6 +168,7 @@ test('sin impuesto el payload falla y no se llama a Ágora', () => {
       serie: 'MIA',
       warehouseId: 1,
       supplierId: 20,
+      number: 1,
       lines: [{ productId: 6740, productName: 'vaso', orderedQuantity: 1, price: 0.92, ...CAJA }],
     }),
     (err) => err.status === 400 && /no tiene impuesto/.test(err.message),
@@ -178,6 +181,7 @@ test('sin unidad de compra el payload falla y no se llama a Ágora', () => {
       serie: 'MIA',
       warehouseId: 1,
       supplierId: 20,
+      number: 1,
       lines: [{ productId: 6740, productName: 'vaso', orderedQuantity: 1, price: 0.92, ...IVA_LINEA }],
     }),
     (err) => err.status === 400 && /unidad de compra/.test(err.message),
@@ -190,6 +194,7 @@ test('sin nombre de producto el payload falla y no hay nada que enviar a Ágora'
       serie: 'MIA',
       warehouseId: 1,
       supplierId: 20,
+      number: 1,
       lines: [{ productId: 2736, orderedQuantity: 7, price: 0.92 }],
     }),
     (err) => err.status === 400 && /no tiene nombre/.test(err.message),
@@ -265,4 +270,64 @@ test('Administrador puede confirmar sin fila de permiso', async () => {
   const r = await api('POST', '/api/mia/informes/inf-1/aprobar', { statusAgora: 'Confirmed' }, ADMIN);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(llamadasAgora[0].PurchaseOrders[0].Status, 'Confirmed');
+});
+
+test('sin número el payload no se construye', () => {
+  assert.throws(
+    () => buildPurchaseOrderPayload({
+      serie: 'MIA',
+      warehouseId: 1,
+      supplierId: 20,
+      lines: [{ productId: 1, productName: 'Agua', orderedQuantity: 1, ...CAJA, ...IVA_LINEA }],
+    }),
+    (err) => err.status === 400 && /sin número/.test(err.message),
+  );
+});
+
+function segundoInforme() {
+  db.sembrar(tables.miaInformes, {
+    PK: 'INFORME#inf-2', SK: 'META', informeId: 'inf-2', WarehouseId: '000101', estado: 'calculado',
+  });
+  db.sembrar(tables.miaInformeLineas, {
+    PK: 'INFORME#inf-2', SK: 'LINE#00042#502', informeId: 'inf-2', proveedorId: '00042', proveedorNombre: 'Bebidas SL', productId: '502', nombre: 'Agua', qty: 1, cantidadPedida: 1, costeUnitario: 1, purchaseUnitId: '185', unit: 'caja 25 ud.',
+  });
+  db.sembrar(tables.agoraProducts, { PK: 'GLOBAL', SK: '502', Id: 502, Name: 'Agua', VatId: 3 });
+}
+
+test('dos aprobaciones seguidas no repiten número', async () => {
+  segundoInforme();
+  const a = await api('POST', '/api/mia/informes/inf-1/aprobar', {});
+  const b = await api('POST', '/api/mia/informes/inf-2/aprobar', {});
+  assert.equal(a.status, 200, JSON.stringify(a.body));
+  assert.equal(b.status, 200, JSON.stringify(b.body));
+  const numeros = llamadasAgora.map((c) => c.PurchaseOrders[0].Number);
+  assert.deepEqual(numeros, [1, 2]);
+  assert.equal(llamadasAgora[0].PurchaseOrders[0].Serie, 'MIA');
+});
+
+test('dos aprobaciones en paralelo no repiten número', async () => {
+  segundoInforme();
+  const [a, b] = await Promise.all([
+    api('POST', '/api/mia/informes/inf-1/aprobar', {}),
+    api('POST', '/api/mia/informes/inf-2/aprobar', {}),
+  ]);
+  assert.equal(a.status, 200, JSON.stringify(a.body));
+  assert.equal(b.status, 200, JSON.stringify(b.body));
+  const numeros = llamadasAgora.map((c) => c.PurchaseOrders[0].Number).sort((x, y) => x - y);
+  assert.deepEqual(numeros, [1, 2]);
+});
+
+test('si el contador no puede reservar número, ese proveedor no se envía a Ágora', async () => {
+  for (let i = 0; i < 5; i += 1) {
+    db.interceptar('UpdateCommand', tables.ajustes, () => {
+      const err = new Error('The conditional request failed');
+      err.name = 'ConditionalCheckFailedException';
+      throw err;
+    });
+  }
+  const r = await api('POST', '/api/mia/informes/inf-1/aprobar', {});
+  assert.equal(r.status, 502, JSON.stringify(r.body));
+  assert.equal(llamadasAgora.length, 0);
+  assert.match(JSON.stringify(r.body.agoraResultados), /número de pedido/);
+  assert.equal(meta().estado, 'calculado');
 });
