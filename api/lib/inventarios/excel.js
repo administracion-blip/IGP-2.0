@@ -7,7 +7,7 @@
 import ExcelJS from 'exceljs';
 import { stockContado } from './diferencia.js';
 
-const CABECERAS = [
+export const CABECERAS = [
   'Id',
   'Familia',
   'Nombre',

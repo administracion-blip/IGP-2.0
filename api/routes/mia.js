@@ -48,8 +48,27 @@ import { requireLocal, desde } from '../middleware/alcance.js';
 import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLecturas.js';
 import { permiteAlmacen, permiteLecturaAlmacen } from '../lib/alcanceAlmacenes.js';
+import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
+import { crearConteoStock } from '../lib/mia/conteoStock.js';
+import {
+  MAX_EXCEL_CONTEO_BYTES,
+  MENSAJE_NO_XLSX,
+  prepararLineasConteo,
+} from '../lib/mia/importarExcel.js';
 
 const router = Router();
+
+const subirExcelConteo = multerPerfil('hoja', { maxBytes: MAX_EXCEL_CONTEO_BYTES }).single('fichero');
+
+function recibirExcelConteo(req, res, next) {
+  subirExcelConteo(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'El archivo supera el tamaño máximo (5 MB)' });
+    }
+    return res.status(400).json({ error: err.message || MENSAJE_NO_XLSX });
+  });
+}
 
 function sinAcceso(res) {
   return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
@@ -62,6 +81,69 @@ async function permiteInforme(req, id) {
   if (!meta) return true;
   return permiteAlmacen(req, meta.WarehouseId ?? meta.warehouseId);
 }
+
+// ─── Importar Excel de conteo (stock máximo; sin previsión todavía) ─────────
+
+router.post(
+  '/mia/conteos/importar',
+  requirePermission('mia.calcular'),
+  recibirExcelConteo,
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
+    try {
+      comprobarArchivo(req.file, 'hoja', { maxBytes: MAX_EXCEL_CONTEO_BYTES });
+    } catch (err) {
+      const tamano = /tamaño máximo/.test(String(err?.message || ''));
+      return res.status(400).json({ error: tamano ? err.message : MENSAJE_NO_XLSX });
+    }
+    if (req.file.extDetectada !== 'xlsx') {
+      return res.status(400).json({ error: MENSAJE_NO_XLSX });
+    }
+
+    const warehouseId = normalizeWarehouseId(req.body?.warehouseId);
+    if (!warehouseId || warehouseId === '000000') {
+      return res.status(400).json({ error: 'warehouseId es obligatorio' });
+    }
+    if (!(await permiteAlmacen(req, warehouseId))) return sinAcceso(res);
+
+    try {
+      const preparado = await prepararLineasConteo(req.file.buffer);
+      const guardado = await crearConteoStock({
+        warehouseId,
+        semanasDesde: req.body?.semanasDesde,
+        semanasHasta: req.body?.semanasHasta,
+        ficheroNombre: req.file.originalname || null,
+        lineas: preparado.lineas,
+        lineasLeidas: preparado.lineasLeidas,
+        idsDesconocidos: preparado.desconocidos,
+        duplicados: preparado.duplicados,
+      });
+      return res.status(201).json({
+        ok: true,
+        informeId: guardado.meta.informeId,
+        ficheroNombre: guardado.meta.ficheroNombre,
+        lineasLeidas: guardado.meta.lineasLeidas,
+        lineasGuardadas: guardado.lineas.length,
+        lineasContadas: preparado.lineasContadas,
+        desconocidos: preparado.desconocidos,
+        duplicados: preparado.duplicados,
+        avisoDuplicados: preparado.duplicados.length
+          ? `Hay Ids repetidos; se usa la primera fila y no se suman: ${preparado.duplicados.join(', ')}`
+          : null,
+        multiplicador: guardado.meta.multiplicador,
+        previsionImporte: guardado.meta.previsionImporte,
+      });
+    } catch (err) {
+      return responderError(res, err, {
+        mensaje: 'No se pudo importar el Excel',
+        extra: {
+          ...(err?.desconocidos ? { desconocidos: err.desconocidos } : {}),
+          ...(err?.duplicados ? { duplicados: err.duplicados } : {}),
+        },
+      });
+    }
+  },
+);
 
 // ─── Sync status ─────────────────────────────────────────────────────────────
 
