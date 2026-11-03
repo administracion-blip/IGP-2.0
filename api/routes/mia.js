@@ -51,6 +51,7 @@ import { permiteAlmacen, permiteLecturaAlmacen } from '../lib/alcanceAlmacenes.j
 import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
 import { crearConteoStock } from '../lib/mia/conteoStock.js';
 import { calcularConteo, simularConteo } from '../lib/mia/calculoStock.js';
+import { guardarLineasStockMaximo, listarVistaStockMaximo, sanearConfigStock } from '../lib/mia/stockMaximo.js';
 import {
   MAX_EXCEL_CONTEO_BYTES,
   MENSAJE_NO_XLSX,
@@ -300,10 +301,42 @@ router.put('/mia/config', requirePermission('mia.configurar'), async (req, res) 
   }
   if (!(await permiteAlmacen(req, wid))) return sinAcceso(res);
   try {
-    const item = await upsertConfigProducto(body);
+    const saneado = await sanearConfigStock(body);
+    const item = await upsertConfigProducto(saneado);
     res.json({ ok: true, item });
   } catch (err) {
     return responderError(res, err, { mensaje: 'No se pudo guardar' });
+  }
+});
+
+router.get('/mia/stock-maximo', requirePermission('mia.ver'), async (req, res) => {
+  const wid = normalizeWarehouseId(req.query.warehouseId);
+  if (!wid || wid === '000000') return res.status(400).json({ error: 'warehouseId es obligatorio' });
+  if (!(await permiteAlmacen(req, wid))) return sinAcceso(res);
+  try {
+    const vista = await listarVistaStockMaximo(wid, {
+      familia: req.query.familia,
+      sinMaximo: req.query.sinMaximo === '1' || req.query.sinMaximo === 'true',
+      q: req.query.q,
+      offset: req.query.offset,
+      limit: req.query.limit,
+    });
+    return res.json(vista);
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudo cargar el stock máximo' });
+  }
+});
+
+router.put('/mia/stock-maximo', requirePermission('mia.configurar'), async (req, res) => {
+  const body = req.body || {};
+  const wid = normalizeWarehouseId(body.warehouseId);
+  if (!wid || wid === '000000') return res.status(400).json({ error: 'warehouseId es obligatorio' });
+  if (!(await permiteAlmacen(req, wid))) return sinAcceso(res);
+  try {
+    const guardadas = await guardarLineasStockMaximo(wid, body.lineas);
+    return res.json({ ok: true, guardados: guardadas.length });
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudo guardar el stock máximo' });
   }
 });
 
