@@ -15,7 +15,7 @@ import { listInformeLineas, listInformesByWarehouse } from './informes.js';
 import { normalizeProductId, normalizeWarehouseId, pkInforme, skInformeLinea } from './keys.js';
 
 export const TIPO_CONTEO = 'stock_maximo';
-export const ESTADOS_PEDIDO = ['generado', 'pedido', 'confirmado'];
+export const ESTADOS_PEDIDO = ['generado', 'enviando', 'pedido', 'confirmado'];
 export const MENSAJE_RECALCULO_BLOQUEADO = 'No se puede recalcular: hay un pedido de proveedor en Pedido o Confirmado';
 export const MENSAJE_CANTIDAD_NEGATIVA = 'La cantidad no puede ser negativa';
 export const MENSAJE_CANTIDAD = 'La cantidad tiene que ser un número ≥ 0';
@@ -24,7 +24,8 @@ export const MENSAJE_MAXIMO_FINAL_NEGATIVO = 'El máximo final no puede ser nega
 export const MENSAJE_MAXIMO_FINAL = 'El máximo final tiene que ser un número ≥ 0';
 
 const SIGUIENTE = {
-  generado: new Set(['pedido', 'confirmado']),
+  generado: new Set(['enviando', 'pedido', 'confirmado']),
+  enviando: new Set(['generado', 'pedido', 'confirmado']),
   pedido: new Set(['confirmado']),
   confirmado: new Set(),
 };
@@ -322,6 +323,7 @@ export function estadoDeConteo(pedidos) {
   if (!estados.length || estados.every((e) => e === 'generado')) return 'generado';
   if (estados.every((e) => e === 'confirmado')) return 'confirmado';
   if (estados.every((e) => e === 'pedido' || e === 'confirmado')) return 'pedido';
+  if (estados.every((e) => e === 'enviando')) return 'enviando';
   return 'mixto';
 }
 

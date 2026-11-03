@@ -19,6 +19,7 @@ export type LineaConteo = {
   cantidadCalculada: number;
   maximoCalculado: number | null;
   cantidadPedida: number | null;
+  costeUnitario?: number | null;
 };
 
 export type BorradorLinea = {
@@ -39,10 +40,14 @@ type Props = {
   errores: Record<string, string>;
   pedidos: PedidoProveedor[];
   puedeEditar: boolean;
+  puedeAprobar: boolean;
+  puedeConfirmar: boolean;
+  aprobando: boolean;
   enTarjetas: boolean;
   onCambio: (clave: string, campo: 'cantidad' | 'maximo', valor: string) => void;
   onQuitar: (clave: string) => void;
   onRestaurar: (clave: string) => void;
+  onAprobar: (proveedorId: string, confirmed: boolean) => void;
 };
 
 const TEXTO = '#0f172a';
@@ -56,6 +61,7 @@ export function claveLinea(linea: { proveedorId: string; productId: string }) {
 
 const ESTADO: Record<string, string> = {
   generado: 'Generado',
+  enviando: 'Enviando',
   pedido: 'Pedido',
   confirmado: 'Confirmado',
   mixto: 'Mixto',
@@ -83,10 +89,14 @@ export function ConteoEditor({
   errores,
   pedidos,
   puedeEditar,
+  puedeAprobar,
+  puedeConfirmar,
+  aprobando,
   enTarjetas,
   onCambio,
   onQuitar,
   onRestaurar,
+  onAprobar,
 }: Props) {
   const grupos = new Map<string, LineaConteo[]>();
   for (const linea of lineas) {
@@ -159,6 +169,28 @@ export function ConteoEditor({
           <Text style={styles.grupoNombre}>{pedido?.proveedorNombre || filas[0]?.proveedorNombre || proveedorId}</Text>
           <Text style={styles.grupoEstado}>{ESTADO[pedido?.estado || 'generado'] || pedido?.estado}</Text>
           <Text style={styles.grupoTotal}>{formatoUnidades(subtotal)} uds</Text>
+          {puedeAprobar && (pedido?.estado || 'generado') === 'generado' ? (
+            <View style={styles.aprobar}>
+              <Pressable
+                style={styles.accion}
+                disabled={aprobando}
+                onPress={() => onAprobar(proveedorId, false)}
+                accessibilityRole="button"
+              >
+                <Text style={styles.accionTexto}>Aprobar</Text>
+              </Pressable>
+              {puedeConfirmar ? (
+                <Pressable
+                  style={styles.accion}
+                  disabled={aprobando}
+                  onPress={() => onAprobar(proveedorId, true)}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.accionTexto}>Confirmar</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
         </View>
         {celdas}
       </View>
@@ -264,6 +296,7 @@ const styles = StyleSheet.create({
   },
   inputError: { borderColor: ROJO },
   inputOff: { backgroundColor: '#f8fafc', color: SECUNDARIO },
+  aprobar: { flexDirection: 'row', gap: SPACING.xs },
   acciones: { flexDirection: 'row', gap: SPACING.xs },
   accion: { minHeight: MIN_TOUCH, justifyContent: 'center', paddingHorizontal: 8 },
   accionTexto: { color: ROSA, fontWeight: '700' },

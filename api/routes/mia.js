@@ -49,6 +49,7 @@ import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLecturas.js';
 import { permiteAlmacen, permiteLecturaAlmacen } from '../lib/alcanceAlmacenes.js';
 import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
+import { aprobarPedidoProveedor } from '../lib/mia/aprobarConteo.js';
 import { crearConteoStock, guardarLineasConteo, leerConteo, listarConteos } from '../lib/mia/conteoStock.js';
 import { calcularConteo, simularConteo, sumarPrevisionRango } from '../lib/mia/calculoStock.js';
 import { borrarTramosPropios, elegirTramo, guardarTramos, vistaTramos } from '../lib/mia/tramos.js';
@@ -196,6 +197,31 @@ router.put('/mia/conteos/:id/lineas', requirePermission('mia.calcular'), async (
         ...(err?.productId ? { productId: err.productId } : {}),
         ...(err?.proveedorId ? { proveedorId: err.proveedorId } : {}),
       },
+    });
+  }
+});
+
+router.post('/mia/conteos/:id/proveedores/:proveedorId/aprobar', requirePermission('mia.aprobar'), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  const proveedorId = String(req.params.proveedorId || '').trim();
+  if (!id || !proveedorId) return res.status(400).json({ error: 'Faltan el conteo o el proveedor' });
+  if (!(await permiteInforme(req, id))) return sinAcceso(res);
+  const pideConfirmado = String(req.body?.statusAgora ?? '').trim() === 'Confirmed';
+  if (pideConfirmado && !req.isInternal && !(await hasPermission(req.user, 'mia.confirmar_agora'))) {
+    return res.status(403).json({
+      ok: false,
+      error: 'No tienes permiso para enviar el pedido a Ágora como confirmado; apruébalo como borrador',
+    });
+  }
+  try {
+    const result = await aprobarPedidoProveedor(id, proveedorId, {
+      statusAgora: pideConfirmado ? 'Confirmed' : 'Draft',
+    });
+    return res.json(result);
+  } catch (err) {
+    return responderError(res, err, {
+      mensaje: 'No se pudo aprobar el pedido',
+      extra: Array.isArray(err?.lineas) ? { lineas: err.lineas } : {},
     });
   }
 });

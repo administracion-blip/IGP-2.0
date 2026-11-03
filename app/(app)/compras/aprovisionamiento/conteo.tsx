@@ -63,6 +63,7 @@ const TEXTO = '#0f172a';
 const SECUNDARIO = '#64748b';
 const ESTADO: Record<string, string> = {
   generado: 'Generado',
+  enviando: 'Enviando',
   pedido: 'Pedido',
   confirmado: 'Confirmado',
   mixto: 'Mixto',
@@ -132,6 +133,8 @@ export default function ConteoScreen() {
   const { confirmar, ConfirmarView } = useConfirmar();
   const puedeVer = hasPermiso('mia.ver');
   const puedeCalcular = hasPermiso('mia.calcular');
+  const puedeAprobar = hasPermiso('mia.aprobar');
+  const puedeConfirmar = hasPermiso('mia.confirmar_agora');
 
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [warehouseId, setWarehouseId] = useState('');
@@ -145,6 +148,7 @@ export default function ConteoScreen() {
   const [cargando, setCargando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [importando, setImportando] = useState(false);
+  const [aprobando, setAprobando] = useState(false);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const salirLibre = useRef(false);
@@ -450,6 +454,113 @@ export default function ConteoScreen() {
     }
   }, [conteo, confirmarSiSucio, cargarConteo, warehouseId, cargarLista]);
 
+  const euros = (n: number) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
+
+  const fichaProveedor = useCallback((proveedorId: string) => {
+    const pedido = conteo?.pedidos.find((p) => p.proveedorId === proveedorId);
+    const lineas = (conteo?.lineas || []).filter((ln) => ln.proveedorId === proveedorId && !ln.omitida);
+    let importe = 0;
+    let sinPrecio = false;
+    for (const ln of lineas) {
+      const qty = Number(ln.cantidadPedida);
+      const precio = Number(ln.costeUnitario);
+      if (!Number.isFinite(precio)) sinPrecio = true;
+      else if (Number.isFinite(qty)) importe += qty * precio;
+    }
+    const dinero = sinPrecio && importe === 0 ? 'sin precio' : euros(importe);
+    return {
+      proveedorId,
+      nombre: pedido?.proveedorNombre || lineas[0]?.proveedorNombre || proveedorId,
+      lineas: lineas.length,
+      texto: `${pedido?.proveedorNombre || proveedorId}: ${lineas.length} línea${lineas.length === 1 ? '' : 's'} · ${dinero}`,
+    };
+  }, [conteo]);
+
+  const enviarProveedor = useCallback(async (proveedorId: string, confirmed: boolean) => {
+    if (!conteo) return { ok: false, error: 'No hay conteo' };
+    const r = await apiFetch(
+      `/api/mia/conteos/${encodeURIComponent(conteo.informeId)}/proveedores/${encodeURIComponent(proveedorId)}/aprobar`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(confirmed ? { statusAgora: 'Confirmed' } : {}),
+      },
+    );
+    const data = await r.json();
+    if (!r.ok) {
+      const detalle = Array.isArray(data.lineas)
+        ? data.lineas.map((ln: { nombre?: string; error?: string }) => `${ln.nombre}: ${ln.error}`).join('. ')
+        : '';
+      return { ok: false, error: detalle || data.error || 'No se pudo enviar' };
+    }
+    return { ok: true, error: '' };
+  }, [conteo]);
+
+  const aprobarUno = useCallback(async (proveedorId: string, confirmed: boolean) => {
+    if (!conteo) return;
+    if (sucioRef.current) {
+      setError('Guarda los cambios antes de aprobar.');
+      return;
+    }
+    const ficha = fichaProveedor(proveedorId);
+    const modo = confirmed ? 'Confirmed' : 'borrador';
+    const ok = await confirmar(
+      confirmed ? 'Confirmar en Ágora' : 'Aprobar pedido',
+      `${ficha.texto}\nSe envía como ${modo}.`,
+      { confirmarLabel: confirmed ? 'Confirmar' : 'Aprobar', variant: 'danger' },
+    );
+    if (!ok) return;
+    setAprobando(true);
+    setError('');
+    setAviso('');
+    try {
+      const resultado = await enviarProveedor(proveedorId, confirmed);
+      if (!resultado.ok) setError(`${ficha.nombre}: ${resultado.error}`);
+      else setAviso(`${ficha.nombre} enviado como ${modo}`);
+      await cargarConteo(conteo.informeId);
+      void cargarLista(warehouseId);
+    } finally {
+      setAprobando(false);
+    }
+  }, [conteo, fichaProveedor, confirmar, enviarProveedor, cargarConteo, cargarLista, warehouseId]);
+
+  const aprobarTodos = useCallback(async () => {
+    if (!conteo) return;
+    if (sucioRef.current) {
+      setError('Guarda los cambios antes de aprobar.');
+      return;
+    }
+    const pendientes = conteo.pedidos.filter((p) => p.estado === 'generado');
+    if (!pendientes.length) return;
+    const fichas = pendientes.map((p) => fichaProveedor(p.proveedorId));
+    const ok = await confirmar(
+      'Aprobar todos',
+      `Se envían como borrador, uno a uno:\n${fichas.map((f) => f.texto).join('\n')}`,
+      { confirmarLabel: 'Aprobar todos', variant: 'danger' },
+    );
+    if (!ok) return;
+    setAprobando(true);
+    setError('');
+    setAviso('');
+    const enviados: string[] = [];
+    const fallidos: string[] = [];
+    try {
+      for (const ficha of fichas) {
+        const resultado = await enviarProveedor(ficha.proveedorId, false);
+        if (resultado.ok) enviados.push(ficha.nombre);
+        else fallidos.push(`${ficha.nombre}: ${resultado.error}`);
+      }
+      const partes = [];
+      if (enviados.length) partes.push(`Enviados: ${enviados.join(', ')}`);
+      if (fallidos.length) partes.push(`Fallaron: ${fallidos.join(' · ')}`);
+      setAviso(partes.join('. ') || 'No se envió ningún pedido');
+      await cargarConteo(conteo.informeId);
+      void cargarLista(warehouseId);
+    } finally {
+      setAprobando(false);
+    }
+  }, [conteo, fichaProveedor, confirmar, enviarProveedor, cargarConteo, cargarLista, warehouseId]);
+
   if (!puedeVer) {
     return (
       <View style={styles.centro}>
@@ -553,20 +664,32 @@ export default function ConteoScreen() {
                   {sucio === 0 ? 'Sin cambios pendientes' : `${sucio} cambio${sucio === 1 ? '' : 's'} sin guardar`}
                   {` · ${conteo.lineasContadas} contadas`}
                 </Text>
-                {puedeCalcular ? (
+                {(puedeCalcular || puedeAprobar) ? (
                   <View style={[styles.acciones, isPhone && styles.accionesPila]}>
-                    <BotonPrincipal
-                      titulo="Calcular"
-                      onPress={() => { void calcular(); }}
-                      disabled={!conteo.editable || guardando}
-                      estado={guardando ? 'enviando' : 'idle'}
-                    />
-                    <BotonPrincipal
-                      titulo={sucio > 0 ? `Guardar (${sucio})` : 'Guardar'}
-                      onPress={() => { void guardar(); }}
-                      disabled={!puedeEditar || sucio === 0 || hayError || guardando}
-                      estado={guardando ? 'enviando' : 'idle'}
-                    />
+                    {puedeCalcular ? (
+                      <BotonPrincipal
+                        titulo="Calcular"
+                        onPress={() => { void calcular(); }}
+                        disabled={!conteo.editable || guardando || aprobando}
+                        estado={guardando ? 'enviando' : 'idle'}
+                      />
+                    ) : null}
+                    {puedeAprobar && conteo.pedidos.some((p) => p.estado === 'generado') ? (
+                      <BotonPrincipal
+                        titulo="Aprobar todos"
+                        onPress={() => { void aprobarTodos(); }}
+                        disabled={aprobando || sucio > 0}
+                        estado={aprobando ? 'enviando' : 'idle'}
+                      />
+                    ) : null}
+                    {puedeCalcular ? (
+                      <BotonPrincipal
+                        titulo={sucio > 0 ? `Guardar (${sucio})` : 'Guardar'}
+                        onPress={() => { void guardar(); }}
+                        disabled={!puedeEditar || sucio === 0 || hayError || guardando}
+                        estado={guardando ? 'enviando' : 'idle'}
+                      />
+                    ) : null}
                   </View>
                 ) : (
                   <Text style={styles.nota}>Solo lectura</Text>
@@ -583,10 +706,14 @@ export default function ConteoScreen() {
               errores={erroresVista}
               pedidos={conteo.pedidos}
               puedeEditar={puedeEditar}
+              puedeAprobar={puedeAprobar}
+              puedeConfirmar={puedeConfirmar}
+              aprobando={aprobando}
               enTarjetas={isPhone}
               onCambio={onCambio}
               onQuitar={onQuitar}
               onRestaurar={onRestaurar}
+              onAprobar={(proveedorId, confirmed) => { void aprobarUno(proveedorId, confirmed); }}
             />
           </View>
         ) : null}

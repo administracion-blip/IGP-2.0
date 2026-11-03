@@ -6,7 +6,8 @@
 import { QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { exportPurchaseOrders } from '../agora/client.js';
-import { listInformeLineas } from './informes.js';
+import { TIPO_CONTEO } from './conteoStock.js';
+import { listInformeLineas, listInformesByWarehouse } from './informes.js';
 import { normalizeWarehouseId, pkInforme, skInformeLinea } from './keys.js';
 
 const GSI_WAREHOUSE = 'WarehouseId-CreadoEn-index';
@@ -121,6 +122,44 @@ async function listarAprobados(warehouseId, maxInformes) {
   return items.slice(0, maxInformes).filter((it) => ESTADOS_CON_PEDIDO.has(String(it.estado || '')));
 }
 
+/** Hijos de un conteo de stock máximo que ya tienen pedido en Ágora. */
+async function pedidosHijosConteo(warehouseId, maxInformes) {
+  const metas = (await listInformesByWarehouse(warehouseId, { limit: maxInformes }))
+    .filter((it) => it.SK === 'META' && it.tipo === TIPO_CONTEO);
+  const out = [];
+  for (const meta of metas) {
+    const informeId = String(meta.informeId || '').trim();
+    if (!informeId) continue;
+    const items = [];
+    let lastKey = null;
+    do {
+      const r = await docClient.send(new QueryCommand({
+        TableName: tableInformes(),
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :pref)',
+        ExpressionAttributeValues: { ':pk': pkInforme(informeId), ':pref': 'PROV#' },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(r.Items || []));
+      lastKey = r.LastEvaluatedKey || null;
+    } while (lastKey);
+    for (const hijo of items) {
+      if (hijo.estado !== 'pedido' && hijo.estado !== 'confirmado') continue;
+      const serie = String(hijo.serie || '').trim();
+      const number = hijo.number;
+      if (!serie || number == null || String(number).trim() === '') continue;
+      const date = String(hijo.fecha || '').slice(0, 10);
+      out.push({
+        informeId,
+        proveedorId: String(hijo.proveedorId),
+        serie,
+        number: String(number),
+        date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '',
+      });
+    }
+  }
+  return out;
+}
+
 async function guardarEntregada(informeId, proveedorId, productId, qty) {
   try {
     await docClient.send(
@@ -174,6 +213,16 @@ export async function syncEntregasAlmacen(warehouseId, opts = {}) {
       lista.push({ informeId, ...p });
       porDia.set(dia, lista);
     }
+  }
+
+  for (const hijo of await pedidosHijosConteo(wid, maxInformes)) {
+    if (!hijo.date) {
+      sinFecha += 1;
+      continue;
+    }
+    const lista = porDia.get(hijo.date) || [];
+    lista.push(hijo);
+    porDia.set(hijo.date, lista);
   }
 
   const dias = [...porDia.keys()].sort((a, b) => b.localeCompare(a)).slice(0, maxDias);
