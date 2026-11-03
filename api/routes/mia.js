@@ -49,7 +49,7 @@ import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLecturas.js';
 import { permiteAlmacen, permiteLecturaAlmacen } from '../lib/alcanceAlmacenes.js';
 import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
-import { crearConteoStock } from '../lib/mia/conteoStock.js';
+import { crearConteoStock, guardarLineasConteo, leerConteo, listarConteos } from '../lib/mia/conteoStock.js';
 import { calcularConteo, simularConteo, sumarPrevisionRango } from '../lib/mia/calculoStock.js';
 import { borrarTramosPropios, elegirTramo, guardarTramos, vistaTramos } from '../lib/mia/tramos.js';
 import { guardarLineasStockMaximo, listarVistaStockMaximo, sanearConfigStock } from '../lib/mia/stockMaximo.js';
@@ -160,6 +160,43 @@ router.post('/mia/conteos/:id/simular', requirePermission('mia.calcular'), async
     return res.json(resultado);
   } catch (err) {
     return responderError(res, err, { mensaje: 'No se pudo simular el conteo' });
+  }
+});
+
+router.get('/mia/conteos', requirePermission('mia.ver'), async (req, res) => {
+  const wid = normalizeWarehouseId(req.query.warehouseId);
+  if (!wid || wid === '000000') return res.status(400).json({ error: 'warehouseId es obligatorio' });
+  if (!(await permiteAlmacen(req, wid))) return sinAcceso(res);
+  try {
+    return res.json(await listarConteos(wid));
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudieron cargar los conteos' });
+  }
+});
+
+router.get('/mia/conteos/:id', requirePermission('mia.ver'), async (req, res) => {
+  if (!(await permiteInforme(req, req.params.id))) return sinAcceso(res);
+  try {
+    return res.json(await leerConteo(req.params.id));
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudo cargar el conteo' });
+  }
+});
+
+router.put('/mia/conteos/:id/lineas', requirePermission('mia.calcular'), async (req, res) => {
+  if (!(await permiteInforme(req, req.params.id))) return sinAcceso(res);
+  try {
+    const vista = await guardarLineasConteo(req.params.id, req.body?.lineas);
+    return res.json(vista);
+  } catch (err) {
+    return responderError(res, err, {
+      mensaje: 'No se pudieron guardar las líneas',
+      extra: {
+        ...(Number.isInteger(err?.indice) ? { indice: err.indice } : {}),
+        ...(err?.productId ? { productId: err.productId } : {}),
+        ...(err?.proveedorId ? { proveedorId: err.proveedorId } : {}),
+      },
+    });
   }
 });
 

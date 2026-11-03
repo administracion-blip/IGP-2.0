@@ -10,11 +10,18 @@
 import { randomUUID } from 'crypto';
 import { GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
+import { redondearCantidadCompra } from './demanda.js';
+import { listInformeLineas, listInformesByWarehouse } from './informes.js';
 import { normalizeProductId, normalizeWarehouseId, pkInforme, skInformeLinea } from './keys.js';
 
 export const TIPO_CONTEO = 'stock_maximo';
 export const ESTADOS_PEDIDO = ['generado', 'pedido', 'confirmado'];
 export const MENSAJE_RECALCULO_BLOQUEADO = 'No se puede recalcular: hay un pedido de proveedor en Pedido o Confirmado';
+export const MENSAJE_CANTIDAD_NEGATIVA = 'La cantidad no puede ser negativa';
+export const MENSAJE_CANTIDAD = 'La cantidad tiene que ser un número ≥ 0';
+export const MENSAJE_CANTIDAD_FORMATO = 'La cantidad tiene que ser un múltiplo del formato de compra';
+export const MENSAJE_MAXIMO_FINAL_NEGATIVO = 'El máximo final no puede ser negativo';
+export const MENSAJE_MAXIMO_FINAL = 'El máximo final tiene que ser un número ≥ 0';
 
 const SIGUIENTE = {
   generado: new Set(['pedido', 'confirmado']),
@@ -239,4 +246,230 @@ export async function marcarPedidoProveedor(informeId, proveedorId, patch) {
   };
   await docClient.send(new PutCommand({ TableName: tables.miaInformes, Item: item }));
   return item;
+}
+
+function euros(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
+
+/** true si qty es múltiplo exacto del formato (0 también vale). */
+export function esMultiploDeFormato(qty, formato) {
+  const pack = Number(formato);
+  const q = Number(qty);
+  if (!Number.isFinite(pack) || pack <= 0 || !Number.isFinite(q)) return false;
+  const texto = String(pack);
+  const coma = texto.indexOf('.');
+  const decimales = coma < 0 ? 0 : Math.min(6, texto.length - coma - 1);
+  const escala = 10 ** decimales;
+  const unidades = Math.round(q * escala);
+  const paso = Math.round(pack * escala);
+  return paso > 0 && unidades % paso === 0;
+}
+
+/**
+ * Cantidad y máximo final como los dejaría calcular, sin las marcas manuales.
+ * Sin máximo o sin multiplicador, la cantidad calculada es 0.
+ */
+export function valorCalculado(linea, multiplicador) {
+  const maximo = linea?.maximo == null || linea.maximo === '' ? null : Number(linea.maximo);
+  const formato = Number(linea?.formatoCompra);
+  const pack = Number.isFinite(formato) && formato > 0 ? formato : null;
+  const mult = Number(multiplicador);
+  if (maximo == null || !Number.isFinite(maximo) || maximo < 0 || !Number.isFinite(mult)) {
+    return { maximoFinal: null, cantidadPedida: 0 };
+  }
+  const maximoFinal = euros(maximo * mult);
+  if (linea?.stockReal == null || linea?.stockReal === '') {
+    return { maximoFinal, cantidadPedida: 0 };
+  }
+  const falta = Math.max(0, maximoFinal - Number(linea.stockReal));
+  return { maximoFinal, cantidadPedida: redondearCantidadCompra(falta, pack) };
+}
+
+function textoNumero(raw) {
+  return String(raw ?? '').trim().replace(',', '.');
+}
+
+/**
+ * @returns {number}
+ */
+export function interpretarCantidad(raw, formato, indice) {
+  const t = textoNumero(raw);
+  if (t.startsWith('-')) mal(MENSAJE_CANTIDAD_NEGATIVA, indice);
+  if (!/^\d+(\.\d+)?$/.test(t)) mal(MENSAJE_CANTIDAD, indice);
+  const n = Number(t);
+  const pack = Number(formato);
+  if (Number.isFinite(pack) && pack > 0 && !esMultiploDeFormato(n, pack)) {
+    mal(MENSAJE_CANTIDAD_FORMATO, indice);
+  }
+  return n;
+}
+
+function interpretarMaximoFinal(raw, indice) {
+  if (raw == null || textoNumero(raw) === '') return null;
+  const t = textoNumero(raw);
+  if (t.startsWith('-')) mal(MENSAJE_MAXIMO_FINAL_NEGATIVO, indice);
+  if (!/^\d+(\.\d+)?$/.test(t)) mal(MENSAJE_MAXIMO_FINAL, indice);
+  return Number(t);
+}
+
+function mal(mensaje, indice, extra = {}) {
+  throw Object.assign(fallo(mensaje), { indice, ...extra });
+}
+
+export function estadoDeConteo(pedidos) {
+  const estados = (pedidos || []).map((p) => String(p.estado || 'generado'));
+  if (!estados.length || estados.every((e) => e === 'generado')) return 'generado';
+  if (estados.every((e) => e === 'confirmado')) return 'confirmado';
+  if (estados.every((e) => e === 'pedido' || e === 'confirmado')) return 'pedido';
+  return 'mixto';
+}
+
+function vistaLinea(ln, multiplicador) {
+  const calculado = valorCalculado(ln, multiplicador);
+  return {
+    productId: ln.productId,
+    nombre: ln.nombre || '',
+    proveedorId: ln.proveedorId,
+    proveedorNombre: ln.proveedorNombre || '',
+    stockReal: ln.stockReal == null || ln.stockReal === '' ? null : Number(ln.stockReal),
+    maximo: ln.maximo == null || ln.maximo === '' ? null : Number(ln.maximo),
+    maximoFinal: ln.maximoFinal == null || ln.maximoFinal === '' ? null : Number(ln.maximoFinal),
+    maximoManual: ln.maximoManual === true,
+    cantidadPedida: ln.cantidadPedida == null || ln.cantidadPedida === '' ? null : Number(ln.cantidadPedida),
+    cantidadManual: ln.cantidadManual === true,
+    formatoCompra: ln.formatoCompra == null || ln.formatoCompra === '' ? null : Number(ln.formatoCompra),
+    costeUnitario: ln.costeUnitario == null || ln.costeUnitario === '' ? null : Number(ln.costeUnitario),
+    omitida: ln.omitida === true,
+    aviso: ln.aviso || (ln.stockReal == null || ln.stockReal === '' ? 'Sin contar; no se pide' : null),
+    cantidadCalculada: calculado.cantidadPedida,
+    maximoCalculado: calculado.maximoFinal,
+  };
+}
+
+function resumenPedido(p) {
+  return {
+    proveedorId: p.proveedorId,
+    proveedorNombre: p.proveedorNombre || '',
+    estado: p.estado || 'generado',
+    serie: p.serie || null,
+    number: p.number ?? null,
+  };
+}
+
+/** Conteos de stock máximo del almacén, del más reciente al más antiguo. */
+export async function listarConteos(warehouseId) {
+  const wid = normalizeWarehouseId(warehouseId);
+  if (!wid || wid === '000000') throw fallo('warehouseId es obligatorio');
+  const items = await listInformesByWarehouse(wid, { limit: 100 });
+  const metas = items.filter((it) => it.SK === 'META' && it.tipo === TIPO_CONTEO);
+  const conteos = [];
+  for (const meta of metas) {
+    const pedidos = await listarPedidosProveedor(meta.informeId);
+    conteos.push({
+      informeId: meta.informeId,
+      creadoEn: meta.creadoEn || meta.CreadoEn || null,
+      ficheroNombre: meta.ficheroNombre || null,
+      estado: estadoDeConteo(pedidos),
+      multiplicador: meta.multiplicador == null ? null : Number(meta.multiplicador),
+      calculadoEn: meta.calculadoEn || null,
+    });
+  }
+  conteos.sort((a, b) => String(b.creadoEn || '').localeCompare(String(a.creadoEn || '')));
+  return { warehouseId: wid, conteos };
+}
+
+/** Cabecera, líneas y pedidos. No escribe. */
+export async function leerConteo(informeId) {
+  const id = String(informeId || '').trim();
+  const meta = await leerMeta(id);
+  if (!meta || meta.tipo !== TIPO_CONTEO) throw fallo('Conteo no encontrado', 404);
+  const [lineas, pedidos] = await Promise.all([
+    listInformeLineas(id),
+    listarPedidosProveedor(id),
+  ]);
+  const vista = lineas.map((ln) => vistaLinea(ln, meta.multiplicador));
+  const sinContar = vista
+    .filter((ln) => ln.stockReal == null)
+    .map((ln) => ({ productId: ln.productId, nombre: ln.nombre }));
+  return {
+    informeId: id,
+    warehouseId: meta.WarehouseId || meta.warehouseId,
+    creadoEn: meta.creadoEn || meta.CreadoEn || null,
+    ficheroNombre: meta.ficheroNombre || null,
+    semanasDesde: meta.semanasDesde || null,
+    semanasHasta: meta.semanasHasta || null,
+    multiplicador: meta.multiplicador == null ? null : Number(meta.multiplicador),
+    previsionImporte: meta.previsionImporte == null ? null : Number(meta.previsionImporte),
+    previsionAviso: meta.previsionAviso || null,
+    rangoDesde: meta.rangoDesde || null,
+    rangoHasta: meta.rangoHasta || null,
+    calculadoEn: meta.calculadoEn || null,
+    desconocidos: Array.isArray(meta.idsDesconocidos) ? meta.idsDesconocidos : [],
+    duplicados: Array.isArray(meta.duplicados) ? meta.duplicados : [],
+    lineasLeidas: meta.lineasLeidas ?? vista.length,
+    lineasContadas: vista.filter((ln) => ln.stockReal != null).length,
+    sinContar,
+    estado: estadoDeConteo(pedidos),
+    editable: pedidos.every((p) => p.estado === 'generado'),
+    pedidos: pedidos.map(resumenPedido),
+    lineas: vista,
+  };
+}
+
+/**
+ * Guarda cantidad, máximo final y línea quitada.
+ * Valida el lote entero antes de escribir. Si algún proveedor ya no está
+ * en Generado, no toca nada.
+ */
+export async function guardarLineasConteo(informeId, ajustes) {
+  const id = String(informeId || '').trim();
+  const meta = await leerMeta(id);
+  if (!meta || meta.tipo !== TIPO_CONTEO) throw fallo('Conteo no encontrado', 404);
+  const pedidos = await listarPedidosProveedor(id);
+  if (pedidos.some((p) => p.estado !== 'generado')) {
+    throw fallo(MENSAJE_RECALCULO_BLOQUEADO, 409);
+  }
+  if (!Array.isArray(ajustes) || ajustes.length === 0) {
+    throw fallo('No hay líneas para guardar');
+  }
+  const lineas = await listInformeLineas(id);
+  const porClave = new Map(lineas.map((ln) => [`${ln.proveedorId}#${ln.productId}`, ln]));
+  const tocadas = [];
+  const vistas = new Set();
+  for (let indice = 0; indice < ajustes.length; indice += 1) {
+    const adj = ajustes[indice] || {};
+    const productId = normalizeProductId(adj.productId);
+    const proveedorId = String(adj.proveedorId || '').trim();
+    if (!productId || !proveedorId) mal('Cada línea necesita producto y proveedor', indice);
+    const clave = `${proveedorId}#${productId}`;
+    if (vistas.has(clave)) mal('La línea está repetida', indice, { productId, proveedorId });
+    vistas.add(clave);
+    const linea = porClave.get(clave);
+    if (!linea) mal('Línea no encontrada', indice, { productId, proveedorId });
+    const calculado = valorCalculado(linea, meta.multiplicador);
+    const omitida = adj.omitida === true;
+    const cantidadManual = !omitida && adj.cantidadManual === true;
+    const maximoManual = adj.maximoManual === true;
+    const cantidad = omitida || !cantidadManual
+      ? (omitida ? 0 : calculado.cantidadPedida)
+      : interpretarCantidad(adj.cantidadPedida, linea.formatoCompra, indice);
+    if (!omitida && cantidadManual) interpretarCantidad(cantidad, linea.formatoCompra, indice);
+    const maximoFinal = maximoManual
+      ? interpretarMaximoFinal(adj.maximoFinal, indice)
+      : calculado.maximoFinal;
+    if (maximoManual && maximoFinal == null) mal(MENSAJE_MAXIMO_FINAL, indice, { productId, proveedorId });
+    tocadas.push({
+      ...linea,
+      omitida,
+      cantidadManual: omitida || cantidadManual,
+      cantidadPedida: cantidad,
+      maximoManual,
+      maximoFinal,
+    });
+  }
+  for (const ln of tocadas) {
+    await docClient.send(new PutCommand({ TableName: tables.miaInformeLineas, Item: ln }));
+  }
+  return leerConteo(id);
 }
