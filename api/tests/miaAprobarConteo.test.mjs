@@ -28,8 +28,11 @@ const { PK_CONTADOR, SK_CONTADOR } = await import('../lib/mia/contadorPedido.js'
 const {
   MENSAJE_AGORA,
   MENSAJE_EN_CURSO,
+  MENSAJE_LECTURA,
   MENSAJE_LINEAS,
+  MENSAJE_RECIENTE,
   aprobarPedidoProveedor,
+  comprobarPedidoProveedor,
 } = await import('../lib/mia/aprobarConteo.js');
 const { crearConteoStock } = await import('../lib/mia/conteoStock.js');
 const { syncEntregasAlmacen } = await import('../lib/mia/syncEntregas.js');
@@ -133,6 +136,10 @@ test('un borrador lleva serie MIA y el número del contador; dos a la vez solo e
   const payloads = [];
   const importar = async (payload) => {
     payloads.push(payload);
+    assert.equal(hijo().estado, 'enviando');
+    assert.equal(hijo().serie, 'MIA');
+    assert.equal(hijo().number, payload.Number);
+    assert.ok(hijo().enviandoDesde);
     await new Promise((resolve) => setTimeout(resolve, 20));
     return { status: 200 };
   };
@@ -209,8 +216,10 @@ test('una línea sin unidad o sin cantidad no envía y Ágora caído devuelve el
     },
   );
   assert.equal(llamadas, 1);
-  assert.equal(db.obtener(tables.miaInformes, { PK: 'INFORME#c-agora', SK: 'PROV#42' }).estado, 'generado');
-  assert.equal(db.obtener(tables.miaInformes, { PK: 'INFORME#c-agora', SK: 'PROV#42' }).number ?? null, null);
+  const atascado = db.obtener(tables.miaInformes, { PK: 'INFORME#c-agora', SK: 'PROV#42' });
+  assert.equal(atascado.estado, 'generado');
+  assert.equal(atascado.number ?? null, null);
+  assert.equal(atascado.enviandoDesde ?? null, null);
 });
 
 test('Confirmed pasa el hijo a Confirmado y sin permiso la ruta no envía', async () => {
@@ -298,4 +307,106 @@ test('la sync lee el hijo del conteo y sigue leyendo el informe antiguo', async 
   assert.equal(nueva.cantidadEntregada, 4);
   assert.equal(vieja.cantidadEntregada, 1);
   assert.ok(out.lineasActualizadas >= 2);
+});
+
+function dejarEnviando(parche = {}) {
+  const actual = hijo();
+  db.sembrar(tables.miaInformes, {
+    ...actual,
+    estado: 'enviando',
+    enviandoDesde: '2026-11-03T00:00:00.000Z',
+    serie: 'MIA',
+    number: 8,
+    fecha: '2026-11-03',
+    ...parche,
+  });
+}
+
+test('comprobar: Confirmed al día siguiente pasa a Confirmado y un borrador del día de inicio a Pedido', async () => {
+  montar();
+  await conteoBase([LINEA_OK]);
+  dejarEnviando();
+  const dias = [];
+  const confirmed = await comprobarPedidoProveedor('c1', '42', {
+    exportPurchaseOrders: async (dia) => {
+      dias.push(dia);
+      if (dia === '2026-11-04') {
+        return { PurchaseOrders: [{ Serie: 'MIA', Number: 8, Status: 'Confirmed' }] };
+      }
+      return { PurchaseOrders: [] };
+    },
+  });
+  assert.deepEqual(dias, ['2026-11-03', '2026-11-04']);
+  assert.equal(confirmed.estado, 'confirmado');
+  assert.equal(hijo().estado, 'confirmado');
+  assert.equal(hijo().number, 8);
+
+  dejarEnviando();
+  const soloInicio = [];
+  const borrador = await comprobarPedidoProveedor('c1', '42', {
+    exportPurchaseOrders: async (dia) => {
+      soloInicio.push(dia);
+      return { PurchaseOrders: [{ Serie: 'mia', Number: '8', Status: 'Draft' }] };
+    },
+  });
+  assert.deepEqual(soloInicio, ['2026-11-03']);
+  assert.equal(borrador.estado, 'pedido');
+  assert.equal(hijo().estado, 'pedido');
+});
+
+test('comprobar: si Ágora no responde sigue en Enviando; si no está el pedido vuelve a Generado', async () => {
+  montar();
+  await conteoBase([LINEA_OK]);
+  dejarEnviando();
+  await assert.rejects(
+    () => comprobarPedidoProveedor('c1', '42', {
+      exportPurchaseOrders: async (dia) => {
+        if (dia === '2026-11-04') throw new Error('timeout');
+        return { PurchaseOrders: [] };
+      },
+    }),
+    (err) => {
+      assert.equal(err.status, 502);
+      assert.equal(err.message, MENSAJE_LECTURA);
+      return true;
+    },
+  );
+  assert.equal(hijo().estado, 'enviando');
+  assert.equal(hijo().number, 8);
+
+  dejarEnviando({ enviandoDesde: new Date().toISOString() });
+  let llamadas = 0;
+  await assert.rejects(
+    () => comprobarPedidoProveedor('c1', '42', {
+      exportPurchaseOrders: async () => {
+        llamadas += 1;
+        return { PurchaseOrders: [] };
+      },
+    }),
+    (err) => {
+      assert.equal(err.message, MENSAJE_RECIENTE);
+      return true;
+    },
+  );
+  assert.equal(llamadas, 0);
+  assert.equal(hijo().estado, 'enviando');
+
+  dejarEnviando({ serie: null, number: null, fecha: null });
+  const sinNumero = await comprobarPedidoProveedor('c1', '42', {
+    exportPurchaseOrders: async () => {
+      llamadas += 1;
+      return { PurchaseOrders: [] };
+    },
+  });
+  assert.equal(llamadas, 0);
+  assert.equal(sinNumero.estado, 'generado');
+  assert.equal(hijo().estado, 'generado');
+
+  dejarEnviando();
+  const ausente = await comprobarPedidoProveedor('c1', '42', {
+    exportPurchaseOrders: async () => ({ PurchaseOrders: [] }),
+  });
+  assert.equal(ausente.estado, 'generado');
+  assert.equal(hijo().estado, 'generado');
+  assert.equal(hijo().number ?? null, null);
 });

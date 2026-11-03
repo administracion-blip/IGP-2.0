@@ -49,7 +49,7 @@ import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLecturas.js';
 import { permiteAlmacen, permiteLecturaAlmacen } from '../lib/alcanceAlmacenes.js';
 import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
-import { aprobarPedidoProveedor } from '../lib/mia/aprobarConteo.js';
+import { aprobarPedidoProveedor, comprobarPedidoProveedor } from '../lib/mia/aprobarConteo.js';
 import { crearConteoStock, guardarLineasConteo, leerConteo, listarConteos } from '../lib/mia/conteoStock.js';
 import { calcularConteo, simularConteo, sumarPrevisionRango } from '../lib/mia/calculoStock.js';
 import { borrarTramosPropios, elegirTramo, guardarTramos, vistaTramos } from '../lib/mia/tramos.js';
@@ -223,6 +223,19 @@ router.post('/mia/conteos/:id/proveedores/:proveedorId/aprobar', requirePermissi
       mensaje: 'No se pudo aprobar el pedido',
       extra: Array.isArray(err?.lineas) ? { lineas: err.lineas } : {},
     });
+  }
+});
+
+router.post('/mia/conteos/:id/proveedores/:proveedorId/comprobar', requirePermission('mia.aprobar'), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  const proveedorId = String(req.params.proveedorId || '').trim();
+  if (!id || !proveedorId) return res.status(400).json({ error: 'Faltan el conteo o el proveedor' });
+  if (!(await permiteInforme(req, id))) return sinAcceso(res);
+  try {
+    const result = await comprobarPedidoProveedor(id, proveedorId);
+    return res.json(result);
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudo comprobar el pedido en Ágora' });
   }
 });
 

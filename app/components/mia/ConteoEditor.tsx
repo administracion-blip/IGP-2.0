@@ -3,6 +3,7 @@
  * La cantidad y el máximo final se editan; quitar y restaurar marcan la fila.
  */
 
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
 
@@ -20,6 +21,7 @@ export type LineaConteo = {
   maximoCalculado: number | null;
   cantidadPedida: number | null;
   costeUnitario?: number | null;
+  unit?: string;
 };
 
 export type BorradorLinea = {
@@ -32,7 +34,12 @@ export type PedidoProveedor = {
   proveedorId: string;
   proveedorNombre: string;
   estado: string;
+  serie?: string | null;
+  number?: number | null;
+  enviandoDesde?: string | null;
 };
+
+const MINUTOS_ATASCO = 10;
 
 type Props = {
   lineas: LineaConteo[];
@@ -48,6 +55,9 @@ type Props = {
   onQuitar: (clave: string) => void;
   onRestaurar: (clave: string) => void;
   onAprobar: (proveedorId: string, confirmed: boolean) => void;
+  onDescargar: (proveedorId: string) => void;
+  onComprobar: (proveedorId: string) => void;
+  comprobando: boolean;
 };
 
 const TEXTO = '#0f172a';
@@ -97,7 +107,15 @@ export function ConteoEditor({
   onQuitar,
   onRestaurar,
   onAprobar,
+  onDescargar,
+  onComprobar,
+  comprobando,
 }: Props) {
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => {
+    const reloj = setInterval(() => setAhora(Date.now()), 30_000);
+    return () => clearInterval(reloj);
+  }, []);
   const grupos = new Map<string, LineaConteo[]>();
   for (const linea of lineas) {
     const lista = grupos.get(linea.proveedorId) || [];
@@ -163,17 +181,39 @@ export function ConteoEditor({
       );
     });
     total += subtotal;
+    const atascado = estaAtascado(pedido, ahora);
     return (
       <View key={proveedorId} style={styles.grupo}>
         <View style={styles.grupoCabecera}>
           <Text style={styles.grupoNombre}>{pedido?.proveedorNombre || filas[0]?.proveedorNombre || proveedorId}</Text>
-          <Text style={styles.grupoEstado}>{ESTADO[pedido?.estado || 'generado'] || pedido?.estado}</Text>
+          <Text style={styles.grupoEstado}>
+            {ESTADO[pedido?.estado || 'generado'] || pedido?.estado}
+            {atascado ? ' · atascado' : ''}
+          </Text>
           <Text style={styles.grupoTotal}>{formatoUnidades(subtotal)} uds</Text>
+          <Pressable
+            style={styles.accion}
+            disabled={aprobando || comprobando}
+            onPress={() => onDescargar(proveedorId)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.accionTexto}>Descargar PDF</Text>
+          </Pressable>
+          {puedeAprobar && atascado ? (
+            <Pressable
+              style={styles.accion}
+              disabled={aprobando || comprobando}
+              onPress={() => onComprobar(proveedorId)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.accionTexto}>Comprobar en Ágora</Text>
+            </Pressable>
+          ) : null}
           {puedeAprobar && (pedido?.estado || 'generado') === 'generado' ? (
             <View style={styles.aprobar}>
               <Pressable
                 style={styles.accion}
-                disabled={aprobando}
+                disabled={aprobando || comprobando}
                 onPress={() => onAprobar(proveedorId, false)}
                 accessibilityRole="button"
               >
@@ -182,7 +222,7 @@ export function ConteoEditor({
               {puedeConfirmar ? (
                 <Pressable
                   style={styles.accion}
-                  disabled={aprobando}
+                  disabled={aprobando || comprobando}
                   onPress={() => onAprobar(proveedorId, true)}
                   accessibilityRole="button"
                 >
@@ -203,6 +243,13 @@ export function ConteoEditor({
       <Text style={styles.total}>Total general {formatoUnidades(total)} uds</Text>
     </View>
   );
+}
+
+function estaAtascado(pedido: PedidoProveedor | undefined, ahora: number) {
+  if ((pedido?.estado || '') !== 'enviando') return false;
+  const desde = Date.parse(pedido?.enviandoDesde || '');
+  if (!Number.isFinite(desde)) return true;
+  return ahora - desde >= MINUTOS_ATASCO * 60 * 1000;
 }
 
 function baseVisible(linea: LineaConteo): BorradorLinea {

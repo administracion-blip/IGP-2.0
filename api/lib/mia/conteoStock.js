@@ -341,6 +341,7 @@ function vistaLinea(ln, multiplicador) {
     cantidadPedida: ln.cantidadPedida == null || ln.cantidadPedida === '' ? null : Number(ln.cantidadPedida),
     cantidadManual: ln.cantidadManual === true,
     formatoCompra: ln.formatoCompra == null || ln.formatoCompra === '' ? null : Number(ln.formatoCompra),
+    unit: String(ln.unit || ln.purchaseUnitName || '').trim(),
     costeUnitario: ln.costeUnitario == null || ln.costeUnitario === '' ? null : Number(ln.costeUnitario),
     omitida: ln.omitida === true,
     aviso: ln.aviso || (ln.stockReal == null || ln.stockReal === '' ? 'Sin contar; no se pide' : null),
@@ -356,6 +357,7 @@ function resumenPedido(p) {
     estado: p.estado || 'generado',
     serie: p.serie || null,
     number: p.number ?? null,
+    enviandoDesde: p.enviandoDesde || null,
   };
 }
 

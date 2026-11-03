@@ -31,6 +31,7 @@ import {
   type LineaConteo,
   type PedidoProveedor,
 } from '../../../components/mia/ConteoEditor';
+import { descargarPdfPedido, descargarZipPedidos, type PedidoPdf } from '../../../lib/miaPedidoPdf';
 import { MIN_TOUCH, SPACING } from '../../../constants/layout';
 
 type Almacen = { id: string; nombre: string };
@@ -43,6 +44,7 @@ type ConteoResumen = {
 };
 type Conteo = {
   informeId: string;
+  creadoEn: string | null;
   ficheroNombre: string | null;
   multiplicador: number | null;
   previsionImporte: number | null;
@@ -121,6 +123,17 @@ function calculadaDe(linea: LineaConteo): BorradorLinea {
   };
 }
 
+function diaMadrid(iso: string | null) {
+  const fecha = iso ? new Date(iso) : new Date();
+  const base = Number.isNaN(fecha.getTime()) ? new Date() : fecha;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(base);
+}
+
 function igual(a: BorradorLinea, b: BorradorLinea) {
   return canon(a.cantidad) === canon(b.cantidad) && canon(a.maximo) === canon(b.maximo) && a.omitida === b.omitida;
 }
@@ -149,6 +162,8 @@ export default function ConteoScreen() {
   const [guardando, setGuardando] = useState(false);
   const [importando, setImportando] = useState(false);
   const [aprobando, setAprobando] = useState(false);
+  const [descargando, setDescargando] = useState(false);
+  const [comprobando, setComprobando] = useState(false);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const salirLibre = useRef(false);
@@ -561,6 +576,85 @@ export default function ConteoScreen() {
     }
   }, [conteo, fichaProveedor, confirmar, enviarProveedor, cargarConteo, cargarLista, warehouseId]);
 
+  const almacenNombre = almacenes.find((a) => a.id === warehouseId)?.nombre || warehouseId;
+  const fechaPdf = useMemo(() => diaMadrid(conteo?.creadoEn || null), [conteo?.creadoEn]);
+
+  const pedidoPdf = useCallback((proveedorId: string): PedidoPdf => {
+    const pedido = conteo?.pedidos.find((p) => p.proveedorId === proveedorId);
+    const filas = (conteo?.lineas || []).filter((ln) => ln.proveedorId === proveedorId);
+    const lineas = filas.flatMap((ln) => {
+      const borrador = borradores[claveLinea(ln)] ?? baseDe(ln);
+      if (borrador.omitida) return [];
+      const cantidad = Number(canon(borrador.cantidad));
+      return [{
+        nombre: ln.nombre || ln.productId,
+        cantidad: Number.isFinite(cantidad) ? cantidad : 0,
+        unit: ln.unit || '',
+        costeUnitario: ln.costeUnitario ?? null,
+      }];
+    });
+    return {
+      proveedorNombre: pedido?.proveedorNombre || filas[0]?.proveedorNombre || proveedorId,
+      almacenNombre,
+      fecha: fechaPdf,
+      estado: pedido?.estado || 'generado',
+      serie: pedido?.serie,
+      number: pedido?.number,
+      lineas,
+    };
+  }, [conteo, borradores, almacenNombre, fechaPdf]);
+
+  const descargarUno = useCallback(async (proveedorId: string) => {
+    if (!conteo || descargando) return;
+    setDescargando(true);
+    setError('');
+    try {
+      await descargarPdfPedido(pedidoPdf(proveedorId));
+    } catch {
+      setError('No se pudo descargar el PDF');
+    } finally {
+      setDescargando(false);
+    }
+  }, [conteo, descargando, pedidoPdf]);
+
+  const descargarTodos = useCallback(async () => {
+    if (!conteo || descargando) return;
+    const ids = [...new Set(conteo.lineas.map((ln) => ln.proveedorId))];
+    if (!ids.length) return;
+    setDescargando(true);
+    setError('');
+    try {
+      await descargarZipPedidos(almacenNombre, fechaPdf, ids.map((id) => pedidoPdf(id)));
+    } catch {
+      setError('No se pudo descargar el zip');
+    } finally {
+      setDescargando(false);
+    }
+  }, [conteo, descargando, almacenNombre, fechaPdf, pedidoPdf]);
+
+  const comprobarUno = useCallback(async (proveedorId: string) => {
+    if (!conteo || comprobando) return;
+    setComprobando(true);
+    setError('');
+    setAviso('');
+    try {
+      const r = await apiFetch(`/api/mia/conteos/${encodeURIComponent(conteo.informeId)}/proveedores/${encodeURIComponent(proveedorId)}/comprobar`, { method: 'POST' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(data.error || 'No se pudo comprobar el pedido en Ágora');
+        return;
+      }
+      const nombre = conteo.pedidos.find((p) => p.proveedorId === proveedorId)?.proveedorNombre || proveedorId;
+      if (data.estado === 'confirmado') setAviso(`${nombre}: el pedido está confirmado en Ágora.`);
+      else if (data.estado === 'pedido') setAviso(`${nombre}: el pedido está en Ágora y pasa a Pedido.`);
+      else setAviso(`${nombre}: no está en Ágora y vuelve a Generado.`);
+      await cargarConteo(conteo.informeId);
+      void cargarLista(warehouseId);
+    } finally {
+      setComprobando(false);
+    }
+  }, [conteo, comprobando, cargarConteo, cargarLista, warehouseId]);
+
   if (!puedeVer) {
     return (
       <View style={styles.centro}>
@@ -664,6 +758,12 @@ export default function ConteoScreen() {
                   {sucio === 0 ? 'Sin cambios pendientes' : `${sucio} cambio${sucio === 1 ? '' : 's'} sin guardar`}
                   {` · ${conteo.lineasContadas} contadas`}
                 </Text>
+                <BotonPrincipal
+                  titulo="Descargar todos los PDF"
+                  onPress={() => { void descargarTodos(); }}
+                  disabled={descargando || conteo.lineas.length === 0}
+                  estado={descargando ? 'enviando' : 'idle'}
+                />
                 {(puedeCalcular || puedeAprobar) ? (
                   <View style={[styles.acciones, isPhone && styles.accionesPila]}>
                     {puedeCalcular ? (
@@ -678,7 +778,7 @@ export default function ConteoScreen() {
                       <BotonPrincipal
                         titulo="Aprobar todos"
                         onPress={() => { void aprobarTodos(); }}
-                        disabled={aprobando || sucio > 0}
+                        disabled={aprobando || comprobando || sucio > 0}
                         estado={aprobando ? 'enviando' : 'idle'}
                       />
                     ) : null}
@@ -714,6 +814,9 @@ export default function ConteoScreen() {
               onQuitar={onQuitar}
               onRestaurar={onRestaurar}
               onAprobar={(proveedorId, confirmed) => { void aprobarUno(proveedorId, confirmed); }}
+              onDescargar={(proveedorId) => { void descargarUno(proveedorId); }}
+              onComprobar={(proveedorId) => { void comprobarUno(proveedorId); }}
+              comprobando={comprobando}
             />
           </View>
         ) : null}
