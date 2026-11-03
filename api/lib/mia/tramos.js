@@ -95,6 +95,24 @@ export function mapTramo(it) {
   };
 }
 
+/**
+ * Tramo que cubre un importe. `desde` inclusive, `hasta` exclusive.
+ * El último, sin tope, cubre cualquier importe por encima.
+ * @param {number} importe
+ * @param {Array<{ desde: number, hasta: number|null, multiplicador: number }>} tramos
+ * @returns {object|null}
+ */
+export function elegirTramo(importe, tramos) {
+  const n = Number(importe);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const lista = [...(tramos || [])].sort((a, b) => Number(a.desde) - Number(b.desde));
+  for (const t of lista) {
+    const hasta = t.hasta == null || t.hasta === '' ? null : Number(t.hasta);
+    if (n >= Number(t.desde) && (hasta == null || n < hasta)) return t;
+  }
+  return null;
+}
+
 /** Tramos de un ámbito, de menor a mayor importe. */
 export async function listarTramos(warehouseId) {
   const ambito = ambitoDe(warehouseId);

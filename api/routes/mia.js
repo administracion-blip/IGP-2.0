@@ -50,6 +50,7 @@ import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLectu
 import { permiteAlmacen, permiteLecturaAlmacen } from '../lib/alcanceAlmacenes.js';
 import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
 import { crearConteoStock } from '../lib/mia/conteoStock.js';
+import { calcularConteo, simularConteo } from '../lib/mia/calculoStock.js';
 import {
   MAX_EXCEL_CONTEO_BYTES,
   MENSAJE_NO_XLSX,
@@ -144,6 +145,31 @@ router.post(
     }
   },
 );
+
+router.post('/mia/conteos/:id/simular', requirePermission('mia.calcular'), async (req, res) => {
+  if (!(await permiteInforme(req, req.params.id))) return sinAcceso(res);
+  try {
+    const body = req.body || {};
+    const resultado = await simularConteo(req.params.id, {
+      ...(body.previsionImporte != null && body.previsionImporte !== ''
+        ? { previsionImporte: body.previsionImporte }
+        : {}),
+    });
+    return res.json(resultado);
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudo simular el conteo' });
+  }
+});
+
+router.post('/mia/conteos/:id/calcular', requirePermission('mia.calcular'), async (req, res) => {
+  if (!(await permiteInforme(req, req.params.id))) return sinAcceso(res);
+  try {
+    const resultado = await calcularConteo(req.params.id);
+    return res.json(resultado);
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudo calcular el conteo' });
+  }
+});
 
 // ─── Sync status ─────────────────────────────────────────────────────────────
 

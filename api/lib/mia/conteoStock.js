@@ -14,6 +14,7 @@ import { normalizeProductId, normalizeWarehouseId, pkInforme, skInformeLinea } f
 
 export const TIPO_CONTEO = 'stock_maximo';
 export const ESTADOS_PEDIDO = ['generado', 'pedido', 'confirmado'];
+export const MENSAJE_RECALCULO_BLOQUEADO = 'No se puede recalcular: hay un pedido de proveedor en Pedido o Confirmado';
 
 const SIGUIENTE = {
   generado: new Set(['pedido', 'confirmado']),
@@ -162,6 +163,46 @@ export async function listarPedidosProveedor(informeId) {
     lastKey = r.LastEvaluatedKey || null;
   } while (lastKey);
   return items;
+}
+
+/**
+ * Congela el cálculo en la cabecera y en las líneas.
+ * Si algún proveedor ya salió de Generado, no escribe nada.
+ * @param {string} informeId
+ * @param {{ meta: object, lineas: object[] }} calculo
+ */
+export async function guardarCalculoConteo(informeId, calculo) {
+  const id = String(informeId || '').trim();
+  const meta = await leerMeta(id);
+  if (!meta || meta.tipo !== TIPO_CONTEO) throw fallo('Conteo no encontrado', 404);
+  const pedidos = await listarPedidosProveedor(id);
+  if (pedidos.some((p) => p.estado !== 'generado')) {
+    throw fallo(MENSAJE_RECALCULO_BLOQUEADO, 409);
+  }
+  const ahora = new Date().toISOString();
+  const campos = calculo?.meta || {};
+  const siguiente = {
+    ...meta,
+    previsionImporte: campos.previsionImporte,
+    tramoDesde: campos.tramoDesde,
+    tramoHasta: campos.tramoHasta,
+    multiplicador: campos.multiplicador,
+    previsionAviso: campos.previsionAviso,
+    previsionDesglose: Array.isArray(campos.previsionDesglose) ? campos.previsionDesglose : [],
+    lineasSinMaximo: Number(campos.lineasSinMaximo) || 0,
+    rangoDesde: campos.rangoDesde,
+    rangoHasta: campos.rangoHasta,
+    fechaConteo: campos.fechaConteo,
+    inicioEsManana: campos.inicioEsManana === true,
+    calculadoEn: ahora,
+  };
+  await docClient.send(new PutCommand({ TableName: tables.miaInformes, Item: siguiente }));
+  const lineas = [];
+  for (const ln of calculo?.lineas || []) {
+    await docClient.send(new PutCommand({ TableName: tables.miaInformeLineas, Item: ln }));
+    lineas.push(ln);
+  }
+  return { meta: siguiente, lineas };
 }
 
 /**
