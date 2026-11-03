@@ -113,7 +113,7 @@ function mergeExploded(target, source) {
   }
 }
 
-function resolverProveedor(config, ultima) {
+export function resolverProveedor(config, ultima) {
   const configProv = config?.proveedorId != null ? String(config.proveedorId).trim() : '';
   if (configProv) {
     return {

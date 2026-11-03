@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
+import { SelectorDesplegable } from '../SelectorDesplegable';
 
 export type LineaConteo = {
   productId: string;
@@ -22,12 +23,25 @@ export type LineaConteo = {
   cantidadPedida: number | null;
   costeUnitario?: number | null;
   unit?: string;
+  purchaseUnitId?: string;
+  proveedorManual?: boolean;
+  unidadManual?: boolean;
+  unidades?: { id: string; nombre: string }[];
+};
+
+export type OpcionProveedor = {
+  proveedorId: string;
+  proveedorNombre: string;
 };
 
 export type BorradorLinea = {
   cantidad: string;
   maximo: string;
   omitida: boolean;
+  proveedorId: string;
+  proveedorNombre: string;
+  purchaseUnitId: string;
+  unit: string;
 };
 
 export type PedidoProveedor = {
@@ -46,12 +60,14 @@ type Props = {
   borradores: Record<string, BorradorLinea>;
   errores: Record<string, string>;
   pedidos: PedidoProveedor[];
+  proveedores?: OpcionProveedor[];
   puedeEditar: boolean;
   puedeAprobar: boolean;
   puedeConfirmar: boolean;
   aprobando: boolean;
   enTarjetas: boolean;
   onCambio: (clave: string, campo: 'cantidad' | 'maximo', valor: string) => void;
+  onElegir: (clave: string, campo: 'proveedor' | 'unidad', id: string, nombre: string) => void;
   onQuitar: (clave: string) => void;
   onRestaurar: (clave: string) => void;
   onAprobar: (proveedorId: string, confirmed: boolean) => void;
@@ -98,12 +114,14 @@ export function ConteoEditor({
   borradores,
   errores,
   pedidos,
+  proveedores = [],
   puedeEditar,
   puedeAprobar,
   puedeConfirmar,
   aprobando,
   enTarjetas,
   onCambio,
+  onElegir,
   onQuitar,
   onRestaurar,
   onAprobar,
@@ -135,6 +153,10 @@ export function ConteoEditor({
       subtotal += unidades;
       const manualCantidad = !borrador.omitida && canon(borrador.cantidad) !== canon(String(linea.cantidadCalculada));
       const manualMaximo = canon(borrador.maximo) !== canon(linea.maximoCalculado == null ? '' : String(linea.maximoCalculado));
+      const sinProveedor = !linea.proveedorId || linea.proveedorId === 'SIN_PROVEEDOR';
+      const sinUnidad = !String(linea.purchaseUnitId || '').trim() || !String(linea.unit || '').trim();
+      const proveedorManual = linea.proveedorManual === true || (sinProveedor && borrador.proveedorId !== linea.proveedorId);
+      const unidadManual = linea.unidadManual === true || (sinUnidad && borrador.purchaseUnitId !== (linea.purchaseUnitId || ''));
       return (
         <View key={clave} style={[enTarjetas ? styles.tarjeta : styles.fila, (error || borrador.omitida) && styles.filaMarcada, error && styles.filaError]}>
           <View style={enTarjetas ? undefined : styles.identidad}>
@@ -148,7 +170,27 @@ export function ConteoEditor({
               {borrador.omitida ? <Text style={styles.marca}>Quitada</Text> : null}
               {manualCantidad ? <Text style={styles.marca}>Cantidad manual</Text> : null}
               {manualMaximo ? <Text style={styles.marca}>Máximo manual</Text> : null}
+              {proveedorManual ? <Text style={styles.marca}>Proveedor manual</Text> : null}
+              {unidadManual ? <Text style={styles.marca}>Unidad manual</Text> : null}
             </View>
+            {puedeEditar && sinProveedor ? (
+              <Eleccion
+                etiqueta="Proveedor"
+                valorId={borrador.proveedorId === 'SIN_PROVEEDOR' ? '' : borrador.proveedorId}
+                opciones={proveedores.map((p) => ({ id: p.proveedorId, titulo: p.proveedorNombre || p.proveedorId }))}
+                placeholder="Elige proveedor"
+                onElegir={(id, nombre) => onElegir(clave, 'proveedor', id, nombre)}
+              />
+            ) : null}
+            {puedeEditar && sinUnidad ? (
+              <Eleccion
+                etiqueta="Unidad"
+                valorId={borrador.purchaseUnitId}
+                opciones={(linea.unidades || []).map((u) => ({ id: u.id, titulo: u.nombre || u.id }))}
+                placeholder="Elige unidad"
+                onElegir={(id, nombre) => onElegir(clave, 'unidad', id, nombre)}
+              />
+            ) : null}
           </View>
           <View style={enTarjetas ? styles.camposTarjeta : styles.campos}>
             <Campo
@@ -257,7 +299,58 @@ function baseVisible(linea: LineaConteo): BorradorLinea {
     cantidad: linea.cantidadPedida == null ? '' : String(linea.cantidadPedida),
     maximo: linea.maximoFinal == null ? '' : String(linea.maximoFinal),
     omitida: linea.omitida,
+    proveedorId: linea.proveedorId || 'SIN_PROVEEDOR',
+    proveedorNombre: linea.proveedorNombre || '',
+    purchaseUnitId: linea.purchaseUnitId || '',
+    unit: linea.unit || '',
   };
+}
+
+function Eleccion({
+  etiqueta,
+  valorId,
+  opciones,
+  placeholder,
+  onElegir,
+}: {
+  etiqueta: string;
+  valorId: string;
+  opciones: { id: string; titulo: string }[];
+  placeholder: string;
+  onElegir: (id: string, nombre: string) => void;
+}) {
+  if (opciones.length === 0) {
+    return (
+      <View style={styles.campo}>
+        <Text style={styles.etiqueta}>{etiqueta}</Text>
+        <TextInput
+          value={valorId}
+          onChangeText={(v) => onElegir(v.trim(), v.trim())}
+          placeholder={placeholder}
+          style={styles.input}
+          keyboardType="number-pad"
+        />
+      </View>
+    );
+  }
+  const lista = valorId && !opciones.some((o) => o.id === valorId)
+    ? [{ id: valorId, titulo: valorId }, ...opciones]
+    : opciones;
+  return (
+    <View style={styles.selector}>
+      <SelectorDesplegable
+        label={etiqueta}
+        placeholder={placeholder}
+        opciones={lista}
+        valorId={valorId}
+        onSeleccionar={(id) => {
+          const op = lista.find((o) => o.id === id);
+          onElegir(id, op?.titulo || id);
+        }}
+        compact
+      />
+    </View>
+  );
 }
 
 function canon(texto: string) {
@@ -331,6 +424,7 @@ const styles = StyleSheet.create({
   campos: { flexDirection: 'row', gap: SPACING.sm },
   camposTarjeta: { gap: SPACING.sm },
   campo: { minWidth: 110, flexGrow: 1 },
+  selector: { minWidth: 180, flexGrow: 1, zIndex: 20 },
   etiqueta: { color: SECUNDARIO, fontSize: 12, marginBottom: 4 },
   input: {
     minHeight: MIN_TOUCH,

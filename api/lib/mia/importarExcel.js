@@ -8,7 +8,11 @@
 import ExcelJS from 'exceljs';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
+import { queryUltimaCompraPorProductos } from '../dynamo/comprasProveedor.js';
 import { CABECERAS } from '../inventarios/excel.js';
+import { listConfigByWarehouse } from './configProducto.js';
+import { skInformeLinea } from './keys.js';
+import { resolverProveedor } from './motor.js';
 
 export const MAX_EXCEL_CONTEO_BYTES = 5 * 1024 * 1024;
 export const MENSAJE_NO_XLSX = 'El fichero tiene que ser un Excel .xlsx';
@@ -123,12 +127,124 @@ async function fichaProducto(productId) {
 }
 
 /**
- * Cruza las filas con la copia de productos. No inventa los Id que no existen.
+ * Proveedor: ficha de stock máximo, y si no hay, la última compra.
+ * Unidad: la de la ficha, y si no hay, el formato base del producto.
+ * Un proveedor o una unidad marcados a mano no se pisan.
+ */
+export function completarProveedorYUnidad({ config, ultima, producto, linea }) {
+  const manualProv = linea?.proveedorManual === true;
+  const manualUnidad = linea?.unidadManual === true;
+  const auto = resolverProveedor(config, ultima);
+  let proveedorId = manualProv ? String(linea?.proveedorId || '').trim() : auto.proveedorId;
+  let proveedorNombre = manualProv
+    ? (String(linea?.proveedorNombre || '').trim() || proveedorId)
+    : auto.proveedorNombre;
+  if (!manualProv && (!proveedorId || proveedorId === 'SIN_PROVEEDOR')) {
+    const ya = String(linea?.proveedorId || '').trim();
+    if (ya && ya !== 'SIN_PROVEEDOR') {
+      proveedorId = ya;
+      proveedorNombre = String(linea?.proveedorNombre || '').trim();
+    }
+  }
+  if (!proveedorId) {
+    proveedorId = 'SIN_PROVEEDOR';
+    proveedorNombre = proveedorNombre || 'Sin proveedor';
+  }
+
+  let purchaseUnitId = String(linea?.purchaseUnitId || '').trim();
+  let unit = String(linea?.unit || linea?.purchaseUnitName || '').trim();
+  if (!manualUnidad) {
+    const cfgId = String(config?.purchaseUnitId ?? '').trim();
+    const cfgNombre = String(config?.purchaseUnitName || '').trim();
+    if (cfgId) {
+      purchaseUnitId = cfgId;
+      unit = cfgNombre || cfgId;
+    } else {
+      const baseId = String(producto?.BaseSaleFormatId ?? '').trim();
+      const baseNombre = String(producto?.FormatoBaseNombre || '').trim();
+      const idOk = baseId !== '' && baseId !== '0';
+      if (idOk || baseNombre) {
+        purchaseUnitId = idOk ? baseId : purchaseUnitId;
+        unit = baseNombre || baseId;
+      }
+    }
+  }
+
+  return {
+    proveedorId,
+    proveedorNombre,
+    purchaseUnitId,
+    unit,
+    proveedorManual: manualProv,
+    unidadManual: manualUnidad,
+  };
+}
+
+async function configsPorProducto(warehouseId) {
+  if (!warehouseId) return new Map();
+  try {
+    const items = await listConfigByWarehouse(warehouseId);
+    const map = new Map();
+    for (const c of items) {
+      if (c?.ProductId != null) map.set(String(c.ProductId), c);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+async function ultimasSeguras(warehouseId, ids) {
+  try {
+    return await queryUltimaCompraPorProductos(ids, { warehouseId });
+  } catch {
+    return new Map();
+  }
+}
+
+async function fichaSegura(productId) {
+  try {
+    return await fichaProducto(productId);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rellena proveedor y unidad. Conserva lo marcado a mano.
+ * Si la última compra no se puede leer, sigue sin ella.
+ */
+export async function aplicarProveedorYUnidad(lineas, warehouseId) {
+  const lista = Array.isArray(lineas) ? lineas : [];
+  const configs = await configsPorProducto(warehouseId);
+  const ultimas = await ultimasSeguras(warehouseId, lista.map((ln) => ln.productId).filter(Boolean));
+  const out = [];
+  for (const linea of lista) {
+    const producto = linea._producto || await fichaSegura(linea.productId);
+    const config = configs.get(String(linea.productId));
+    const ultima = ultimas.get(String(linea.productId))
+      || ultimas.get(String(Number(linea.productId)))
+      || null;
+    const datos = completarProveedorYUnidad({ config, ultima, producto, linea });
+    const resto = { ...linea };
+    delete resto._producto;
+    out.push({
+      ...resto,
+      ...datos,
+      SK: skInformeLinea(datos.proveedorId, linea.productId),
+    });
+  }
+  return out;
+}
+
+/**
+ * Cruza las filas con la copia de productos y rellena proveedor y unidad.
+ * No inventa los Id que no existen.
  * @returns {Promise<{ lineas: object[], desconocidos: string[], duplicados: string[], lineasLeidas: number, lineasContadas: number }>}
  */
-export async function prepararLineasConteo(buffer) {
+export async function prepararLineasConteo(buffer, warehouseId) {
   const leido = await leerExcelConteo(buffer);
-  const lineas = [];
+  const conocidas = [];
   const desconocidos = [];
   for (const fila of leido.filas) {
     const ficha = await fichaProducto(fila.productId);
@@ -136,14 +252,14 @@ export async function prepararLineasConteo(buffer) {
       desconocidos.push(fila.productId);
       continue;
     }
-    lineas.push({
+    conocidas.push({
       productId: String(ficha.Id ?? fila.productId),
       nombre: String(ficha.Name || fila.nombre || fila.productId).trim(),
       stockReal: fila.stockReal,
-      proveedorId: 'SIN_PROVEEDOR',
-      proveedorNombre: '',
+      _producto: ficha,
     });
   }
+  const lineas = await aplicarProveedorYUnidad(conocidas, warehouseId);
   const lineasContadas = lineas.filter((ln) => ln.stockReal != null).length;
   if (lineasContadas === 0) {
     const err = fallo(MENSAJE_SIN_CONTADAS);

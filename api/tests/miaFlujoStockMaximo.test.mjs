@@ -8,7 +8,7 @@
 import test, { after } from 'node:test';
 import { strict as assert } from 'node:assert';
 import ExcelJS from 'exceljs';
-import { DeleteCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand } from '@aws-sdk/lib-dynamodb';
 
 process.env.AWS_REGION = process.env.AWS_REGION || 'eu-west-3';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-el-flujo-de-stock-maximo';
@@ -31,7 +31,7 @@ const { PK_CONTADOR, SK_CONTADOR } = await import('../lib/mia/contadorPedido.js'
 const { prepararLineasConteo } = await import('../lib/mia/importarExcel.js');
 const { upsertConfigProducto } = await import('../lib/mia/configProducto.js');
 const { guardarTramos } = await import('../lib/mia/tramos.js');
-const { crearConteoStock, guardarLineasConteo, leerConteo, skPedidoProveedor } = await import('../lib/mia/conteoStock.js');
+const { crearConteoStock, guardarLineasConteo, leerConteo } = await import('../lib/mia/conteoStock.js');
 const { calcularConteo } = await import('../lib/mia/calculoStock.js');
 const { aprobarPedidoProveedor } = await import('../lib/mia/aprobarConteo.js');
 const { aprobarInformeMia } = await import('../lib/mia/aprobar.js');
@@ -57,6 +57,13 @@ function montar() {
     indices: { 'WarehouseId-CreadoEn-index': { hashKey: 'WarehouseId', rangeKey: 'CreadoEn' } },
   });
   db.crearTabla(tables.miaInformeLineas, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.comprasProveedor, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: {
+      'ProductId-AlbaranFecha-index': { hashKey: 'ProductId', rangeKey: 'AlbaranFecha' },
+    },
+  });
   db.instalar(docClient);
   db.sembrar(tables.almacenes, { Id: '000101', Nombre: 'Almacen Centro' });
   db.sembrar(tables.locales, { id_Locales: '000010', nombre: 'Bar Centro', 'almacen origen': 'Almacen Centro' });
@@ -82,41 +89,6 @@ async function excelConteo() {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-/** El Excel no trae proveedor ni unidad. Se copian de la config, con la clave de línea nueva. */
-async function copiarProveedorYUnidad(informeId) {
-  const PK = pkInforme(informeId);
-  const vieja = db.obtener(tables.miaInformeLineas, { PK, SK: skInformeLinea('SIN_PROVEEDOR', '501') });
-  const nueva = {
-    ...vieja,
-    SK: skInformeLinea('42', '501'),
-    proveedorId: '42',
-    proveedorNombre: 'Distrib',
-    purchaseUnitId: '10',
-    unit: 'Botella',
-  };
-  await docClient.send(new DeleteCommand({
-    TableName: tables.miaInformeLineas,
-    Key: { PK, SK: vieja.SK },
-  }));
-  await docClient.send(new PutCommand({ TableName: tables.miaInformeLineas, Item: nueva }));
-
-  const hijo = db.obtener(tables.miaInformes, { PK, SK: skPedidoProveedor('SIN_PROVEEDOR') });
-  await docClient.send(new DeleteCommand({
-    TableName: tables.miaInformes,
-    Key: { PK, SK: hijo.SK },
-  }));
-  await docClient.send(new PutCommand({
-    TableName: tables.miaInformes,
-    Item: {
-      ...hijo,
-      SK: skPedidoProveedor('42'),
-      proveedorId: '42',
-      proveedorNombre: 'Distrib',
-      estado: 'generado',
-    },
-  }));
-}
-
 test('importar, calcular, editar, aprobar y sincronizar no toca el informe de consumo', async () => {
   montar();
   await guardarTramos(null, [{ desde: 0, hasta: null, multiplicador: 1 }]);
@@ -131,8 +103,10 @@ test('importar, calcular, editar, aprobar y sincronizar no toca el informe de co
     proveedorNombre: 'Distrib',
   });
 
-  const preparado = await prepararLineasConteo(await excelConteo());
-  assert.equal(preparado.lineas[0].proveedorId, 'SIN_PROVEEDOR');
+  const preparado = await prepararLineasConteo(await excelConteo(), '101');
+  assert.equal(preparado.lineas[0].proveedorId, '42');
+  assert.equal(preparado.lineas[0].purchaseUnitId, '10');
+  assert.equal(preparado.lineas[0].unit, 'Botella');
   assert.equal(preparado.lineasContadas, 1);
   const guardado = await crearConteoStock({
     warehouseId: '101',
@@ -146,8 +120,8 @@ test('importar, calcular, editar, aprobar y sincronizar no toca el informe de co
   });
   const informeId = guardado.meta.informeId;
   assert.equal(guardado.meta.multiplicador ?? null, null);
-
-  await copiarProveedorYUnidad(informeId);
+  assert.equal(guardado.lineas[0].proveedorId, '42');
+  assert.equal(guardado.lineas[0].unit, 'Botella');
 
   const calculado = await calcularConteo(informeId);
   assert.equal(calculado.multiplicador, 1);
@@ -165,6 +139,10 @@ test('importar, calcular, editar, aprobar y sincronizar no toca el informe de co
   const editado = await leerConteo(informeId);
   assert.equal(editado.lineas[0].cantidadPedida, 6);
   assert.equal(editado.lineas[0].cantidadManual, true);
+  assert.equal(editado.lineas[0].proveedorId, '42');
+  assert.equal(editado.lineas[0].unit, 'Botella');
+  assert.equal(editado.lineas[0].proveedorManual, false);
+  assert.equal(editado.lineas[0].unidadManual, false);
 
   await assert.rejects(
     () => aprobarInformeMia(informeId),
@@ -241,4 +219,109 @@ test('importar, calcular, editar, aprobar y sincronizar no toca el informe de co
   assert.equal(vieja.cantidadEntregada, 1);
   assert.equal(metaVieja.estado, 'aprobado');
   assert.ok(out.lineasActualizadas >= 2);
+});
+
+test('un proveedor o una unidad elegidos a mano no se pisan al recalcular', async () => {
+  montar();
+  await guardarTramos(null, [{ desde: 0, hasta: null, multiplicador: 1 }]);
+  db.sembrar(tables.agoraProducts, {
+    PK: 'GLOBAL',
+    SK: '502',
+    Id: 502,
+    Name: 'Agua',
+    BaseSaleFormatId: 3,
+    FormatoBaseNombre: 'Lata',
+    VatId: 1,
+  });
+  db.sembrar(tables.agoraProducts, { PK: 'GLOBAL', SK: '503', Id: 503, Name: 'Cola', VatId: 1 });
+  db.sembrar(tables.comprasProveedor, {
+    PK: 'ALB#1',
+    SK: 'L1',
+    ProductId: '502',
+    AlbaranFecha: '2026-10-01',
+    SupplierId: '77',
+    SupplierName: 'Bebidas Norte',
+    WarehouseId: '000101',
+    Confirmed: true,
+  });
+  await upsertConfigProducto({
+    warehouseId: '101',
+    productId: '501',
+    maximo: 12,
+    formatoCompra: 6,
+    purchaseUnitId: '20',
+    purchaseUnitName: 'Caja',
+    proveedorId: '99',
+    proveedorNombre: 'Destilados',
+  });
+  await upsertConfigProducto({
+    warehouseId: '101',
+    productId: '502',
+    maximo: 8,
+    formatoCompra: 1,
+  });
+  await upsertConfigProducto({
+    warehouseId: '101',
+    productId: '503',
+    maximo: 6,
+    formatoCompra: 1,
+    purchaseUnitId: '20',
+    purchaseUnitName: 'Caja',
+    proveedorId: '99',
+    proveedorNombre: 'Destilados',
+  });
+  await crearConteoStock({
+    informeId: 'manual',
+    warehouseId: '101',
+    semanasDesde: '2026-11-02',
+    semanasHasta: '2026-11-08',
+    lineas: [
+      {
+        productId: '501',
+        nombre: 'Tonica',
+        stockReal: 4,
+        proveedorId: '42',
+        proveedorNombre: 'Distrib',
+        proveedorManual: true,
+        purchaseUnitId: '10',
+        unit: 'Botella',
+        unidadManual: true,
+      },
+      { productId: '502', nombre: 'Agua', stockReal: 1, proveedorId: 'SIN_PROVEEDOR' },
+      { productId: '503', nombre: 'Cola', stockReal: 1, proveedorId: 'SIN_PROVEEDOR' },
+    ],
+  });
+
+  await calcularConteo('manual');
+  const visto = await leerConteo('manual');
+  const porId = Object.fromEntries(visto.lineas.map((ln) => [ln.productId, ln]));
+  assert.equal(porId['501'].proveedorId, '42');
+  assert.equal(porId['501'].proveedorNombre, 'Distrib');
+  assert.equal(porId['501'].proveedorManual, true);
+  assert.equal(porId['501'].purchaseUnitId, '10');
+  assert.equal(porId['501'].unit, 'Botella');
+  assert.equal(porId['501'].unidadManual, true);
+  assert.equal(porId['502'].proveedorId, '77');
+  assert.equal(porId['502'].proveedorNombre, 'Bebidas Norte');
+  assert.equal(porId['502'].proveedorManual, false);
+  assert.equal(porId['502'].purchaseUnitId, '3');
+  assert.equal(porId['502'].unit, 'Lata');
+  assert.equal(porId['502'].unidadManual, false);
+  assert.equal(porId['503'].proveedorId, '99');
+  assert.equal(porId['503'].proveedorNombre, 'Destilados');
+  assert.equal(porId['503'].purchaseUnitId, '20');
+  assert.equal(porId['503'].unit, 'Caja');
+  assert.equal(porId['503'].proveedorManual, false);
+  assert.equal(porId['503'].unidadManual, false);
+
+  const lineas = db.listar(tables.miaInformeLineas);
+  assert.equal(lineas.some((ln) => ln.SK === skInformeLinea('42', '501')), true);
+  assert.equal(lineas.some((ln) => ln.SK === skInformeLinea('77', '502')), true);
+  assert.equal(lineas.some((ln) => ln.SK === skInformeLinea('99', '503')), true);
+  assert.equal(lineas.some((ln) => ln.SK === skInformeLinea('SIN_PROVEEDOR', '502')), false);
+  const hijos = db.listar(tables.miaInformes).filter((it) => String(it.SK).startsWith('PROV#'));
+  assert.equal(hijos.some((h) => h.proveedorId === '42' && h.estado === 'generado'), true);
+  assert.equal(hijos.some((h) => h.proveedorId === '77'), true);
+  assert.equal(hijos.some((h) => h.proveedorId === '99'), true);
+  assert.equal(hijos.some((h) => h.proveedorId === 'SIN_PROVEEDOR'), false);
 });

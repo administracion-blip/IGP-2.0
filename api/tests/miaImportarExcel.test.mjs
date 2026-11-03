@@ -25,6 +25,7 @@ const {
   MENSAJE_CABECERAS,
   MENSAJE_SIN_CONTADAS,
 } = await import('../lib/mia/importarExcel.js');
+const { upsertConfigProducto } = await import('../lib/mia/configProducto.js');
 const { default: miaRouter } = await import('../routes/mia.js');
 
 const COMPRADOR = { sub: '000080', email: 'compras@grupo.test', rol: 'SuperUser' };
@@ -62,6 +63,14 @@ function montar() {
   db.crearTabla(tables.almacenes, { hashKey: 'Id' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.agoraProducts, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.miaConfigProducto, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.comprasProveedor, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: {
+      'ProductId-AlbaranFecha-index': { hashKey: 'ProductId', rangeKey: 'AlbaranFecha' },
+    },
+  });
   db.crearTabla(tables.miaInformes, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.miaInformeLineas, { hashKey: 'PK', rangeKey: 'SK' });
   db.instalar(docClient);
@@ -142,6 +151,7 @@ test('importa el conteo, avisa duplicados y no calcula previsión', async () => 
   assert.equal(stock('504'), 1.5);
   assert.equal(lineas.some((ln) => ln.productId === '999'), false);
   assert.equal(lineas.filter((ln) => ln.productId === '501').length, 1);
+  assert.equal(lineas.find((ln) => ln.productId === '501').proveedorId, 'SIN_PROVEEDOR');
 });
 
 test('rechaza lo que no es xlsx, sin hoja, con cabeceras distintas o sin líneas contadas', async () => {
@@ -186,6 +196,57 @@ test('sin permiso mia.calcular: 403 y no guarda', async () => {
   assert.equal(r.status, 403);
   assert.equal(r.body.error, 'Permiso insuficiente');
   assert.equal(metas().length, 0);
+});
+
+test('copia el proveedor de la ficha o de la última compra, y la unidad del formato base', async () => {
+  montar();
+  await upsertConfigProducto({
+    warehouseId: '101',
+    productId: '501',
+    proveedorId: '42',
+    proveedorNombre: 'Distrib',
+    purchaseUnitId: '10',
+    purchaseUnitName: 'Botella',
+  });
+  db.sembrar(tables.comprasProveedor, {
+    PK: 'ALB#1',
+    SK: 'L1',
+    ProductId: '502',
+    AlbaranFecha: '2026-10-01',
+    SupplierId: '77',
+    SupplierName: 'Bebidas Norte',
+    WarehouseId: '000101',
+    Confirmed: true,
+  });
+  db.sembrar(tables.agoraProducts, {
+    PK: 'GLOBAL',
+    SK: '504',
+    Id: 504,
+    Name: 'Zumo',
+    BaseSaleFormatId: 8,
+    FormatoBaseNombre: 'Lata',
+  });
+  const buf = await excel([
+    [501, 'Bebidas', 'Tonica', null, null, 'ud', 10, 4],
+    [502, 'Bebidas', 'Agua', null, null, 'ud', 8, 1],
+    [503, 'Bebidas', 'Cola', null, null, 'ud', 3, 2],
+    [504, 'Bebidas', 'Zumo', null, null, 'ud', 2, 1],
+  ]);
+  const r = await postFichero(buf);
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const lineas = db.listar(tables.miaInformeLineas);
+  const de = (id) => lineas.find((ln) => ln.productId === id);
+  assert.equal(de('501').proveedorId, '42');
+  assert.equal(de('501').proveedorNombre, 'Distrib');
+  assert.equal(de('501').purchaseUnitId, '10');
+  assert.equal(de('501').unit, 'Botella');
+  assert.equal(de('501').SK, 'LINE#42#501');
+  assert.equal(de('502').proveedorId, '77');
+  assert.equal(de('502').proveedorNombre, 'Bebidas Norte');
+  assert.equal(de('503').proveedorId, 'SIN_PROVEEDOR');
+  assert.equal(de('504').proveedorId, 'SIN_PROVEEDOR');
+  assert.equal(de('504').purchaseUnitId, '8');
+  assert.equal(de('504').unit, 'Lata');
 });
 
 test('almacén fuera del filtro del usuario: 403 y no guarda', async () => {

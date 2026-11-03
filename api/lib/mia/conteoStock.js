@@ -8,11 +8,13 @@
  */
 
 import { randomUUID } from 'crypto';
-import { GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { redondearCantidadCompra } from './demanda.js';
 import { listInformeLineas, listInformesByWarehouse } from './informes.js';
 import { normalizeProductId, normalizeWarehouseId, pkInforme, skInformeLinea } from './keys.js';
+import { listProveedoresParaAjustes } from './proveedoresConfig.js';
+import { unidadesAgora } from './stockMaximo.js';
 
 export const TIPO_CONTEO = 'stock_maximo';
 export const ESTADOS_PEDIDO = ['generado', 'enviando', 'pedido', 'confirmado'];
@@ -90,6 +92,8 @@ export async function crearConteoStock(input) {
       formatoCompra: ln?.formatoCompra == null || ln?.formatoCompra === '' ? null : Number(ln.formatoCompra),
       purchaseUnitId: ln?.purchaseUnitId == null ? '' : String(ln.purchaseUnitId),
       unit: String(ln?.unit || '').trim(),
+      proveedorManual: ln?.proveedorManual === true,
+      unidadManual: ln?.unidadManual === true,
       costeUnitario: ln?.costeUnitario == null || ln?.costeUnitario === '' ? null : Number(ln.costeUnitario),
       costeLinea: ln?.costeLinea == null || ln?.costeLinea === '' ? null : Number(ln.costeLinea),
     };
@@ -210,7 +214,66 @@ export async function guardarCalculoConteo(informeId, calculo) {
     await docClient.send(new PutCommand({ TableName: tables.miaInformeLineas, Item: ln }));
     lineas.push(ln);
   }
+  const previas = await listInformeLineas(id);
+  const vigentes = new Set(lineas.map((ln) => ln.SK));
+  for (const vieja of previas) {
+    if (vigentes.has(vieja.SK)) continue;
+    await docClient.send(new DeleteCommand({
+      TableName: tables.miaInformeLineas,
+      Key: { PK: vieja.PK, SK: vieja.SK },
+    }));
+  }
+  await reconciliarPedidos(id, lineas);
   return { meta: siguiente, lineas };
+}
+
+/** Crea, renombra o quita el hijo de proveedor mientras sigue en Generado. */
+async function reconciliarPedidos(informeId, lineas) {
+  const PK = pkInforme(informeId);
+  const nombres = new Map();
+  for (const ln of lineas) {
+    const proveedorId = String(ln.proveedorId || 'SIN_PROVEEDOR');
+    if (!nombres.has(proveedorId)) nombres.set(proveedorId, String(ln.proveedorNombre || '').trim());
+  }
+  const pedidos = await listarPedidosProveedor(informeId);
+  const ahora = new Date().toISOString();
+  for (const p of pedidos) {
+    if (!nombres.has(p.proveedorId)) {
+      if (p.estado === 'generado') {
+        await docClient.send(new DeleteCommand({
+          TableName: tables.miaInformes,
+          Key: { PK, SK: p.SK },
+        }));
+      }
+      continue;
+    }
+    const nombre = nombres.get(p.proveedorId);
+    if (p.estado === 'generado' && nombre && nombre !== p.proveedorNombre) {
+      await docClient.send(new PutCommand({
+        TableName: tables.miaInformes,
+        Item: { ...p, proveedorNombre: nombre },
+      }));
+    }
+    nombres.delete(p.proveedorId);
+  }
+  for (const [proveedorId, proveedorNombre] of nombres) {
+    await docClient.send(new PutCommand({
+      TableName: tables.miaInformes,
+      Item: {
+        PK,
+        SK: skPedidoProveedor(proveedorId),
+        informeId,
+        tipo: TIPO_CONTEO,
+        proveedorId,
+        proveedorNombre,
+        estado: 'generado',
+        serie: null,
+        number: null,
+        importe: null,
+        creadoEn: ahora,
+      },
+    }));
+  }
 }
 
 /**
@@ -341,7 +404,10 @@ function vistaLinea(ln, multiplicador) {
     cantidadPedida: ln.cantidadPedida == null || ln.cantidadPedida === '' ? null : Number(ln.cantidadPedida),
     cantidadManual: ln.cantidadManual === true,
     formatoCompra: ln.formatoCompra == null || ln.formatoCompra === '' ? null : Number(ln.formatoCompra),
+    purchaseUnitId: ln.purchaseUnitId == null ? '' : String(ln.purchaseUnitId),
     unit: String(ln.unit || ln.purchaseUnitName || '').trim(),
+    proveedorManual: ln.proveedorManual === true,
+    unidadManual: ln.unidadManual === true,
     costeUnitario: ln.costeUnitario == null || ln.costeUnitario === '' ? null : Number(ln.costeUnitario),
     omitida: ln.omitida === true,
     aviso: ln.aviso || (ln.stockReal == null || ln.stockReal === '' ? 'Sin contar; no se pide' : null),
@@ -392,7 +458,12 @@ export async function leerConteo(informeId) {
     listInformeLineas(id),
     listarPedidosProveedor(id),
   ]);
-  const vista = lineas.map((ln) => vistaLinea(ln, meta.multiplicador));
+  const vista = [];
+  for (const ln of lineas) {
+    const v = vistaLinea(ln, meta.multiplicador);
+    v.unidades = unidadesAgora(await fichaUnidades(ln.productId));
+    vista.push(v);
+  }
   const sinContar = vista
     .filter((ln) => ln.stockReal == null)
     .map((ln) => ({ productId: ln.productId, nombre: ln.nombre }));
@@ -416,6 +487,7 @@ export async function leerConteo(informeId) {
     sinContar,
     estado: estadoDeConteo(pedidos),
     editable: pedidos.every((p) => p.estado === 'generado'),
+    proveedores: await proveedoresParaElegir(meta.WarehouseId || meta.warehouseId, lineas),
     pedidos: pedidos.map(resumenPedido),
     lineas: vista,
   };
@@ -463,8 +535,44 @@ export async function guardarLineasConteo(informeId, ajustes) {
       ? interpretarMaximoFinal(adj.maximoFinal, indice)
       : calculado.maximoFinal;
     if (maximoManual && maximoFinal == null) mal(MENSAJE_MAXIMO_FINAL, indice, { productId, proveedorId });
+    let proveedorDestino = linea.proveedorId;
+    let proveedorNombre = linea.proveedorNombre;
+    let proveedorManual = linea.proveedorManual === true;
+    if (adj.proveedorManual === true) {
+      const destino = String(adj.proveedorDestino || '').trim();
+      if (!/^\d+$/.test(destino) || Number(destino) <= 0) {
+        mal('Elige un proveedor de Ágora', indice, { productId, proveedorId });
+      }
+      proveedorDestino = destino;
+      proveedorNombre = String(adj.proveedorNombre || '').trim() || destino;
+      proveedorManual = true;
+    }
+    let purchaseUnitId = linea.purchaseUnitId == null ? '' : String(linea.purchaseUnitId);
+    let unit = String(linea.unit || '').trim();
+    let unidadManual = linea.unidadManual === true;
+    if (adj.unidadManual === true) {
+      const idUnidad = String(adj.purchaseUnitId || '').trim();
+      const nombreUnidad = String(adj.unit || '').trim() || idUnidad;
+      if (!/^\d+$/.test(idUnidad) || Number(idUnidad) <= 0) {
+        mal('Elige una unidad de compra', indice, { productId, proveedorId });
+      }
+      purchaseUnitId = idUnidad;
+      unit = nombreUnidad;
+      unidadManual = true;
+    }
+    const skNueva = skInformeLinea(proveedorDestino, productId);
+    const choca = lineas.find((ln) => ln.SK === skNueva && ln.SK !== linea.SK);
+    if (choca) mal('Ya hay una línea de ese producto con ese proveedor', indice, { productId, proveedorId });
     tocadas.push({
       ...linea,
+      SK: skNueva,
+      skAnterior: linea.SK,
+      proveedorId: proveedorDestino,
+      proveedorNombre,
+      proveedorManual,
+      purchaseUnitId,
+      unit,
+      unidadManual,
       omitida,
       cantidadManual: omitida || cantidadManual,
       cantidadPedida: cantidad,
@@ -473,7 +581,50 @@ export async function guardarLineasConteo(informeId, ajustes) {
     });
   }
   for (const ln of tocadas) {
-    await docClient.send(new PutCommand({ TableName: tables.miaInformeLineas, Item: ln }));
+    const { skAnterior, ...item } = ln;
+    await docClient.send(new PutCommand({ TableName: tables.miaInformeLineas, Item: item }));
+    if (skAnterior && skAnterior !== item.SK) {
+      await docClient.send(new DeleteCommand({
+        TableName: tables.miaInformeLineas,
+        Key: { PK: item.PK, SK: skAnterior },
+      }));
+    }
   }
+  await reconciliarPedidos(id, await listInformeLineas(id));
   return leerConteo(id);
+}
+
+async function fichaUnidades(productId) {
+  const id = normalizeProductId(productId);
+  if (!id) return null;
+  try {
+    const r = await docClient.send(new GetCommand({
+      TableName: tables.agoraProducts,
+      Key: { PK: 'GLOBAL', SK: id },
+    }));
+    return r.Item && r.Item.SK !== 'META' ? r.Item : null;
+  } catch {
+    return null;
+  }
+}
+
+async function proveedoresParaElegir(warehouseId, lineas) {
+  const porId = new Map();
+  for (const ln of lineas || []) {
+    const id = String(ln.proveedorId || '').trim();
+    if (!id || id === 'SIN_PROVEEDOR') continue;
+    porId.set(id, String(ln.proveedorNombre || '').trim() || id);
+  }
+  try {
+    const lista = await listProveedoresParaAjustes(warehouseId);
+    for (const p of lista) {
+      if (!p?.proveedorId || p.proveedorId === 'SIN_PROVEEDOR') continue;
+      porId.set(p.proveedorId, p.proveedorNombre || porId.get(p.proveedorId) || p.proveedorId);
+    }
+  } catch {
+    /* sin la tabla de compras, el desplegable usa los proveedores que ya hay en el conteo */
+  }
+  return [...porId.entries()]
+    .map(([proveedorId, proveedorNombre]) => ({ proveedorId, proveedorNombre }))
+    .sort((a, b) => a.proveedorNombre.localeCompare(b.proveedorNombre, 'es'));
 }

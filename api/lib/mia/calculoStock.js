@@ -23,6 +23,7 @@ import {
 import { listConfigByWarehouse } from './configProducto.js';
 import { guardarCalculoConteo, TIPO_CONTEO } from './conteoStock.js';
 import { redondearCantidadCompra } from './demanda.js';
+import { aplicarProveedorYUnidad } from './importarExcel.js';
 import { getInformeMeta, listInformeLineas } from './informes.js';
 import { buildMapaLocalAlmacen } from './localAlmacen.js';
 import { elegirTramo, listarTramos } from './tramos.js';
@@ -243,7 +244,8 @@ async function prepararCalculo(informeId, { previsionImporte } = {}) {
   const configs = await listConfigByWarehouse(warehouseId);
   const porProducto = new Map(configs.map((c) => [String(c.ProductId), c]));
   const originales = await listInformeLineas(id);
-  const lineas = originales.map((ln) => calcularLineaStock(ln, porProducto.get(String(ln.productId)), tramo.multiplicador));
+  const calculadas = originales.map((ln) => calcularLineaStock(ln, porProducto.get(String(ln.productId)), tramo.multiplicador));
+  const lineas = await aplicarProveedorYUnidad(calculadas, warehouseId);
   const lineasSinMaximo = lineas.filter((ln) => ln.sinMaximo).length;
   const aviso = [prevision.aviso, lineasSinMaximo ? `${lineasSinMaximo} producto(s) sin máximo configurado` : '']
     .filter(Boolean)

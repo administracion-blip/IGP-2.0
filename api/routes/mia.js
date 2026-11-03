@@ -111,7 +111,7 @@ router.post(
     if (!(await permiteAlmacen(req, warehouseId))) return sinAcceso(res);
 
     try {
-      const preparado = await prepararLineasConteo(req.file.buffer);
+      const preparado = await prepararLineasConteo(req.file.buffer, warehouseId);
       const guardado = await crearConteoStock({
         warehouseId,
         semanasDesde: req.body?.semanasDesde,

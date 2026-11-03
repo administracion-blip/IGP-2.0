@@ -58,6 +58,7 @@ type Conteo = {
   estado: string;
   editable: boolean;
   pedidos: PedidoProveedor[];
+  proveedores: { proveedorId: string; proveedorNombre: string }[];
   lineas: LineaConteo[];
 };
 
@@ -107,11 +108,21 @@ function errorMaximo(texto: string) {
   return '';
 }
 
+function identidadDe(linea: LineaConteo) {
+  return {
+    proveedorId: linea.proveedorId || 'SIN_PROVEEDOR',
+    proveedorNombre: linea.proveedorNombre || '',
+    purchaseUnitId: linea.purchaseUnitId || '',
+    unit: linea.unit || '',
+  };
+}
+
 function baseDe(linea: LineaConteo): BorradorLinea {
   return {
     cantidad: linea.cantidadPedida == null ? '' : String(linea.cantidadPedida),
     maximo: linea.maximoFinal == null ? '' : String(linea.maximoFinal),
     omitida: linea.omitida,
+    ...identidadDe(linea),
   };
 }
 
@@ -120,6 +131,7 @@ function calculadaDe(linea: LineaConteo): BorradorLinea {
     cantidad: String(linea.cantidadCalculada ?? 0),
     maximo: linea.maximoCalculado == null ? '' : String(linea.maximoCalculado),
     omitida: false,
+    ...identidadDe(linea),
   };
 }
 
@@ -135,7 +147,12 @@ function diaMadrid(iso: string | null) {
 }
 
 function igual(a: BorradorLinea, b: BorradorLinea) {
-  return canon(a.cantidad) === canon(b.cantidad) && canon(a.maximo) === canon(b.maximo) && a.omitida === b.omitida;
+  return canon(a.cantidad) === canon(b.cantidad)
+    && canon(a.maximo) === canon(b.maximo)
+    && a.omitida === b.omitida
+    && a.proveedorId === b.proveedorId
+    && a.purchaseUnitId === b.purchaseUnitId
+    && a.unit === b.unit;
 }
 
 function parametro(valor: string | string[] | undefined) {
@@ -323,6 +340,22 @@ export default function ConteoScreen() {
     });
   }, [conteo]);
 
+  const onElegir = useCallback((clave: string, campo: 'proveedor' | 'unidad', id: string, nombre: string) => {
+    setAviso('');
+    setBorradores((prev) => {
+      const linea = conteo?.lineas.find((ln) => claveLinea(ln) === clave);
+      if (!linea) return prev;
+      const actual = prev[clave] ?? baseDe(linea);
+      const siguiente = campo === 'proveedor'
+        ? { ...actual, proveedorId: id || 'SIN_PROVEEDOR', proveedorNombre: nombre }
+        : { ...actual, purchaseUnitId: id, unit: nombre || id };
+      const copia = { ...prev };
+      if (igual(siguiente, baseDe(linea))) delete copia[clave];
+      else copia[clave] = siguiente;
+      return copia;
+    });
+  }, [conteo]);
+
   const onQuitar = useCallback((clave: string) => {
     setAviso('');
     setBorradores((prev) => {
@@ -380,6 +413,11 @@ export default function ConteoScreen() {
         const b = borradores[clave];
         const maximoCalculado = linea?.maximoCalculado == null ? '' : String(linea.maximoCalculado);
         const cantidadCalculada = String(linea?.cantidadCalculada ?? 0);
+        const cambiaProveedor = !!linea && b.proveedorId !== (linea.proveedorId || 'SIN_PROVEEDOR');
+        const cambiaUnidad = !!linea && (
+          (b.purchaseUnitId || '') !== (linea.purchaseUnitId || '')
+          || (b.unit || '') !== (linea.unit || '')
+        );
         return {
           productId: linea?.productId,
           proveedorId: linea?.proveedorId,
@@ -388,6 +426,16 @@ export default function ConteoScreen() {
           cantidadPedida: b.cantidad.trim().replace(',', '.'),
           maximoManual: canon(b.maximo) !== canon(maximoCalculado) && b.maximo.trim() !== '',
           maximoFinal: b.maximo.trim() === '' ? null : b.maximo.trim().replace(',', '.'),
+          ...(cambiaProveedor ? {
+            proveedorManual: true,
+            proveedorDestino: b.proveedorId,
+            proveedorNombre: b.proveedorNombre || b.proveedorId,
+          } : {}),
+          ...(cambiaUnidad ? {
+            unidadManual: true,
+            purchaseUnitId: b.purchaseUnitId,
+            unit: b.unit || b.purchaseUnitId,
+          } : {}),
         };
       });
       const r = await apiFetch(`/api/mia/conteos/${encodeURIComponent(conteo.informeId)}/lineas`, {
@@ -817,12 +865,14 @@ export default function ConteoScreen() {
               borradores={borradores}
               errores={erroresVista}
               pedidos={conteo.pedidos}
+              proveedores={conteo.proveedores || []}
               puedeEditar={puedeEditar}
               puedeAprobar={puedeAprobar}
               puedeConfirmar={puedeConfirmar}
               aprobando={aprobando}
               enTarjetas={isPhone}
               onCambio={onCambio}
+              onElegir={onElegir}
               onQuitar={onQuitar}
               onRestaurar={onRestaurar}
               onAprobar={(proveedorId, confirmed) => { void aprobarUno(proveedorId, confirmed); }}
