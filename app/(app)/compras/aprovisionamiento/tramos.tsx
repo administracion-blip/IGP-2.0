@@ -15,7 +15,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useNavigation, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
@@ -70,9 +70,19 @@ function textoTope(hasta: number | null) {
   return hasta == null ? 'en adelante' : `hasta ${euros(hasta)}`;
 }
 
+function parametro(valor: string | string[] | undefined) {
+  return Array.isArray(valor) ? valor[0] || '' : valor || '';
+}
+
+function elegirAlmacen(lista: { id: string }[], pedido: string) {
+  if (pedido && lista.some((a) => a.id === pedido)) return pedido;
+  return lista[0]?.id ?? '';
+}
+
 export default function TramosScreen() {
   const router = useRouter();
   const navigation = useNavigation();
+  const almacenPedido = parametro(useLocalSearchParams<{ warehouseId?: string }>().warehouseId);
   const { hasPermiso } = useAuth();
   const { isPhone } = useBreakpoint();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -123,7 +133,8 @@ export default function TramosScreen() {
         }));
         lista.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
         setAlmacenes(lista);
-        setAlmacenSim((prev) => prev || (lista[0]?.id ?? ''));
+        setAlmacenSim((prev) => prev || elegirAlmacen(lista, almacenPedido));
+        if (almacenPedido && lista.some((a) => a.id === almacenPedido)) setAmbito(almacenPedido);
       })
       .catch(() => {
         if (vivo) setError('No se pudieron cargar los almacenes');
@@ -131,7 +142,7 @@ export default function TramosScreen() {
     return () => {
       vivo = false;
     };
-  }, [puedeVer]);
+  }, [puedeVer, almacenPedido]);
 
   const cargar = useCallback(async (ambitoId: string) => {
     const id = ++peticion.current;
@@ -389,7 +400,9 @@ export default function TramosScreen() {
         <View style={styles.cabecera}>
           <Text style={styles.migas}>
             <Text style={styles.migaLink} onPress={() => router.push('/compras')}>Compras</Text>
-            {' › Pedidos a proveedores › MIA — Aprovisionamiento › '}
+            {' › Pedidos a proveedores › '}
+            <Text style={styles.migaLink} onPress={() => router.push('/compras/aprovisionamiento')}>MIA — Aprovisionamiento</Text>
+            {' › '}
             <Text style={styles.migaActual}>Tramos</Text>
           </Text>
           <Text style={styles.nota}>El importe «hasta» no entra en el tramo; el siguiente empieza en ese importe.</Text>

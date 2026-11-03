@@ -13,7 +13,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useNavigation, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
@@ -81,9 +81,20 @@ function baseDe(it: ItemApi): BorradorStock {
   };
 }
 
+function parametro(valor: string | string[] | undefined) {
+  return Array.isArray(valor) ? valor[0] || '' : valor || '';
+}
+
+function elegirAlmacen(lista: { id: string }[], pedido: string) {
+  if (pedido && lista.some((a) => a.id === pedido)) return pedido;
+  return lista[0]?.id ?? '';
+}
+
 export default function StockMaximoScreen() {
   const router = useRouter();
   const navigation = useNavigation();
+  const params = useLocalSearchParams<{ warehouseId?: string; sinMaximo?: string }>();
+  const almacenPedido = parametro(params.warehouseId);
   const { hasPermiso } = useAuth();
   const { isPhone } = useBreakpoint();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -94,7 +105,7 @@ export default function StockMaximoScreen() {
   const [warehouseId, setWarehouseId] = useState('');
   const [familias, setFamilias] = useState<Familia[]>([]);
   const [familia, setFamilia] = useState('');
-  const [sinMaximo, setSinMaximo] = useState(false);
+  const [sinMaximo, setSinMaximo] = useState(parametro(params.sinMaximo) === '1');
   const [busqueda, setBusqueda] = useState('');
   const [q, setQ] = useState('');
   const [items, setItems] = useState<ItemApi[]>([]);
@@ -130,7 +141,7 @@ export default function StockMaximoScreen() {
         }));
         lista.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
         setAlmacenes(lista);
-        setWarehouseId((prev) => prev || (lista[0]?.id ?? ''));
+        setWarehouseId((prev) => prev || elegirAlmacen(lista, almacenPedido));
       })
       .catch(() => {
         if (vivo) setError('No se pudieron cargar los almacenes');
@@ -138,7 +149,7 @@ export default function StockMaximoScreen() {
     return () => {
       vivo = false;
     };
-  }, [puedeVer]);
+  }, [puedeVer, almacenPedido]);
 
   const cargar = useCallback(async (offset: number, reemplazar: boolean) => {
     if (!warehouseId) return;
@@ -329,7 +340,9 @@ export default function StockMaximoScreen() {
       <View style={styles.cabecera}>
         <Text style={styles.migas}>
           <Text style={styles.migaLink} onPress={() => router.push('/compras')}>Compras</Text>
-          {' › Pedidos a proveedores › MIA — Aprovisionamiento › '}
+          {' › Pedidos a proveedores › '}
+          <Text style={styles.migaLink} onPress={() => router.push('/compras/aprovisionamiento')}>MIA — Aprovisionamiento</Text>
+          {' › '}
           <Text style={styles.migaActual}>Stock máximo</Text>
         </Text>
         <View style={[styles.filtros, isPhone && styles.filtrosPila]}>

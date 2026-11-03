@@ -40,7 +40,7 @@ const PEDIDOS_INTERNOS: Opcion[] = [
 const PEDIDOS_PROVEEDORES: Opcion[] = [
   { id: 'compras-proveedor', label: 'Compras a Proveedor', icon: 'receipt-long', descripcion: 'Albaranes de entrada desde Ágora', permiso: 'compras_proveedor.ver' },
   { id: 'conciliacion-facturas', label: 'Conciliación Facturas', icon: 'fact-check', descripcion: 'Contraste de albaranes de Ágora con facturas de gasto por proveedor', permiso: 'compras_proveedor.ver' },
-  { id: 'mia', label: 'MIA — Aprovisionamiento', icon: 'psychology', descripcion: 'Motor inteligente: calcula pedidos sugeridos por almacén', permiso: 'mia.ver' },
+  { id: 'mia', label: 'MIA — Aprovisionamiento', icon: 'psychology', descripcion: 'Conteo, stock máximo y tramos de previsión', permiso: 'mia.ver' },
   { id: 'acuerdos', label: 'Acuerdos', icon: 'handshake', descripcion: 'Acuerdos comerciales con proveedores', permiso: 'acuerdos.ver' },
 ];
 
@@ -108,7 +108,7 @@ export default function ComprasIndexScreen() {
     if (id === 'abonos-rappel') router.push('/compras/abonos-rappel');
     if (id === 'facturacion') router.push('/compras/facturacion');
     if (id === 'ventas-empresa') router.push('/compras/ventas-empresa');
-    if (id === 'mia') router.push('/compras/mia');
+    if (id === 'mia') router.push('/compras/aprovisionamiento');
     if (id === 'escandallos') router.push('/compras/escandallos');
     if (id === 'acuerdos') router.push('/acuerdos');
     if (id === 'inventario-plantillas') router.push('/compras/inventario-plantillas');
@@ -132,7 +132,11 @@ export default function ComprasIndexScreen() {
         trailing={
           <EstrellaFavorito
             favorito={{
-              route: opcion.id === 'acuerdos' ? '/acuerdos' : `/compras/${opcion.id}`,
+              route: opcion.id === 'acuerdos'
+                ? '/acuerdos'
+                : opcion.id === 'mia'
+                  ? '/compras/aprovisionamiento'
+                  : `/compras/${opcion.id}`,
               label: opcion.label,
               icon: opcion.icon,
               permiso: opcion.permiso,

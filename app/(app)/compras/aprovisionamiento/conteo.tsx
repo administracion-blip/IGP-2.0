@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { useNavigation, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
@@ -138,9 +138,19 @@ function igual(a: BorradorLinea, b: BorradorLinea) {
   return canon(a.cantidad) === canon(b.cantidad) && canon(a.maximo) === canon(b.maximo) && a.omitida === b.omitida;
 }
 
+function parametro(valor: string | string[] | undefined) {
+  return Array.isArray(valor) ? valor[0] || '' : valor || '';
+}
+
+function elegirAlmacen(lista: { id: string }[], pedido: string) {
+  if (pedido && lista.some((a) => a.id === pedido)) return pedido;
+  return lista[0]?.id ?? '';
+}
+
 export default function ConteoScreen() {
   const router = useRouter();
   const navigation = useNavigation();
+  const almacenPedido = parametro(useLocalSearchParams<{ warehouseId?: string }>().warehouseId);
   const { hasPermiso } = useAuth();
   const { isPhone } = useBreakpoint();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -186,7 +196,7 @@ export default function ConteoScreen() {
         }));
         lista.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
         setAlmacenes(lista);
-        setWarehouseId((prev) => prev || (lista[0]?.id ?? ''));
+        setWarehouseId((prev) => prev || elegirAlmacen(lista, almacenPedido));
       })
       .catch(() => {
         if (vivo) setError('No se pudieron cargar los almacenes');
@@ -194,7 +204,7 @@ export default function ConteoScreen() {
     return () => {
       vivo = false;
     };
-  }, [puedeVer]);
+  }, [puedeVer, almacenPedido]);
 
   const cargarLista = useCallback(async (almacen: string) => {
     if (!almacen) return;
@@ -673,7 +683,9 @@ export default function ConteoScreen() {
         <View style={styles.cabecera}>
           <Text style={styles.migas}>
             <Text style={styles.migaLink} onPress={() => router.push('/compras')}>Compras</Text>
-            {' › Pedidos a proveedores › MIA — Aprovisionamiento › '}
+            {' › Pedidos a proveedores › '}
+            <Text style={styles.migaLink} onPress={() => router.push('/compras/aprovisionamiento')}>MIA — Aprovisionamiento</Text>
+            {' › '}
             <Text style={styles.migaActual}>Conteo</Text>
           </Text>
           <View style={styles.filtro}>
