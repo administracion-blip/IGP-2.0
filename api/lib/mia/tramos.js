@@ -27,10 +27,16 @@ export function ambitoDe(warehouseId) {
   return id;
 }
 
-function numero(raw, campo) {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) throw fallo(`${campo} debe ser un número ≥ 0`);
-  return Math.round(n * 100) / 100;
+function mal(mensaje, indice) {
+  const err = fallo(mensaje);
+  if (Number.isInteger(indice)) err.indice = indice;
+  throw err;
+}
+
+function numero(raw, campo, indice) {
+  const texto = String(raw ?? '').trim().replace(',', '.');
+  if (!/^\d+(\.\d+)?$/.test(texto)) mal(`${campo} debe ser un número ≥ 0`, indice);
+  return Math.round(Number(texto) * 100) / 100;
 }
 
 /**
@@ -41,28 +47,28 @@ export function validarTramos(tramos) {
   if (!Array.isArray(tramos) || tramos.length === 0) {
     throw fallo('Hace falta al menos un tramo');
   }
-  const lista = tramos.map((t) => {
-    const desde = numero(t?.desde, 'desde');
-    const multiplicador = numero(t?.multiplicador, 'multiplicador');
-    if (multiplicador <= 0) throw fallo('El multiplicador tiene que ser mayor que 0');
+  const lista = tramos.map((t, indice) => {
+    const desde = numero(t?.desde, 'desde', indice);
+    const multiplicador = numero(t?.multiplicador, 'multiplicador', indice);
+    if (multiplicador <= 0) mal('El multiplicador tiene que ser mayor que 0', indice);
     const sinTope = t?.hasta == null || t?.hasta === '';
-    const hasta = sinTope ? null : numero(t.hasta, 'hasta');
-    if (hasta != null && hasta <= desde) throw fallo('El importe hasta tiene que ser mayor que el desde');
-    return { desde, hasta, multiplicador };
-  }).sort((a, b) => a.desde - b.desde);
+    const hasta = sinTope ? null : numero(t.hasta, 'hasta', indice);
+    if (hasta != null && hasta <= desde) mal('El importe hasta tiene que ser mayor que el desde', indice);
+    return { desde, hasta, multiplicador, indice };
+  }).sort((a, b) => a.desde - b.desde || a.indice - b.indice);
 
-  if (lista[0].desde !== 0) throw fallo('El primer tramo tiene que empezar en 0');
+  if (lista[0].desde !== 0) mal('El primer tramo tiene que empezar en 0', lista[0].indice);
   for (let i = 0; i < lista.length; i += 1) {
     const t = lista[i];
     const ultimo = i === lista.length - 1;
-    if (t.hasta == null && !ultimo) throw fallo('Solo el último tramo puede ir sin tope');
-    if (ultimo && t.hasta != null) throw fallo('El último tramo no puede tener tope: quedaría un hueco por encima');
+    if (t.hasta == null && !ultimo) mal('Solo el último tramo puede ir sin tope', t.indice);
+    if (ultimo && t.hasta != null) mal('El último tramo no puede tener tope: quedaría un hueco por encima', t.indice);
     if (i === 0) continue;
     const prev = lista[i - 1];
-    if (t.desde < prev.hasta) throw fallo('Los tramos se solapan');
-    if (t.desde > prev.hasta) throw fallo('Hay un hueco entre tramos');
+    if (t.desde < prev.hasta) mal('Los tramos se solapan', t.indice);
+    if (t.desde > prev.hasta) mal('Hay un hueco entre tramos', t.indice);
   }
-  return lista;
+  return lista.map(({ desde, hasta, multiplicador }) => ({ desde, hasta, multiplicador }));
 }
 
 function skDe(ambito, orden) {
@@ -153,4 +159,37 @@ export async function guardarTramos(warehouseId, tramos) {
     guardados.push(mapTramo(Item));
   }
   return guardados;
+}
+
+/**
+ * Tramos que ve un ámbito. Si el almacén no tiene los suyos, devuelve los
+ * globales y `heredados: true`. No escribe.
+ * @param {string|null} warehouseId
+ */
+export async function vistaTramos(warehouseId) {
+  const ambito = ambitoDe(warehouseId);
+  if (ambito === AMBITO_GLOBAL) {
+    return { ambito, heredados: false, tramos: await listarTramos(null) };
+  }
+  const propios = await listarTramos(ambito);
+  if (propios.length) return { ambito, heredados: false, tramos: propios };
+  return { ambito, heredados: true, tramos: await listarTramos(null) };
+}
+
+/**
+ * Borra los tramos de un almacén para que vuelva a heredar los globales.
+ * No toca el ámbito GLOBAL.
+ * @param {string} warehouseId
+ */
+export async function borrarTramosPropios(warehouseId) {
+  const ambito = ambitoDe(warehouseId);
+  if (ambito === AMBITO_GLOBAL) mal('Los tramos globales no se quitan desde un almacén');
+  const previos = await listarItems(ambito);
+  for (const it of previos) {
+    await docClient.send(new DeleteCommand({
+      TableName: tables.ajustes,
+      Key: { PK: PK_MIA_TRAMOS, SK: it.SK },
+    }));
+  }
+  return vistaTramos(ambito);
 }

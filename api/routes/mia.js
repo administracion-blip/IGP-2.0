@@ -50,7 +50,8 @@ import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLectu
 import { permiteAlmacen, permiteLecturaAlmacen } from '../lib/alcanceAlmacenes.js';
 import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
 import { crearConteoStock } from '../lib/mia/conteoStock.js';
-import { calcularConteo, simularConteo } from '../lib/mia/calculoStock.js';
+import { calcularConteo, simularConteo, sumarPrevisionRango } from '../lib/mia/calculoStock.js';
+import { borrarTramosPropios, elegirTramo, guardarTramos, vistaTramos } from '../lib/mia/tramos.js';
 import { guardarLineasStockMaximo, listarVistaStockMaximo, sanearConfigStock } from '../lib/mia/stockMaximo.js';
 import {
   MAX_EXCEL_CONTEO_BYTES,
@@ -324,6 +325,86 @@ router.get('/mia/stock-maximo', requirePermission('mia.ver'), async (req, res) =
     return res.json(vista);
   } catch (err) {
     return responderError(res, err, { mensaje: 'No se pudo cargar el stock máximo' });
+  }
+});
+
+function idAlmacenTramo(raw) {
+  if (raw == null || String(raw).trim() === '' || String(raw).trim() === 'GLOBAL') return null;
+  const wid = normalizeWarehouseId(raw);
+  if (!wid || wid === '000000') {
+    throw Object.assign(new Error('Almacén del tramo no válido'), { status: 400, expose: true });
+  }
+  return wid;
+}
+
+const RE_FECHA_TRAMO = /^\d{4}-\d{2}-\d{2}$/;
+
+router.get('/mia/tramos', requirePermission('mia.ver'), async (req, res) => {
+  try {
+    const wid = idAlmacenTramo(req.query.warehouseId);
+    if (wid && !(await permiteAlmacen(req, wid))) return sinAcceso(res);
+    return res.json(await vistaTramos(wid));
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudieron cargar los tramos' });
+  }
+});
+
+router.put('/mia/tramos', requirePermission('mia.configurar'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const wid = idAlmacenTramo(body.warehouseId);
+    if (wid && !(await permiteAlmacen(req, wid))) return sinAcceso(res);
+    const guardados = await guardarTramos(wid, body.tramos);
+    return res.json({ ok: true, ambito: wid || 'GLOBAL', heredados: false, tramos: guardados });
+  } catch (err) {
+    return responderError(res, err, {
+      mensaje: 'No se pudieron guardar los tramos',
+      extra: Number.isInteger(err?.indice) ? { indice: err.indice } : {},
+    });
+  }
+});
+
+router.delete('/mia/tramos', requirePermission('mia.configurar'), async (req, res) => {
+  try {
+    const wid = idAlmacenTramo(req.query.warehouseId ?? req.body?.warehouseId);
+    if (!wid) {
+      return res.status(400).json({ error: 'Hace falta el almacén cuyos tramos propios se quitan' });
+    }
+    if (!(await permiteAlmacen(req, wid))) return sinAcceso(res);
+    return res.json(await borrarTramosPropios(wid));
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudieron quitar los tramos' });
+  }
+});
+
+router.post('/mia/tramos/simular', requirePermission('mia.calcular'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const wid = idAlmacenTramo(body.warehouseId);
+    if (!wid) return res.status(400).json({ error: 'Elige un almacén para ver la previsión' });
+    if (!(await permiteAlmacen(req, wid))) return sinAcceso(res);
+    const desde = String(body.semanasDesde || '').slice(0, 10);
+    const hasta = String(body.semanasHasta || '').slice(0, 10);
+    if (!RE_FECHA_TRAMO.test(desde) || !RE_FECHA_TRAMO.test(hasta) || hasta < desde) {
+      return res.status(400).json({ error: 'Elige un rango de semanas válido' });
+    }
+    const prevision = await sumarPrevisionRango(wid, desde, hasta);
+    const vista = await vistaTramos(wid);
+    const tramo = elegirTramo(prevision.importe, vista.tramos);
+    return res.json({
+      warehouseId: wid,
+      rangoDesde: desde,
+      rangoHasta: hasta,
+      previsionImporte: prevision.importe,
+      aviso: prevision.aviso,
+      desglose: prevision.desglose,
+      heredados: vista.heredados,
+      tramoDesde: tramo?.desde ?? null,
+      tramoHasta: tramo?.hasta ?? null,
+      multiplicador: tramo?.multiplicador ?? null,
+    });
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudo simular la previsión' });
   }
 });
 
