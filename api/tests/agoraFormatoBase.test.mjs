@@ -66,7 +66,7 @@ test('un nombre igual al del producto no se muestra', () => {
   );
 });
 
-test('pickAllowedFields guarda el nombre y no el listado de formatos', () => {
+test('pickAllowedFields guarda el nombre y el listado corto de formatos', () => {
   const picked = pickAllowedFields({
     Id: 1,
     Name: 'CASERA',
@@ -79,6 +79,42 @@ test('pickAllowedFields guarda el nombre y no el listado de formatos', () => {
   });
   assert.equal(picked.FormatoBaseNombre, 'BOT CASERA 1.5L');
   assert.equal(picked.AdditionalSaleFormats, undefined);
+  assert.deepEqual(picked.Formatos, [
+    { id: '7206', nombre: 'BOT CASERA 1.5L', ratio: 1 },
+    { id: '7207', nombre: 'VASO CASERA 1.5L', ratio: 0.22 },
+  ]);
+});
+
+test('el mismo id en SaleFormats y AdditionalSaleFormats se guarda una vez', () => {
+  const picked = pickAllowedFields({
+    Id: 1,
+    Name: 'Tonica',
+    SaleFormats: [{ Id: 11, Name: 'Caja', Ratio: 6 }],
+    AdditionalSaleFormats: [
+      { Id: 11, Name: 'Caja repetida', Ratio: 6 },
+      { Id: '11', Name: 'Otra' },
+    ],
+  });
+  assert.equal(picked.Formatos.length, 1);
+  assert.deepEqual(picked.Formatos[0], { id: '11', nombre: 'Caja', ratio: 6 });
+});
+
+test('un ratio vacío o 0 se guarda sin ratio y no rompe', () => {
+  const picked = pickAllowedFields({
+    Id: 1,
+    Name: 'Agua',
+    SaleFormats: [null, { Id: 20, Name: 'Botella', Ratio: '' }],
+    AdditionalSaleFormats: [
+      { Id: 21, Name: 'Unidad', Ratio: 0 },
+      { Id: 22, Name: 'Copa', Ratio: null },
+    ],
+  });
+  assert.deepEqual(picked.Formatos, [
+    { id: '20', nombre: 'Botella' },
+    { id: '21', nombre: 'Unidad' },
+    { id: '22', nombre: 'Copa' },
+  ]);
+  for (const f of picked.Formatos) assert.equal(Object.hasOwn(f, 'ratio'), false);
 });
 
 test('un nombre ya guardado se conserva al leer el producto', () => {

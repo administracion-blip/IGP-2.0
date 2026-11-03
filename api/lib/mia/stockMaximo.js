@@ -74,7 +74,7 @@ export function unidadesAgora(producto) {
   const vistos = new Set();
   if (!producto || typeof producto !== 'object') return salida;
   anadirUnidad(salida, vistos, producto.BaseSaleFormatId, producto.FormatoBaseNombre);
-  const listas = [producto.SaleFormats, producto.AdditionalSaleFormats];
+  const listas = [producto.Formatos, producto.SaleFormats, producto.AdditionalSaleFormats];
   for (const lista of listas) {
     if (!Array.isArray(lista)) continue;
     for (const f of lista) {
@@ -83,7 +83,7 @@ export function unidadesAgora(producto) {
         salida,
         vistos,
         f.Id ?? f.id ?? f.SaleFormatId ?? f.saleFormatId,
-        f.Name ?? f.name,
+        f.nombre ?? f.Name ?? f.name,
       );
     }
   }

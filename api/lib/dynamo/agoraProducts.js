@@ -68,6 +68,42 @@ function formatosNombrados(p) {
 }
 
 /**
+ * Lista corta para Dynamo: id, nombre y ratio. El mismo id en SaleFormats y
+ * AdditionalSaleFormats se guarda una vez (manda el primero). Sin id no entra.
+ * Ratio vacío, 0 o no numérico se omite; no rompe el producto.
+ * @param {Record<string, unknown>} p
+ * @returns {Array<{ id: string, nombre: string, ratio?: number }>}
+ */
+function formatosGuardados(p) {
+  const fuentes = [
+    p?.SaleFormats,
+    p?.saleFormats,
+    p?.AdditionalSaleFormats,
+    p?.additionalSaleFormats,
+    p?.Formatos,
+  ];
+  const vistos = new Set();
+  const out = [];
+  for (const lista of fuentes) {
+    if (!Array.isArray(lista)) continue;
+    for (const f of lista) {
+      if (!f || typeof f !== 'object') continue;
+      const id = texto(f.Id ?? f.id ?? f.SaleFormatId ?? f.saleFormatId);
+      if (!id || vistos.has(id)) continue;
+      vistos.add(id);
+      const fila = { id, nombre: texto(f.Name ?? f.name ?? f.nombre) || id };
+      const ratioRaw = f.Ratio ?? f.ratio;
+      if (ratioRaw != null && ratioRaw !== '') {
+        const ratio = Number(ratioRaw);
+        if (Number.isFinite(ratio) && ratio > 0) fila.ratio = ratio;
+      }
+      out.push(fila);
+    }
+  }
+  return out;
+}
+
+/**
  * Nombre del formato en el que se cuenta la unidad del producto.
  * Solo si Ágora lo dice: el formato cuyo id es BaseSaleFormatId, o, si no viene,
  * el único formato adicional que consume exactamente 1 unidad base.
@@ -152,6 +188,9 @@ export function pickAllowedFields(p) {
   const formato = nombreFormatoBase(p);
   if (formato) out.FormatoBaseNombre = formato;
   else delete out.FormatoBaseNombre;
+  const formatos = formatosGuardados(p);
+  if (formatos.length) out.Formatos = formatos;
+  else delete out.Formatos;
   const zona = letraZona(p.Zona ?? p.zona);
   if (zona) out.Zona = zona;
   else delete out.Zona;
