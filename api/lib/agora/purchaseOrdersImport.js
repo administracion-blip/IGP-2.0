@@ -10,6 +10,20 @@ import { validateAgoraBaseUrl } from './couponsImport.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
+/** Tanto por uno de Ágora (0,10 = 10 %). Fuera de 0–1 no se envía. */
+function descuentoTantoPorUno(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || n >= 1) return 0;
+  return n;
+}
+
+/** Descuento en euros de la línea. Ya viene prorrateado a la cantidad pedida. */
+function descuentoEuros(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 /**
  * Number del pedido: Ágora usa Serie+Number como identidad.
  * El número lo reserva IGP (contador en Igp_Ajustes). No se inventa aquí:
@@ -131,8 +145,8 @@ export function buildPurchaseOrderPayload(input) {
       SurchargeRate: surchargeRate,
       OrderedQuantity: orderedQuantity,
       DeliveredQuantity: 0,
-      DiscountRate: 0,
-      CashDiscount: 0,
+      DiscountRate: descuentoTantoPorUno(ln?.discountRate),
+      CashDiscount: descuentoEuros(ln?.cashDiscount),
     };
 
     const price = Number(ln?.price);

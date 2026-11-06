@@ -8,11 +8,13 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { useHubNavGrid } from '../../../hooks/useHubNavGrid';
 import { apiFetch } from '../../../utils/api';
 import { formatCreadoEn } from '../../../utils/formatFecha';
 import { HubNavCard, HubNavGrid } from '../../../components/ui/HubNavCard';
-import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
+import { CampoSelector } from '../../../components/mia/CampoSelector';
+import { altoControl, modoPrevision } from '../../../components/prevision/tokens';
 import { hubAccentById } from '../../../lib/hubNavAccent';
 import { SPACING } from '../../../constants/layout';
 
@@ -54,6 +56,8 @@ function textoTramos(cantidad: number | null, heredados: boolean, fallo: boolean
 export default function AprovisionamientoHub() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
+  const { width } = useBreakpoint();
+  const alto = altoControl(modoPrevision(width));
   const { cardWidth, compact } = useHubNavGrid();
   const puedeVer = hasPermiso('mia.ver');
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -174,10 +178,12 @@ export default function AprovisionamientoHub() {
       <Text style={styles.titulo}>MIA — Aprovisionamiento</Text>
       <Text style={styles.nota}>Conteo, stock máximo y tramos. El dato es del almacén elegido.</Text>
       <View style={styles.filtro}>
-        <SelectorDesplegable
-          placeholder="Almacén"
-          icono="warehouse"
-          compact
+        <CampoSelector
+          etiqueta="Almacén"
+          alto={alto}
+          placeholder="Elige almacén…"
+          buscador
+          buscadorPlaceholder="Buscar almacén…"
           opciones={almacenes.map((a) => ({ id: a.id, titulo: a.nombre }))}
           valorId={warehouseId}
           onSeleccionar={setWarehouseId}

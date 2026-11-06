@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -50,6 +51,7 @@ import {
 } from '../../lib/comprasProveedorRango';
 
 const COLOR_MIA = '#7c3aed'; // violeta del acceso a MIA, sin token de acento
+const MIN_ANCHO_COL = 60;
 
 type SyncOpcion = number | 'completo';
 
@@ -321,7 +323,49 @@ export default function ComprasProveedorScreen() {
     if (page > totalPages - 1) setPage(totalPages - 1);
   }, [totalPages, page]);
 
-  const totalWidth = COLUMNAS.reduce((s, c) => s + c.width, 0);
+  const [anchosCol, setAnchosCol] = useState<Record<string, number>>({});
+  const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
+  const [colRedimensionando, setColRedimensionando] = useState<string | null>(null);
+  const anchoDe = useCallback((key: string, base: number) => anchosCol[key] ?? base, [anchosCol]);
+  const totalWidth = COLUMNAS.reduce((s, c) => s + anchoDe(String(c.key), c.width), 0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !colRedimensionando) return undefined;
+    const alMover = (e: MouseEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      const next = Math.max(MIN_ANCHO_COL, r.startWidth + (e.clientX - r.startX));
+      setAnchosCol((prev) => ({ ...prev, [r.col]: next }));
+    };
+    const alSoltar = () => {
+      resizeRef.current = null;
+      setColRedimensionando(null);
+    };
+    document.addEventListener('mousemove', alMover);
+    document.addEventListener('mouseup', alSoltar);
+    return () => {
+      document.removeEventListener('mousemove', alMover);
+      document.removeEventListener('mouseup', alSoltar);
+    };
+  }, [colRedimensionando]);
+
+  const empezarRedimension = (
+    col: string,
+    e: {
+      nativeEvent?: { clientX: number };
+      clientX?: number;
+      preventDefault?: () => void;
+      stopPropagation?: () => void;
+    },
+  ) => {
+    if (Platform.OS !== 'web') return;
+    e.preventDefault?.();
+    e.stopPropagation?.();
+    const clientX = e.nativeEvent?.clientX ?? e.clientX ?? 0;
+    const base = COLUMNAS.find((c) => String(c.key) === col)?.width ?? MIN_ANCHO_COL;
+    resizeRef.current = { col, startX: clientX, startWidth: anchoDe(col, base) };
+    setColRedimensionando(col);
+  };
 
   const exportarExcel = useCallback(() => {
     if (filtrados.length === 0) return;
@@ -745,16 +789,30 @@ export default function ComprasProveedorScreen() {
       </Modal>
 
       {/* Table */}
-      <ScrollView style={styles.tableWrap} horizontal>
+      <ScrollView style={styles.tableWrap} horizontal scrollEnabled={!colRedimensionando}>
         {/* 40 sin token: margen para que la tabla no pegue al borde */}
         <View style={{ minWidth: Math.max(totalWidth, winWidth - 40) }}>
           {/* Table Header */}
           <View style={styles.tableHeader}>
             {COLUMNAS.map((col) => (
-              <View key={col.key} style={[styles.thCell, { width: col.width }]}>
+              <View key={col.key} style={[styles.thCell, stylesLocal.th, { width: anchoDe(String(col.key), col.width) }]}>
                 <Text style={[styles.thText, col.align === 'right' && styles.textRight, col.align === 'center' && styles.textCenter]} numberOfLines={1}>
                   {col.label}
                 </Text>
+                {Platform.OS === 'web' ? (
+                  <View
+                    style={stylesLocal.asa}
+                    accessibilityLabel={`Ancho de ${col.label}`}
+                    {...({
+                      onMouseDown: (e: {
+                        nativeEvent?: { clientX: number };
+                        clientX?: number;
+                        preventDefault?: () => void;
+                        stopPropagation?: () => void;
+                      }) => empezarRedimension(String(col.key), e),
+                    } as object)}
+                  />
+                ) : null}
               </View>
             ))}
           </View>
@@ -783,7 +841,7 @@ export default function ComprasProveedorScreen() {
               paginados.map((item, rowIdx) => (
                 <View key={`${item.PK}-${item.SK}`} style={[styles.row, rowIdx % 2 === 1 && styles.rowAlt]}>
                   {COLUMNAS.map((col) => (
-                    <View key={col.key} style={[styles.cell, { width: col.width }]}>
+                    <View key={col.key} style={[styles.cell, { width: anchoDe(String(col.key), col.width) }]}>
                       <Text
                         style={[
                           styles.cellText,
@@ -821,4 +879,19 @@ export default function ComprasProveedorScreen() {
     </View>
   );
 }
+
+const stylesLocal = StyleSheet.create({
+  th: { position: 'relative', zIndex: 1 },
+  asa: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: 14,
+    zIndex: 3,
+    borderRightWidth: 2,
+    borderRightColor: colors.borderStrong,
+    cursor: 'col-resize' as 'pointer',
+  },
+});
 

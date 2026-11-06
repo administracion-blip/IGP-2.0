@@ -17,7 +17,7 @@ const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 const { invalidarPermisosRol } = await import('../lib/permisos/cachePermisos.js');
 const { fechaComparacion } = await import('../lib/agora/objetivoMensual.js');
-const { MENSAJE_SIN_LOCAL } = await import('../lib/mia/calculoStock.js');
+const { MENSAJE_SIN_SELECCION } = await import('../lib/mia/calculoStock.js');
 const { PK_MIA_TRAMOS } = await import('../lib/mia/tramos.js');
 const { default: miaRouter } = await import('../routes/mia.js');
 
@@ -73,9 +73,9 @@ function montar() {
   db.sembrar(tables.almacenes, { Id: '101', Nombre: 'Almacen Centro' });
   db.sembrar(tables.almacenes, { Id: '202', Nombre: 'Almacen Sur' });
   db.sembrar(tables.almacenes, { Id: '303', Nombre: 'Almacen Isla' });
-  db.sembrar(tables.locales, { id_Locales: '000010', nombre: 'Bar Centro', agoraCode: '101', 'almacen origen': 'Almacen Centro' });
-  db.sembrar(tables.locales, { id_Locales: '000011', nombre: 'Bar Terraza', agoraCode: '102', 'almacen origen': 'Almacen Centro' });
-  db.sembrar(tables.locales, { id_Locales: '000020', nombre: 'Bar Sur', agoraCode: '202', 'almacen origen': 'Almacen Sur' });
+  db.sembrar(tables.locales, { id_Locales: '000010', nombre: 'Bar Centro', agoraCode: '101', sede: 'Grupo Paripe', 'almacen origen': 'Almacen Centro' });
+  db.sembrar(tables.locales, { id_Locales: '000011', nombre: 'Bar Terraza', agoraCode: '102', sede: 'Grupo Paripe', 'almacen origen': 'Almacen Centro' });
+  db.sembrar(tables.locales, { id_Locales: '000020', nombre: 'Bar Sur', agoraCode: '202', sede: 'Grupo Paripe Madrid', 'almacen origen': 'Almacen Sur' });
   db.sembrar(tables.usuarios, { id_usuario: '000080', Email: COMPRADOR.email, Rol: 'SuperUser', Local: ['Bar Centro'] });
   db.sembrar(tables.usuarios, { id_usuario: '000081', Email: OFICINA.email, Rol: 'SuperUser', Local: [] });
   db.sembrar(tables.usuarios, { id_usuario: '000082', Email: CAMARERO.email, Rol: 'Camarero', Local: ['Bar Centro'] });
@@ -189,6 +189,9 @@ test('sin permiso o con almacén ajeno: 403 y no escribe', async () => {
 
 test('simular devuelve la previsión del rango por local y no escribe', async () => {
   montar();
+  const lista = await api('GET', '/api/mia/locales-prevision');
+  assert.equal(lista.status, 200, JSON.stringify(lista.body));
+  assert.deepEqual(lista.body.locales.map((l) => l.id), ['000010', '000011']);
   await api('PUT', '/api/mia/tramos', {
     tramos: [
       { desde: 0, hasta: 50, multiplicador: 1 },
@@ -205,7 +208,6 @@ test('simular devuelve la previsión del rango por local y no escribe', async ()
   db.sembrar(tables.salesCloseOuts, cierre('202', dia1, 999));
 
   const r = await api('POST', '/api/mia/tramos/simular', {
-    warehouseId: '101',
     semanasDesde: '2026-02-01',
     semanasHasta: '2026-02-02',
   });
@@ -215,33 +217,44 @@ test('simular devuelve la previsión del rango por local y no escribe', async ()
   assert.equal(r.body.rangoHasta, '2026-02-02');
   assert.equal(r.body.desglose.length, 4);
   assert.equal(r.body.multiplicador, 2);
-  assert.equal(r.body.heredados, true);
+  assert.equal(r.body.heredados, false);
   const porLocal = {};
   for (const linea of r.body.desglose) {
     porLocal[linea.localNombre] = (porLocal[linea.localNombre] || 0) + linea.importe;
   }
   assert.equal(porLocal['Bar Centro'], 31);
   assert.equal(porLocal['Bar Terraza'], 42);
+  assert.equal(porLocal['Bar Sur'], undefined);
   assert.equal(tramosGuardados().length, antes);
 
-  const isla = await api('POST', '/api/mia/tramos/simular', {
-    warehouseId: '303',
-    semanasDesde: '2026-02-01',
-    semanasHasta: '2026-02-02',
-  }, OFICINA);
-  assert.equal(isla.status, 200, JSON.stringify(isla.body));
-  assert.equal(isla.body.previsionImporte, 0);
-  assert.equal(isla.body.aviso, MENSAJE_SIN_LOCAL);
-  assert.deepEqual(isla.body.desglose, []);
-
-  const ajeno = await api('POST', '/api/mia/tramos/simular', {
-    warehouseId: '202',
+  const soloCentro = await api('POST', '/api/mia/tramos/simular', {
+    localIds: ['000010'],
     semanasDesde: '2026-02-01',
     semanasHasta: '2026-02-02',
   });
-  assert.equal(ajeno.status, 403);
+  assert.equal(soloCentro.status, 200, JSON.stringify(soloCentro.body));
+  assert.equal(soloCentro.body.previsionImporte, 31);
+
+  const vacio = await api('POST', '/api/mia/tramos/simular', {
+    localIds: [],
+    semanasDesde: '2026-02-01',
+    semanasHasta: '2026-02-02',
+  });
+  assert.equal(vacio.status, 200, JSON.stringify(vacio.body));
+  assert.equal(vacio.body.previsionImporte, 0);
+  assert.equal(vacio.body.aviso, MENSAJE_SIN_SELECCION);
+  assert.deepEqual(vacio.body.desglose, []);
+
+  const madrid = await api('POST', '/api/mia/tramos/simular', {
+    localIds: ['000020'],
+    semanasDesde: '2026-02-01',
+    semanasHasta: '2026-02-02',
+  });
+  assert.equal(madrid.status, 200, JSON.stringify(madrid.body));
+  assert.equal(madrid.body.previsionImporte, 0);
+  assert.equal(madrid.body.aviso, MENSAJE_SIN_SELECCION);
+
   const sinPermiso = await api('POST', '/api/mia/tramos/simular', {
-    warehouseId: '101',
     semanasDesde: '2026-02-01',
     semanasHasta: '2026-02-02',
   }, CAMARERO);

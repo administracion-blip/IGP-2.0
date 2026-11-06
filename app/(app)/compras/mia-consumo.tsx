@@ -19,8 +19,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useConfirmar } from '../../hooks/useConfirmar';
-import { RangoFechas } from '../../components/RangoFechas';
-import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { SelectorDiasRango } from '../../components/prevision/SelectorDiasRango';
+import { altoControl, modoPrevision } from '../../components/prevision/tokens';
+import { CampoSelector } from '../../components/mia/CampoSelector';
 import { MiaCalendarioPedidos } from '../../components/mia/MiaCalendarioPedidos';
 import { MiaGruposFamiliasModal } from '../../components/mia/MiaGruposFamiliasModal';
 import { MiaProveedoresConfigModal } from '../../components/mia/MiaProveedoresConfigModal';
@@ -278,7 +279,8 @@ function costeDraft(d: DraftLinea): number {
 export default function MiaScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
-  const { shouldStackToolbar, shouldStackPanels, isPhone } = useBreakpoint();
+  const { shouldStackToolbar, shouldStackPanels, isPhone, width } = useBreakpoint();
+  const alto = altoControl(modoPrevision(width));
   const { confirmar, ConfirmarView } = useConfirmar();
 
   const puedeVer = hasPermiso('mia.ver');
@@ -1141,9 +1143,9 @@ export default function MiaScreen() {
                   </TouchableOpacity>
                 ) : null}
               </View>
-              <SelectorDesplegable
+              <CampoSelector
+                alto={alto}
                 placeholder="Selecciona almacén…"
-                icono="warehouse"
                 opciones={opcionesAlmacen}
                 valorId={warehouseId}
                 onSeleccionar={setWarehouseId}
@@ -1151,7 +1153,6 @@ export default function MiaScreen() {
                 iconoLista="warehouse"
                 loading={loadingAlmacenes}
                 buscador
-                compact
               />
             </View>
 
@@ -1174,9 +1175,9 @@ export default function MiaScreen() {
                   </TouchableOpacity>
                 ) : null}
               </View>
-              <SelectorDesplegable
+              <CampoSelector
+                alto={alto}
                 placeholder="Selecciona agrupación…"
-                icono="category"
                 opciones={opcionesGrupoFamilia}
                 valorId={grupoFamiliaId}
                 onSeleccionar={setGrupoFamiliaId}
@@ -1184,19 +1185,21 @@ export default function MiaScreen() {
                 iconoLista="category"
                 loading={loadingGrupos}
                 buscador
-                compact
                 vacioTexto="No hay agrupaciones. Crea alguna con «Gestionar agrupaciones»"
               />
             </View>
 
             <View style={[styles.fieldGrow, shouldStackToolbar && styles.fieldFull]}>
-              <Text style={styles.fieldLabel}>Rango objetivo</Text>
-              <RangoFechas
+              <SelectorDiasRango
                 desdeIso={fechaDesde}
                 hastaIso={fechaHasta}
                 onChangeDesde={setFechaDesde}
                 onChangeHasta={setFechaHasta}
-                fill
+                variante="campo"
+                alto={44}
+                soloFechas
+                etiqueta="Rango objetivo"
+                disabled={busy}
               />
             </View>
           </View>

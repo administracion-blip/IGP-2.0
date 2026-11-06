@@ -1,12 +1,15 @@
 /**
  * Líneas del conteo agrupadas por proveedor.
  * La cantidad y el máximo final se editan; quitar y restaurar marcan la fila.
+ * En escritorio y tablet es una tabla; en móvil, tarjetas.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
-import { SelectorDesplegable } from '../SelectorDesplegable';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { CampoSelector } from './CampoSelector';
 
 export type LineaConteo = {
   productId: string;
@@ -61,9 +64,11 @@ type Props = {
   errores: Record<string, string>;
   pedidos: PedidoProveedor[];
   proveedores?: OpcionProveedor[];
-  puedeEditar: boolean;
+  puedeEditarProveedor: (proveedorId: string) => boolean;
   puedeAprobar: boolean;
   puedeConfirmar: boolean;
+  /** El conteo todavía no se ha calculado: Aprobar y Confirmar no se pueden pulsar. */
+  aprobarBloqueado?: boolean;
   aprobando: boolean;
   enTarjetas: boolean;
   onCambio: (clave: string, campo: 'cantidad' | 'maximo', valor: string) => void;
@@ -80,6 +85,11 @@ const TEXTO = '#0f172a';
 const SECUNDARIO = '#64748b';
 const ROJO = '#b91c1c';
 const ROSA = '#be185d';
+const ROSA_BORDE = '#ec4899';
+const BORDE = '#e2e8f0';
+
+const ANCHO = { stock: 80, formato: 80, unidad: 120, maximo: 96, pedir: 96, acciones: 170 };
+const ANCHO_HASTA_PEDIR = ANCHO.stock + ANCHO.formato + ANCHO.unidad + ANCHO.maximo;
 
 export function claveLinea(linea: { proveedorId: string; productId: string }) {
   return `${linea.proveedorId}#${linea.productId}`;
@@ -109,15 +119,21 @@ function formatoUnidades(n: number) {
   return new Intl.NumberFormat('es-ES', { maximumFractionDigits: 4 }).format(n);
 }
 
+/** Manual solo si hay valor escrito y no coincide con el calculado. */
+function esManual(valor: string, calculado: string) {
+  return valor.trim() !== '' && canon(valor) !== canon(calculado);
+}
+
 export function ConteoEditor({
   lineas,
   borradores,
   errores,
   pedidos,
   proveedores = [],
-  puedeEditar,
+  puedeEditarProveedor,
   puedeAprobar,
   puedeConfirmar,
+  aprobarBloqueado = false,
   aprobando,
   enTarjetas,
   onCambio,
@@ -129,6 +145,9 @@ export function ConteoEditor({
   onComprobar,
   comprobando,
 }: Props) {
+  const { isPhone, isTablet } = useBreakpoint();
+  const tactil = isPhone || isTablet;
+  const toque = tactil ? MIN_TOUCH : 32;
   const [ahora, setAhora] = useState(() => Date.now());
   useEffect(() => {
     const reloj = setInterval(() => setAhora(Date.now()), 30_000);
@@ -141,29 +160,58 @@ export function ConteoEditor({
     grupos.set(linea.proveedorId, lista);
   }
   let total = 0;
+  const numGrupos = grupos.size;
 
-  const bloques = [...grupos.entries()].map(([proveedorId, filas]) => {
+  const bloques = [...grupos.entries()].map(([proveedorId, filas], gi) => {
     const pedido = pedidos.find((p) => p.proveedorId === proveedorId);
+    const puedeEditar = puedeEditarProveedor(proveedorId);
     let subtotal = 0;
-    const celdas = filas.map((linea) => {
+    const celdas = filas.map((linea, i) => {
       const clave = claveLinea(linea);
       const borrador = borradores[clave] ?? baseVisible(linea);
       const error = errores[clave];
       const unidades = unidadesDe(borrador.cantidad, borrador.omitida);
       subtotal += unidades;
-      const manualCantidad = !borrador.omitida && canon(borrador.cantidad) !== canon(String(linea.cantidadCalculada));
-      const manualMaximo = canon(borrador.maximo) !== canon(linea.maximoCalculado == null ? '' : String(linea.maximoCalculado));
+      const manualCantidad = !borrador.omitida && esManual(borrador.cantidad, String(linea.cantidadCalculada ?? 0));
+      const manualMaximo = esManual(borrador.maximo, linea.maximoCalculado == null ? '' : String(linea.maximoCalculado));
       const sinProveedor = !linea.proveedorId || linea.proveedorId === 'SIN_PROVEEDOR';
       const sinUnidad = !String(linea.purchaseUnitId || '').trim() || !String(linea.unit || '').trim();
       const proveedorManual = linea.proveedorManual === true || (sinProveedor && borrador.proveedorId !== linea.proveedorId);
       const unidadManual = linea.unidadManual === true || (sinUnidad && borrador.purchaseUnitId !== (linea.purchaseUnitId || ''));
-      return (
-        <View key={clave} style={[enTarjetas ? styles.tarjeta : styles.fila, (error || borrador.omitida) && styles.filaMarcada, error && styles.filaError]}>
-          <View style={enTarjetas ? undefined : styles.identidad}>
+      const nombreUnidad = (borrador.unit || linea.unit || '').trim();
+      const elecciones = (
+        <>
+          {puedeEditar && sinProveedor ? (
+            <Eleccion
+              etiqueta="Proveedor"
+              compacto={!enTarjetas}
+              valorId={borrador.proveedorId === 'SIN_PROVEEDOR' ? '' : borrador.proveedorId}
+              opciones={proveedores.map((p) => ({ id: p.proveedorId, titulo: p.proveedorNombre || p.proveedorId }))}
+              placeholder="Elige proveedor"
+              onElegir={(id, nombre) => onElegir(clave, 'proveedor', id, nombre)}
+            />
+          ) : null}
+          {puedeEditar && sinUnidad ? (
+            <Eleccion
+              etiqueta="Unidad"
+              compacto={!enTarjetas}
+              valorId={borrador.purchaseUnitId}
+              opciones={(linea.unidades || []).map((u) => ({ id: u.id, titulo: u.nombre || u.id }))}
+              placeholder="Elige unidad"
+              onElegir={(id, nombre) => onElegir(clave, 'unidad', id, nombre)}
+            />
+          ) : null}
+        </>
+      );
+
+      if (enTarjetas) {
+        return (
+          <View key={clave} style={[styles.tarjeta, (error || borrador.omitida) && styles.filaMarcada, error && styles.filaError]}>
             <Text style={[styles.nombre, borrador.omitida && styles.tachada]} numberOfLines={2}>{linea.nombre}</Text>
             <Text style={styles.meta} numberOfLines={2}>
               {linea.stockReal == null ? 'Sin contar' : `Stock ${formatoUnidades(linea.stockReal)}`}
               {linea.formatoCompra != null ? ` · Formato ${formatoUnidades(linea.formatoCompra)}` : ''}
+              {nombreUnidad ? ` · Unidad ${nombreUnidad}` : ' · Sin unidad'}
               {linea.aviso ? ` · ${linea.aviso}` : ''}
             </Text>
             <View style={styles.marcas}>
@@ -173,116 +221,195 @@ export function ConteoEditor({
               {proveedorManual ? <Text style={styles.marca}>Proveedor manual</Text> : null}
               {unidadManual ? <Text style={styles.marca}>Unidad manual</Text> : null}
             </View>
-            {puedeEditar && sinProveedor ? (
-              <Eleccion
-                etiqueta="Proveedor"
-                valorId={borrador.proveedorId === 'SIN_PROVEEDOR' ? '' : borrador.proveedorId}
-                opciones={proveedores.map((p) => ({ id: p.proveedorId, titulo: p.proveedorNombre || p.proveedorId }))}
-                placeholder="Elige proveedor"
-                onElegir={(id, nombre) => onElegir(clave, 'proveedor', id, nombre)}
+            {elecciones}
+            <View style={styles.camposTarjeta}>
+              <Campo
+                etiqueta="Máximo final"
+                valor={borrador.maximo}
+                editable={puedeEditar}
+                error={!!error}
+                manual={manualMaximo}
+                onChangeText={(v) => onCambio(clave, 'maximo', v)}
               />
-            ) : null}
-            {puedeEditar && sinUnidad ? (
-              <Eleccion
-                etiqueta="Unidad"
-                valorId={borrador.purchaseUnitId}
-                opciones={(linea.unidades || []).map((u) => ({ id: u.id, titulo: u.nombre || u.id }))}
-                placeholder="Elige unidad"
-                onElegir={(id, nombre) => onElegir(clave, 'unidad', id, nombre)}
+              <Campo
+                etiqueta="Pedir"
+                valor={borrador.cantidad}
+                editable={puedeEditar && !borrador.omitida}
+                error={!!error}
+                manual={manualCantidad}
+                destacado
+                onChangeText={(v) => onCambio(clave, 'cantidad', v)}
               />
-            ) : null}
-          </View>
-          <View style={enTarjetas ? styles.camposTarjeta : styles.campos}>
-            <Campo
-              etiqueta="Cantidad"
-              valor={borrador.cantidad}
-              editable={puedeEditar && !borrador.omitida}
-              error={!!error}
-              onChangeText={(v) => onCambio(clave, 'cantidad', v)}
-            />
-            <Campo
-              etiqueta="Máximo final"
-              valor={borrador.maximo}
-              editable={puedeEditar}
-              error={!!error}
-              onChangeText={(v) => onCambio(clave, 'maximo', v)}
-            />
-          </View>
-          {puedeEditar ? (
-            <View style={styles.acciones}>
-              <Pressable style={styles.accion} onPress={() => onQuitar(clave)} accessibilityRole="button">
-                <Text style={styles.accionTexto}>Quitar</Text>
-              </Pressable>
-              <Pressable style={styles.accion} onPress={() => onRestaurar(clave)} accessibilityRole="button">
-                <Text style={styles.accionTexto}>Restaurar</Text>
-              </Pressable>
             </View>
-          ) : null}
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+            {puedeEditar ? (
+              <View style={styles.acciones}>
+                <Pressable style={styles.accion} onPress={() => onQuitar(clave)} accessibilityRole="button">
+                  <Text style={styles.accionTexto}>Quitar</Text>
+                </Pressable>
+                <Pressable style={styles.accion} onPress={() => onRestaurar(clave)} accessibilityRole="button">
+                  <Text style={styles.accionTexto}>Restaurar</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+          </View>
+        );
+      }
+
+      const tieneEleccion = puedeEditar && (sinProveedor || sinUnidad);
+      return (
+        <View key={clave} style={[styles.filaBloque, { zIndex: filas.length - i }, error && styles.filaError]}>
+          <View style={styles.fila}>
+            <View style={styles.celdaProducto}>
+              <Text numberOfLines={tieneEleccion ? 2 : 1}>
+                <Text style={[styles.nombreFila, borrador.omitida && styles.tachada]}>{linea.nombre}</Text>
+                {manualCantidad || manualMaximo ? <Text style={styles.sufijo}> · manual</Text> : null}
+                {proveedorManual ? <Text style={styles.sufijo}> · proveedor manual</Text> : null}
+                {unidadManual ? <Text style={styles.sufijo}> · unidad manual</Text> : null}
+                {linea.aviso ? <Text style={styles.avisoLinea}> · {linea.aviso}</Text> : null}
+              </Text>
+              {tieneEleccion ? <View style={styles.elecciones}>{elecciones}</View> : null}
+            </View>
+            <Text style={[styles.celdaNum, { width: ANCHO.stock }, linea.stockReal == null && styles.textoGris]} numberOfLines={1}>
+              {linea.stockReal == null ? 'Sin contar' : formatoUnidades(linea.stockReal)}
+            </Text>
+            <Text style={[styles.celdaNum, { width: ANCHO.formato }, linea.formatoCompra == null && styles.textoGris]}>
+              {linea.formatoCompra != null ? formatoUnidades(linea.formatoCompra) : '—'}
+            </Text>
+            <Text
+              style={[styles.celdaNum, { width: ANCHO.unidad }, !nombreUnidad && styles.textoGris, unidadManual && styles.unidadManual]}
+              numberOfLines={1}
+            >
+              {nombreUnidad || '—'}
+            </Text>
+            <View style={[styles.celdaInput, { width: ANCHO.maximo }]}>
+              <InputCelda
+                valor={borrador.maximo}
+                editable={puedeEditar}
+                error={!!error}
+                manual={manualMaximo}
+                etiqueta="Máximo final"
+                onChangeText={(v) => onCambio(clave, 'maximo', v)}
+              />
+            </View>
+            <View style={[styles.celdaInput, { width: ANCHO.pedir }]}>
+              <InputCelda
+                valor={borrador.cantidad}
+                editable={puedeEditar && !borrador.omitida}
+                error={!!error}
+                manual={manualCantidad}
+                destacado
+                etiqueta="Pedir"
+                onChangeText={(v) => onCambio(clave, 'cantidad', v)}
+              />
+            </View>
+            <View style={[styles.celdaAcciones, { width: ANCHO.acciones }]}>
+              {puedeEditar ? (
+                <>
+                  <Pressable
+                    style={[styles.icono, { minWidth: toque, minHeight: toque }]}
+                    onPress={() => onQuitar(clave)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Quitar"
+                  >
+                    <MaterialIcons name="close" size={18} color={SECUNDARIO} />
+                  </Pressable>
+                  <Pressable
+                    style={[styles.icono, { minWidth: toque, minHeight: toque }]}
+                    onPress={() => onRestaurar(clave)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Restaurar"
+                  >
+                    <MaterialIcons name="restore" size={18} color={SECUNDARIO} />
+                  </Pressable>
+                </>
+              ) : null}
+            </View>
+          </View>
+          {error ? <Text style={styles.errorFila}>{error}</Text> : null}
         </View>
       );
     });
     total += subtotal;
     const atascado = estaAtascado(pedido, ahora);
+    const estadoTexto = `${ESTADO[pedido?.estado || 'generado'] || pedido?.estado}${atascado ? ' · atascado' : ''}`;
+    const nombreProveedor = pedido?.proveedorNombre || filas[0]?.proveedorNombre || proveedorId;
+    const enlace = (texto: string, onPress: () => void, bloqueado = false) => (
+      <Pressable
+        key={texto}
+        style={[styles.enlace, { minHeight: enTarjetas ? MIN_TOUCH : toque }]}
+        disabled={aprobando || comprobando || bloqueado}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: aprobando || comprobando || bloqueado }}
+      >
+        <Text style={[styles.enlaceTexto, bloqueado && styles.enlaceOff]}>{texto}</Text>
+      </Pressable>
+    );
+    const enlaces: ReactNode[] = [enlace(enTarjetas ? 'Descargar PDF' : 'PDF', () => onDescargar(proveedorId))];
+    if (puedeAprobar && atascado) enlaces.push(enlace('Comprobar en Ágora', () => onComprobar(proveedorId)));
+    if (puedeAprobar && (pedido?.estado || 'generado') === 'generado') {
+      enlaces.push(enlace('Aprobar', () => onAprobar(proveedorId, false), aprobarBloqueado));
+      if (puedeConfirmar) enlaces.push(enlace('Confirmar', () => onAprobar(proveedorId, true), aprobarBloqueado));
+    }
+
+    if (enTarjetas) {
+      return (
+        <View key={proveedorId} style={styles.grupo}>
+          <View style={styles.grupoCabecera}>
+            <Text style={styles.grupoNombre}>{nombreProveedor}</Text>
+            <Text style={styles.pastilla}>{estadoTexto}</Text>
+            <Text style={styles.grupoTotal}>{formatoUnidades(subtotal)} uds</Text>
+            {enlaces}
+          </View>
+          {celdas}
+        </View>
+      );
+    }
+
     return (
-      <View key={proveedorId} style={styles.grupo}>
-        <View style={styles.grupoCabecera}>
-          <Text style={styles.grupoNombre}>{pedido?.proveedorNombre || filas[0]?.proveedorNombre || proveedorId}</Text>
-          <Text style={styles.grupoEstado}>
-            {ESTADO[pedido?.estado || 'generado'] || pedido?.estado}
-            {atascado ? ' · atascado' : ''}
-          </Text>
-          <Text style={styles.grupoTotal}>{formatoUnidades(subtotal)} uds</Text>
-          <Pressable
-            style={styles.accion}
-            disabled={aprobando || comprobando}
-            onPress={() => onDescargar(proveedorId)}
-            accessibilityRole="button"
-          >
-            <Text style={styles.accionTexto}>Descargar PDF</Text>
-          </Pressable>
-          {puedeAprobar && atascado ? (
-            <Pressable
-              style={styles.accion}
-              disabled={aprobando || comprobando}
-              onPress={() => onComprobar(proveedorId)}
-              accessibilityRole="button"
-            >
-              <Text style={styles.accionTexto}>Comprobar en Ágora</Text>
-            </Pressable>
-          ) : null}
-          {puedeAprobar && (pedido?.estado || 'generado') === 'generado' ? (
-            <View style={styles.aprobar}>
-              <Pressable
-                style={styles.accion}
-                disabled={aprobando || comprobando}
-                onPress={() => onAprobar(proveedorId, false)}
-                accessibilityRole="button"
-              >
-                <Text style={styles.accionTexto}>Aprobar</Text>
-              </Pressable>
-              {puedeConfirmar ? (
-                <Pressable
-                  style={styles.accion}
-                  disabled={aprobando || comprobando}
-                  onPress={() => onAprobar(proveedorId, true)}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.accionTexto}>Confirmar</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
+      <View key={proveedorId} style={{ position: 'relative', zIndex: numGrupos - gi }}>
+        <View style={styles.filaGrupo}>
+          <View style={[styles.celdaProducto, styles.grupoIdentidad]}>
+            <Text style={styles.grupoNombre} numberOfLines={1}>{nombreProveedor}</Text>
+            <Text style={styles.pastilla}>{estadoTexto}</Text>
+          </View>
+          <View style={{ width: ANCHO_HASTA_PEDIR + SPACING.sm * 3 }} />
+          <Text style={[styles.celdaNum, styles.negrita, { width: ANCHO.pedir }]}>{formatoUnidades(subtotal)}</Text>
+          <View style={[styles.celdaAcciones, styles.enlaces, { width: ANCHO.acciones }]}>{enlaces}</View>
         </View>
         {celdas}
       </View>
     );
   });
 
+  if (enTarjetas) {
+    return (
+      <View style={styles.lista}>
+        {bloques}
+        <Text style={styles.total}>Total general {formatoUnidades(total)} uds</Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.lista}>
+    <View style={styles.tabla}>
+      <View style={styles.cabecera}>
+        <Text style={[styles.th, styles.celdaProducto]}>Producto</Text>
+        <Text style={[styles.th, styles.thNum, { width: ANCHO.stock }]}>Stock</Text>
+        <Text style={[styles.th, styles.thNum, { width: ANCHO.formato }]}>Formato</Text>
+        <Text style={[styles.th, styles.thNum, { width: ANCHO.unidad }]}>Unidad</Text>
+        <Text style={[styles.th, styles.thNum, { width: ANCHO.maximo }]}>Máx. final</Text>
+        <Text style={[styles.th, styles.thNum, { width: ANCHO.pedir }]}>Pedir</Text>
+        <View style={{ width: ANCHO.acciones }} />
+      </View>
       {bloques}
-      <Text style={styles.total}>Total general {formatoUnidades(total)} uds</Text>
+      <View style={styles.filaTotal}>
+        <Text style={[styles.celdaProducto, styles.negrita]}>Total general</Text>
+        <View style={{ width: ANCHO_HASTA_PEDIR + SPACING.sm * 3 }} />
+        <Text style={[styles.celdaNum, styles.negrita, { width: ANCHO.pedir }]}>{formatoUnidades(total)}</Text>
+        <View style={{ width: ANCHO.acciones }} />
+      </View>
     </View>
   );
 }
@@ -308,26 +435,30 @@ function baseVisible(linea: LineaConteo): BorradorLinea {
 
 function Eleccion({
   etiqueta,
+  compacto,
   valorId,
   opciones,
   placeholder,
   onElegir,
 }: {
   etiqueta: string;
+  compacto: boolean;
   valorId: string;
   opciones: { id: string; titulo: string }[];
   placeholder: string;
   onElegir: (id: string, nombre: string) => void;
 }) {
+  const alto = compacto ? 32 : MIN_TOUCH;
   if (opciones.length === 0) {
     return (
-      <View style={styles.campo}>
-        <Text style={styles.etiqueta}>{etiqueta}</Text>
+      <View style={compacto ? styles.eleccionCompacta : styles.campo}>
+        {compacto ? null : <Text style={styles.etiqueta}>{etiqueta}</Text>}
         <TextInput
           value={valorId}
           onChangeText={(v) => onElegir(v.trim(), v.trim())}
           placeholder={placeholder}
-          style={styles.input}
+          accessibilityLabel={etiqueta}
+          style={[styles.input, { minHeight: alto, height: alto }]}
           keyboardType="number-pad"
         />
       </View>
@@ -337,9 +468,11 @@ function Eleccion({
     ? [{ id: valorId, titulo: valorId }, ...opciones]
     : opciones;
   return (
-    <View style={styles.selector}>
-      <SelectorDesplegable
-        label={etiqueta}
+    <View style={compacto ? styles.eleccionCompacta : styles.selector}>
+      <CampoSelector
+        etiqueta={compacto ? undefined : etiqueta}
+        alto={alto}
+        radio={compacto ? 6 : 10}
         placeholder={placeholder}
         opciones={lista}
         valorId={valorId}
@@ -347,7 +480,6 @@ function Eleccion({
           const op = lista.find((o) => o.id === id);
           onElegir(id, op?.titulo || id);
         }}
-        compact
       />
     </View>
   );
@@ -360,17 +492,56 @@ function canon(texto: string) {
   return Number.isFinite(n) ? String(n) : t;
 }
 
+function InputCelda({
+  valor,
+  editable,
+  error,
+  manual,
+  destacado = false,
+  etiqueta,
+  onChangeText,
+}: {
+  valor: string;
+  editable: boolean;
+  error: boolean;
+  manual: boolean;
+  destacado?: boolean;
+  etiqueta: string;
+  onChangeText: (v: string) => void;
+}) {
+  return (
+    <TextInput
+      value={valor}
+      editable={editable}
+      onChangeText={onChangeText}
+      keyboardType="decimal-pad"
+      accessibilityLabel={etiqueta}
+      style={[
+        styles.inputCelda,
+        !editable && styles.inputOff,
+        manual && styles.inputManual,
+        destacado && styles.inputDestacado,
+        error && styles.inputError,
+      ]}
+    />
+  );
+}
+
 function Campo({
   etiqueta,
   valor,
   editable,
   error,
+  manual,
+  destacado = false,
   onChangeText,
 }: {
   etiqueta: string;
   valor: string;
   editable: boolean;
   error: boolean;
+  manual: boolean;
+  destacado?: boolean;
   onChangeText: (v: string) => void;
 }) {
   return (
@@ -381,47 +552,133 @@ function Campo({
         editable={editable}
         onChangeText={onChangeText}
         keyboardType="decimal-pad"
-        style={[styles.input, error && styles.inputError, !editable && styles.inputOff]}
+        style={[
+          styles.input,
+          !editable && styles.inputOff,
+          manual && styles.inputManual,
+          destacado && styles.inputDestacado,
+          error && styles.inputError,
+        ]}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  lista: { gap: SPACING.md, padding: SPACING.lg },
-  grupo: { gap: SPACING.sm },
-  grupoCabecera: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexWrap: 'wrap' },
-  grupoNombre: { color: TEXTO, fontWeight: '700', flexGrow: 1 },
-  grupoEstado: { color: SECUNDARIO, fontSize: 13 },
-  grupoTotal: { color: TEXTO, fontWeight: '700' },
-  fila: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: SPACING.sm,
+  tabla: {
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: SPACING.sm,
+    borderColor: BORDE,
+    borderRadius: 10,
+    overflow: 'visible',
+    position: 'relative',
+    zIndex: 0,
   },
+  cabecera: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#f8fafc',
+    borderBottomWidth: 1,
+    borderBottomColor: BORDE,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+  },
+  th: { color: SECUNDARIO, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+  thNum: { textAlign: 'right' },
+  filaGrupo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: 12,
+    minHeight: 40,
+    paddingVertical: 4,
+    backgroundColor: '#fdf2f8',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  grupoIdentidad: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  filaBloque: { position: 'relative', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  fila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: 12,
+    minHeight: 40,
+    paddingVertical: 4,
+  },
+  filaTotal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: 12,
+    minHeight: 40,
+  },
+  celdaProducto: { flex: 1, minWidth: 0 },
+  celdaNum: { color: TEXTO, fontSize: 13, textAlign: 'right' },
+  celdaInput: { alignItems: 'flex-end' },
+  celdaAcciones: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: SPACING.sm },
+  enlaces: { flexWrap: 'wrap', columnGap: SPACING.sm },
+  negrita: { color: TEXTO, fontWeight: '700' },
+  textoGris: { color: SECUNDARIO },
+  nombreFila: { color: TEXTO, fontSize: 13 },
+  sufijo: { color: SECUNDARIO, fontSize: 12 },
+  avisoLinea: { color: SECUNDARIO, fontSize: 11 },
+  elecciones: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs, marginTop: 4 },
+  eleccionCompacta: { width: 220, maxWidth: '100%' },
+  inputCelda: {
+    width: 80,
+    height: 32,
+    borderWidth: 1,
+    borderColor: BORDE,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    backgroundColor: '#fff',
+    color: TEXTO,
+    fontSize: 13,
+    textAlign: 'right',
+  },
+  inputManual: { backgroundColor: '#fefce8', borderColor: '#facc15' },
+  inputDestacado: { borderColor: ROSA_BORDE, borderWidth: 2 },
+  unidadManual: { color: '#a16207' },
+  icono: { alignItems: 'center', justifyContent: 'center', borderRadius: 6 },
+  enlace: { justifyContent: 'center' },
+  enlaceTexto: { color: ROSA, fontWeight: '700', fontSize: 12 },
+  enlaceOff: { color: '#94a3b8' },
+  pastilla: {
+    color: SECUNDARIO,
+    backgroundColor: BORDE,
+    fontSize: 11,
+    fontWeight: '600',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  errorFila: { color: ROJO, fontSize: 12, paddingHorizontal: 12, paddingBottom: 6 },
+
+  lista: { gap: SPACING.md },
+  grupo: { gap: SPACING.sm },
+  grupoCabecera: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexWrap: 'wrap' },
+  grupoNombre: { color: TEXTO, fontWeight: '700', flexShrink: 1 },
+  grupoTotal: { color: TEXTO, fontWeight: '700' },
   tarjeta: {
     gap: SPACING.sm,
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: BORDE,
     borderRadius: 12,
     padding: SPACING.md,
   },
   filaMarcada: { backgroundColor: '#fdf2f8' },
   filaError: { borderColor: ROJO, backgroundColor: '#fef2f2' },
-  identidad: { flexGrow: 1, flexBasis: 180 },
   nombre: { color: TEXTO, fontWeight: '700' },
   tachada: { textDecorationLine: 'line-through', color: SECUNDARIO },
-  meta: { color: SECUNDARIO, fontSize: 12, marginTop: 2 },
-  marcas: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  meta: { color: SECUNDARIO, fontSize: 12 },
+  marcas: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   marca: { color: ROSA, fontSize: 12, fontWeight: '700' },
-  campos: { flexDirection: 'row', gap: SPACING.sm },
   camposTarjeta: { gap: SPACING.sm },
   campo: { minWidth: 110, flexGrow: 1 },
   selector: { minWidth: 180, flexGrow: 1, zIndex: 20 },
@@ -429,7 +686,7 @@ const styles = StyleSheet.create({
   input: {
     minHeight: MIN_TOUCH,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: BORDE,
     borderRadius: 10,
     paddingHorizontal: 12,
     backgroundColor: '#fff',
@@ -437,7 +694,6 @@ const styles = StyleSheet.create({
   },
   inputError: { borderColor: ROJO },
   inputOff: { backgroundColor: '#f8fafc', color: SECUNDARIO },
-  aprobar: { flexDirection: 'row', gap: SPACING.xs },
   acciones: { flexDirection: 'row', gap: SPACING.xs },
   accion: { minHeight: MIN_TOUCH, justifyContent: 'center', paddingHorizontal: 8 },
   accionTexto: { color: ROSA, fontWeight: '700' },

@@ -10,6 +10,7 @@ import { buildPurchaseOrderPayload } from '../agora/purchaseOrdersImport.js';
 import { parseSupplierIdAgora } from './aprobar.js';
 import { MENSAJE_SIN_NUMERO, SERIE_PEDIDO_MIA, reservarNumeroPedido } from './contadorPedido.js';
 import { TIPO_CONTEO, skPedidoProveedor } from './conteoStock.js';
+import { queryUltimaCompraPorProductos } from '../dynamo/comprasProveedor.js';
 import { listInformeLineas } from './informes.js';
 import { normalizeWarehouseId, pkInforme } from './keys.js';
 
@@ -21,6 +22,7 @@ export const MENSAJE_AGORA = 'Ágora ha rechazado el pedido. El proveedor sigue 
 export const MENSAJE_RECIENTE = 'Este envío lleva menos de 10 minutos. Espera antes de comprobarlo';
 export const MENSAJE_LECTURA = 'No se pudo leer el pedido en Ágora. El proveedor sigue en Enviando';
 export const MENSAJE_SIN_DIA = 'No se puede comprobar: falta el día de inicio. El proveedor sigue en Enviando';
+export const MENSAJE_SIN_CALCULAR = 'Calcula el conteo antes de aprobarlo';
 
 const NOMBRES_NUMERO = { '#num': 'number' };
 const QUITAR_ENVIO = 'serie, #num, fecha, enviandoDesde';
@@ -102,6 +104,48 @@ function validarLineas(lineas, proveedorId) {
   return { supplierId, candidatas, fallos };
 }
 
+/** 0,21 y 21 son el mismo tipo. Por encima de 1 se lee como porcentaje. */
+function tasa(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n > 1 ? n / 100 : n;
+}
+
+function cerca(a, b) {
+  return a != null && b != null && Math.abs(a - b) <= 0.0005;
+}
+
+/**
+ * Tipo del maestro que coincide con el IVA de la última compra.
+ * Si hay varios con el mismo porcentaje, manda el del mismo recargo.
+ * Devuelve las cifras del maestro, sin convertirlas.
+ * @param {Map<number, object>|undefined} vats
+ * @param {object|null|undefined} ultima
+ */
+export function elegirImpuestoCompra(vats, ultima) {
+  const rate = tasa(ultima?.VatRate);
+  if (rate == null || !vats?.values) return null;
+  const recargo = tasa(ultima?.SurchargeRate);
+  const lista = [];
+  for (const vat of vats.values()) {
+    const id = Number(vat?.Id);
+    const suTasa = tasa(vat?.VatRate);
+    if (!Number.isInteger(id) || id <= 0 || suTasa == null || !cerca(suTasa, rate)) continue;
+    lista.push({ vat, id, recargo: tasa(vat?.SurchargeRate) ?? 0 });
+  }
+  if (!lista.length) return null;
+  const fino = recargo == null
+    ? lista.find((c) => c.recargo === 0)
+    : lista.find((c) => cerca(c.recargo, recargo));
+  const elegido = fino || lista[0];
+  const vatRate = Number(elegido.vat.VatRate);
+  const surchargeRate = Number(elegido.vat.SurchargeRate);
+  if (!Number.isFinite(vatRate) || vatRate < 0 || !Number.isFinite(surchargeRate) || surchargeRate < 0) {
+    return null;
+  }
+  return { vatId: elegido.id, vatRate, surchargeRate };
+}
+
 async function impuestoDeProducto(productId, vats) {
   const idNum = Number(String(productId ?? '').trim());
   const r = await docClient.send(new GetCommand({
@@ -156,6 +200,14 @@ async function nombreAlmacen(warehouseId) {
   return String(r.Item?.Nombre ?? r.Item?.nombre ?? '').trim();
 }
 
+/** El descuento en euros guardado es por unidad: se aplica a la cantidad pedida. */
+function descuentoEurosLinea(ln) {
+  const qty = Number(ln?.cantidadPedida);
+  const porUnidad = Number(ln?.cashDiscountUnitario);
+  if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(porUnidad) || porUnidad <= 0) return 0;
+  return Math.round(porUnidad * qty * 100) / 100;
+}
+
 /**
  * @param {string} informeId
  * @param {string} proveedorId
@@ -166,6 +218,7 @@ export async function aprobarPedidoProveedor(informeId, proveedorId, opts = {}) 
   const pid = String(proveedorId || '').trim();
   const meta = await leerMeta(id);
   if (!meta || meta.tipo !== TIPO_CONTEO) throw fallo('Conteo no encontrado', 404);
+  if (!meta.calculadoEn) throw fallo(MENSAJE_SIN_CALCULAR, 409);
   const hijo = await leerHijo(id, pid);
   if (!hijo) throw fallo('Pedido de proveedor no encontrado', 404);
 
@@ -191,10 +244,21 @@ export async function aprobarPedidoProveedor(informeId, proveedorId, opts = {}) 
     const cargarMaestros = opts.cargarMaestros || maestrosReales;
     const importar = opts.importar || importarReal;
     const maestros = await cargarMaestros(warehouseIdNum, [supplierId]);
+    let ultimas = new Map();
+    try {
+      ultimas = await queryUltimaCompraPorProductos(
+        candidatas.map((ln) => ln.productId),
+        { warehouseId },
+      );
+    } catch {
+      ultimas = new Map();
+    }
     const poLines = [];
     const fallosImpuesto = [];
     for (const ln of candidatas) {
-      const imp = await impuestoDeProducto(ln.productId, maestros.vats);
+      const deProducto = await impuestoDeProducto(ln.productId, maestros.vats);
+      const ultima = ultimas.get(String(ln.productId)) || ultimas.get(String(Number(ln.productId))) || null;
+      const imp = elegirImpuestoCompra(maestros.vats, ultima) || deProducto;
       if (!imp) {
         fallosImpuesto.push({
           productId: ln.productId,
@@ -210,6 +274,8 @@ export async function aprobarPedidoProveedor(informeId, proveedorId, opts = {}) 
         purchaseUnitId: ln.purchaseUnitId,
         purchaseUnitName: String(ln.unit || ln.purchaseUnitName || '').trim(),
         price: ln.costeUnitario == null || ln.costeUnitario === '' ? null : Number(ln.costeUnitario),
+        discountRate: Number(ln.discountRate) > 0 ? Number(ln.discountRate) : 0,
+        cashDiscount: descuentoEurosLinea(ln),
         vatId: imp.vatId,
         vatRate: imp.vatRate,
         surchargeRate: imp.surchargeRate,

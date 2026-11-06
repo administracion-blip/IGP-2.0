@@ -10,6 +10,7 @@ import {
   diasEntreIso,
   etiquetaDiaCorta,
   fechaEs,
+  sumarDiasIso,
 } from '../../lib/previsionFranjasApi';
 
 type Props = {
@@ -17,12 +18,17 @@ type Props = {
   hastaIso: string;
   onChangeDesde: (iso: string) => void;
   onChangeHasta: (iso: string) => void;
-  excluidos: string[];
-  onChangeExcluidos: (dias: string[]) => void;
+  excluidos?: string[];
+  onChangeExcluidos?: (dias: string[]) => void;
   disabled?: boolean;
   /** campo: disparador + panel. embebido: fechas visibles en la hoja móvil. */
   variante: 'campo' | 'embebido';
   alto: number;
+  /** Solo Desde y Hasta. Sin atajos ni chips de días. */
+  soloFechas?: boolean;
+  etiqueta?: string;
+  /** Hasta bloqueado sin Desde; al elegir Desde, Hasta = Desde + 6 días. */
+  hastaTrasDesde?: boolean;
 };
 
 type Atajo = { id: string; label: string; incluye: (dow: number) => boolean };
@@ -53,12 +59,20 @@ export function SelectorDiasRango({
   hastaIso,
   onChangeDesde,
   onChangeHasta,
-  excluidos,
-  onChangeExcluidos,
+  excluidos = [],
+  onChangeExcluidos = () => {},
   disabled,
   variante,
   alto,
+  soloFechas = false,
+  etiqueta = 'Periodo',
+  hastaTrasDesde = false,
 }: Props) {
+  const hastaBloqueado = hastaTrasDesde && !desdeIso;
+  const cambiarDesde = (iso: string) => {
+    onChangeDesde(iso);
+    if (hastaTrasDesde && iso) onChangeHasta(sumarDiasIso(iso, 6));
+  };
   const { ref, abierto, ancla, toggle, cerrar } = useAnclaMenu();
   const [diasAbiertos, setDiasAbiertos] = useState(false);
   const dias = useMemo(() => diasEntreIso(desdeIso, hastaIso), [desdeIso, hastaIso]);
@@ -138,7 +152,7 @@ export function SelectorDiasRango({
           compact
           editable={!disabled}
           valueIso={desdeIso}
-          onChangeIso={onChangeDesde}
+          onChangeIso={cambiarDesde}
           placeholder="Desde"
           style={estiloFecha(variante === 'embebido' ? alto : 40)}
           accessibilityLabel="Fecha desde"
@@ -147,18 +161,20 @@ export function SelectorDiasRango({
       <View style={styles.fechaCelda}>
         <InputFecha
           compact
-          editable={!disabled}
+          editable={!disabled && !hastaBloqueado}
           valueIso={hastaIso}
           onChangeIso={onChangeHasta}
-          placeholder="Hasta"
-          style={estiloFecha(variante === 'embebido' ? alto : 40)}
+          placeholder={hastaBloqueado ? 'Elige antes el desde' : 'Hasta'}
+          style={{ ...estiloFecha(variante === 'embebido' ? alto : 40), ...(hastaBloqueado ? { opacity: 0.5 } : {}) }}
           accessibilityLabel="Fecha hasta"
         />
       </View>
     </View>
   );
 
-  const cuerpo = (
+  const cuerpo = soloFechas ? (
+    <View style={styles.panel}>{fechas}</View>
+  ) : (
     <ScrollView
       style={variante === 'campo' ? styles.panelScroll : undefined}
       contentContainerStyle={styles.panel}
@@ -178,10 +194,10 @@ export function SelectorDiasRango({
   if (variante === 'embebido') {
     return (
       <View style={styles.embebido}>
-        <Text style={estiloEtiqueta}>Periodo</Text>
+        <Text style={estiloEtiqueta}>{etiqueta}</Text>
         {fechas}
-        {excedeMax ? <Text style={styles.error}>El rango no puede superar {MAX_DIAS_PREVISION} días.</Text> : null}
-        {dias.length > 0 && !excedeMax ? (
+        {soloFechas ? null : excedeMax ? <Text style={styles.error}>El rango no puede superar {MAX_DIAS_PREVISION} días.</Text> : null}
+        {!soloFechas && dias.length > 0 && !excedeMax ? (
           <View>
             <TouchableOpacity
               style={styles.disclosure}
@@ -203,11 +219,11 @@ export function SelectorDiasRango({
     );
   }
 
-  const extra = nIncluidos < dias.length && dias.length > 0 ? ` · ${nIncluidos} días` : '';
+  const extra = !soloFechas && nIncluidos < dias.length && dias.length > 0 ? ` · ${nIncluidos} días` : '';
 
   return (
     <View>
-      <Text style={[estiloEtiqueta, styles.etiquetaCampo]}>Periodo</Text>
+      {etiqueta.trim() ? <Text style={[estiloEtiqueta, styles.etiquetaCampo]}>{etiqueta}</Text> : null}
       <View ref={ref} collapsable={false}>
         <TouchableOpacity
           style={[
@@ -220,7 +236,7 @@ export function SelectorDiasRango({
           disabled={disabled}
           activeOpacity={0.75}
           accessibilityRole="button"
-          accessibilityLabel={`Periodo ${resumenRango}. ${resumenDias}`}
+          accessibilityLabel={soloFechas ? `${etiqueta.trim() || 'Semanas'} ${resumenRango}` : `Periodo ${resumenRango}. ${resumenDias}`}
           accessibilityState={{ expanded: abierto }}
         >
           <MaterialIcons name="calendar-today" size={16} color={colores.textoSecundario} />

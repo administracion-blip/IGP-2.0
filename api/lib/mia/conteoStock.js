@@ -15,10 +15,14 @@ import { listInformeLineas, listInformesByWarehouse } from './informes.js';
 import { normalizeProductId, normalizeWarehouseId, pkInforme, skInformeLinea } from './keys.js';
 import { listProveedoresParaAjustes } from './proveedoresConfig.js';
 import { unidadesAgora } from './stockMaximo.js';
+import { listConfigByWarehouse } from './configProducto.js';
+import { elegirTramo, listarTramos } from './tramos.js';
 
 export const TIPO_CONTEO = 'stock_maximo';
 export const ESTADOS_PEDIDO = ['generado', 'enviando', 'pedido', 'confirmado'];
 export const MENSAJE_RECALCULO_BLOQUEADO = 'No se puede recalcular: hay un pedido de proveedor en Pedido o Confirmado';
+export const MENSAJE_LINEA_BLOQUEADA = 'No se puede editar: este proveedor ya no está en Generado';
+export const MENSAJE_BORRADO_BLOQUEADO = 'No se puede borrar: hay un pedido de proveedor que ya no está en Generado';
 export const MENSAJE_CANTIDAD_NEGATIVA = 'La cantidad no puede ser negativa';
 export const MENSAJE_CANTIDAD = 'La cantidad tiene que ser un número ≥ 0';
 export const MENSAJE_CANTIDAD_FORMATO = 'La cantidad tiene que ser un múltiplo del formato de compra';
@@ -95,6 +99,8 @@ export async function crearConteoStock(input) {
       proveedorManual: ln?.proveedorManual === true,
       unidadManual: ln?.unidadManual === true,
       costeUnitario: ln?.costeUnitario == null || ln?.costeUnitario === '' ? null : Number(ln.costeUnitario),
+      discountRate: Number(ln?.discountRate) > 0 ? Number(ln.discountRate) : 0,
+      cashDiscountUnitario: Number(ln?.cashDiscountUnitario) > 0 ? Number(ln.cashDiscountUnitario) : 0,
       costeLinea: ln?.costeLinea == null || ln?.costeLinea === '' ? null : Number(ln.costeLinea),
     };
   });
@@ -204,6 +210,9 @@ export async function guardarCalculoConteo(informeId, calculo) {
     lineasSinMaximo: Number(campos.lineasSinMaximo) || 0,
     rangoDesde: campos.rangoDesde,
     rangoHasta: campos.rangoHasta,
+    ...(campos.semanasDesde && campos.semanasHasta
+      ? { semanasDesde: campos.semanasDesde, semanasHasta: campos.semanasHasta }
+      : {}),
     fechaConteo: campos.fechaConteo,
     inicioEsManana: campos.inicioEsManana === true,
     calculadoEn: ahora,
@@ -443,10 +452,60 @@ export async function listarConteos(warehouseId) {
       estado: estadoDeConteo(pedidos),
       multiplicador: meta.multiplicador == null ? null : Number(meta.multiplicador),
       calculadoEn: meta.calculadoEn || null,
+      semanasDesde: meta.semanasDesde || null,
+      semanasHasta: meta.semanasHasta || null,
+      rangoDesde: meta.rangoDesde || null,
+      rangoHasta: meta.rangoHasta || null,
     });
   }
   conteos.sort((a, b) => String(b.creadoEn || '').localeCompare(String(a.creadoEn || '')));
   return { warehouseId: wid, conteos };
+}
+
+function numeroDeFicha(raw, soloPositivo) {
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  if (soloPositivo && n <= 0) return null;
+  return n;
+}
+
+/**
+ * Motivos por los que el cálculo guardado ya no cuadra: nunca calculado,
+ * fichas de stock máximo cambiadas o tramos cambiados. Si algo falla al leer,
+ * no avisa.
+ */
+async function motivosRecalculo(meta, lineas, pedidos) {
+  if (!pedidos.every((p) => p.estado === 'generado')) return [];
+  if (!meta.calculadoEn) return ['sin_calcular'];
+  const motivos = [];
+  try {
+    const configs = await listConfigByWarehouse(meta.WarehouseId || meta.warehouseId);
+    const porProducto = new Map(configs.map((c) => [normalizeProductId(c.ProductId), c]));
+    const cambiadas = lineas.filter((ln) => {
+      if (ln.omitida === true) return false;
+      const cfg = porProducto.get(normalizeProductId(ln.productId));
+      const maximo = numeroDeFicha(cfg?.maximo, false);
+      const formato = numeroDeFicha(cfg?.formatoCompra, true);
+      const unidad = String(cfg?.purchaseUnitId || '').trim();
+      if (ln.maximoManual !== true && maximo !== numeroDeFicha(ln.maximo, false)) return true;
+      if (formato !== numeroDeFicha(ln.formatoCompra, true)) return true;
+      if (ln.unidadManual !== true && unidad && unidad !== String(ln.purchaseUnitId || '').trim()) return true;
+      return false;
+    });
+    if (cambiadas.length) motivos.push(`fichas:${cambiadas.length}`);
+  } catch {
+    /* sin aviso */
+  }
+  try {
+    if (meta.previsionImporte != null && meta.multiplicador != null) {
+      const tramo = elegirTramo(Number(meta.previsionImporte), await listarTramos(null));
+      if (!tramo || Number(tramo.multiplicador) !== Number(meta.multiplicador)) motivos.push('tramos');
+    }
+  } catch {
+    /* sin aviso */
+  }
+  return motivos;
 }
 
 /** Cabecera, líneas y pedidos. No escribe. */
@@ -462,6 +521,10 @@ export async function leerConteo(informeId) {
   for (const ln of lineas) {
     const v = vistaLinea(ln, meta.multiplicador);
     v.unidades = unidadesAgora(await fichaUnidades(ln.productId));
+    const idLinea = String(ln.purchaseUnitId || '').trim();
+    if (idLinea && !v.unidades.some((u) => u.id === idLinea)) {
+      v.unidades.unshift({ id: idLinea, nombre: String(ln.unit || '').trim() || idLinea });
+    }
     vista.push(v);
   }
   const sinContar = vista
@@ -487,6 +550,7 @@ export async function leerConteo(informeId) {
     sinContar,
     estado: estadoDeConteo(pedidos),
     editable: pedidos.every((p) => p.estado === 'generado'),
+    motivosRecalculo: await motivosRecalculo(meta, lineas, pedidos),
     proveedores: await proveedoresParaElegir(meta.WarehouseId || meta.warehouseId, lineas),
     pedidos: pedidos.map(resumenPedido),
     lineas: vista,
@@ -494,18 +558,49 @@ export async function leerConteo(informeId) {
 }
 
 /**
+ * Borra el conteo, sus líneas y los pedidos de proveedor.
+ * Solo si todos siguen en Generado. No llama a Ágora.
+ */
+export async function borrarConteoStock(informeId) {
+  const id = String(informeId || '').trim();
+  const meta = await leerMeta(id);
+  if (!meta || meta.tipo !== TIPO_CONTEO) throw fallo('Conteo no encontrado', 404);
+  const pedidos = await listarPedidosProveedor(id);
+  if (pedidos.some((p) => p.estado !== 'generado')) {
+    throw fallo(MENSAJE_BORRADO_BLOQUEADO, 409);
+  }
+  const PK = pkInforme(id);
+  const lineas = await listInformeLineas(id);
+  for (const ln of lineas) {
+    await docClient.send(new DeleteCommand({
+      TableName: tables.miaInformeLineas,
+      Key: { PK: ln.PK, SK: ln.SK },
+    }));
+  }
+  for (const p of pedidos) {
+    await docClient.send(new DeleteCommand({
+      TableName: tables.miaInformes,
+      Key: { PK, SK: p.SK },
+    }));
+  }
+  await docClient.send(new DeleteCommand({
+    TableName: tables.miaInformes,
+    Key: { PK, SK: 'META' },
+  }));
+  return { informeId: id };
+}
+
+/**
  * Guarda cantidad, máximo final y línea quitada.
- * Valida el lote entero antes de escribir. Si algún proveedor ya no está
- * en Generado, no toca nada.
+ * Valida el lote entero antes de escribir. Un proveedor que ya no está
+ * en Generado no se toca; los que siguen en Generado sí.
  */
 export async function guardarLineasConteo(informeId, ajustes) {
   const id = String(informeId || '').trim();
   const meta = await leerMeta(id);
   if (!meta || meta.tipo !== TIPO_CONTEO) throw fallo('Conteo no encontrado', 404);
   const pedidos = await listarPedidosProveedor(id);
-  if (pedidos.some((p) => p.estado !== 'generado')) {
-    throw fallo(MENSAJE_RECALCULO_BLOQUEADO, 409);
-  }
+  const estadoProveedor = new Map(pedidos.map((p) => [p.proveedorId, p.estado || 'generado']));
   if (!Array.isArray(ajustes) || ajustes.length === 0) {
     throw fallo('No hay líneas para guardar');
   }
@@ -523,6 +618,9 @@ export async function guardarLineasConteo(informeId, ajustes) {
     vistas.add(clave);
     const linea = porClave.get(clave);
     if (!linea) mal('Línea no encontrada', indice, { productId, proveedorId });
+    if (estadoProveedor.get(proveedorId) !== 'generado') {
+      throw Object.assign(fallo(MENSAJE_LINEA_BLOQUEADA, 409), { indice, productId, proveedorId });
+    }
     const calculado = valorCalculado(linea, meta.multiplicador);
     const omitida = adj.omitida === true;
     const cantidadManual = !omitida && adj.cantidadManual === true;
@@ -546,6 +644,10 @@ export async function guardarLineasConteo(informeId, ajustes) {
       proveedorDestino = destino;
       proveedorNombre = String(adj.proveedorNombre || '').trim() || destino;
       proveedorManual = true;
+      const estadoDestino = estadoProveedor.get(destino);
+      if (estadoDestino && estadoDestino !== 'generado') {
+        throw Object.assign(fallo(MENSAJE_LINEA_BLOQUEADA, 409), { indice, productId, proveedorId });
+      }
     }
     let purchaseUnitId = linea.purchaseUnitId == null ? '' : String(linea.purchaseUnitId);
     let unit = String(linea.unit || '').trim();

@@ -20,7 +20,16 @@ import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { useConfirmar } from '../../../hooks/useConfirmar';
 import { apiFetch } from '../../../utils/api';
 import { BotonPrincipal } from '../../../components/ui/BotonPrincipal';
-import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
+import { CampoSelector } from '../../../components/mia/CampoSelector';
+import { SelectorDesplegableMulti } from '../../../components/SelectorDesplegableMulti';
+import {
+  altoControl,
+  colores,
+  estiloEtiqueta,
+  familia,
+  modoPrevision,
+  peso,
+} from '../../../components/prevision/tokens';
 import {
   StockMaximoEditor,
   type BorradorStock,
@@ -42,6 +51,8 @@ type ItemApi = {
   purchaseUnitId: string;
   purchaseUnitName?: string;
   unidades: UnidadAgora[];
+  unidadUltima?: string;
+  unidadPorDefecto?: boolean;
 };
 
 const LIMITE = 80;
@@ -96,7 +107,8 @@ export default function StockMaximoScreen() {
   const params = useLocalSearchParams<{ warehouseId?: string; sinMaximo?: string }>();
   const almacenPedido = parametro(params.warehouseId);
   const { hasPermiso } = useAuth();
-  const { isPhone } = useBreakpoint();
+  const { isPhone, width } = useBreakpoint();
+  const alto = altoControl(modoPrevision(width));
   const { confirmar, ConfirmarView } = useConfirmar();
   const puedeVer = hasPermiso('mia.ver');
   const puedeEditar = hasPermiso('mia.configurar');
@@ -104,7 +116,7 @@ export default function StockMaximoScreen() {
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [warehouseId, setWarehouseId] = useState('');
   const [familias, setFamilias] = useState<Familia[]>([]);
-  const [familia, setFamilia] = useState('');
+  const [familiasSel, setFamiliasSel] = useState<string[]>([]);
   const [sinMaximo, setSinMaximo] = useState(parametro(params.sinMaximo) === '1');
   const [busqueda, setBusqueda] = useState('');
   const [q, setQ] = useState('');
@@ -163,7 +175,7 @@ export default function StockMaximoScreen() {
         limit: String(LIMITE),
         offset: String(offset),
       });
-      if (familia) params.set('familia', familia);
+      if (familiasSel.length > 0) params.set('familias', familiasSel.join(','));
       if (sinMaximo) params.set('sinMaximo', '1');
       if (q) params.set('q', q);
       const r = await apiFetch(`/api/mia/stock-maximo?${params.toString()}`);
@@ -186,7 +198,7 @@ export default function StockMaximoScreen() {
         setCargandoMas(false);
       }
     }
-  }, [warehouseId, familia, sinMaximo, q]);
+  }, [warehouseId, familiasSel, sinMaximo, q]);
 
   useEffect(() => {
     setItems([]);
@@ -234,6 +246,7 @@ export default function StockMaximoScreen() {
     }
     setBorradores({});
     setAviso('');
+    setFamiliasSel([]);
     setWarehouseId(id);
   }, [warehouseId, confirmar]);
 
@@ -272,6 +285,8 @@ export default function StockMaximoScreen() {
       familiaNombre: it.familiaNombre,
       stock: it.stock,
       unidades: it.unidades || [],
+      unidadUltima: it.unidadUltima || '',
+      unidadPorDefecto: !!it.unidadPorDefecto && b.unidadId === it.purchaseUnitId,
       maximo: b.maximo,
       formato: b.formato,
       unidadId: b.unidadId,
@@ -313,6 +328,7 @@ export default function StockMaximoScreen() {
           formatoCompra: formato === '' ? null : Number(formato),
           purchaseUnitId: b.unidadId,
           purchaseUnitName: unidad?.nombre || '',
+          unidadPorDefecto: false,
         };
       }));
       setBorradores({});
@@ -347,23 +363,32 @@ export default function StockMaximoScreen() {
         </Text>
         <View style={[styles.filtros, isPhone && styles.filtrosPila]}>
           <View style={styles.filtro}>
-            <SelectorDesplegable
-              placeholder="Almacén"
-              icono="warehouse"
-              compact
+            <CampoSelector
+              etiqueta="Almacén"
+              alto={alto}
+              placeholder="Elige almacén…"
+              buscador
+              buscadorPlaceholder="Buscar almacén…"
               opciones={almacenes.map((a) => ({ id: a.id, titulo: a.nombre }))}
               valorId={warehouseId}
               onSeleccionar={(id) => { void pedirCambioAlmacen(id); }}
             />
           </View>
           <View style={styles.filtro}>
-            <SelectorDesplegable
+            <Text style={styles.etiquetaFamilia}>Familia</Text>
+            <SelectorDesplegableMulti
+              sinIconoTrigger
+              buscador
+              buscadorPlaceholder="Buscar familia…"
               placeholder="Todas las familias"
-              icono="category"
-              compact
-              opciones={[{ id: '', titulo: 'Todas las familias' }, ...familias.map((f) => ({ id: f.id, titulo: f.nombre }))]}
-              valorId={familia}
-              onSeleccionar={setFamilia}
+              etiquetaVarios="familias"
+              tituloLista="Familias"
+              opciones={familias.filter((f) => f.id !== '').map((f) => ({ id: f.id, titulo: f.nombre }))}
+              valorIds={familiasSel}
+              onChange={setFamiliasSel}
+              style={styles.selectorFamilia}
+              triggerStyle={[styles.triggerFamilia, { minHeight: alto, height: alto }]}
+              triggerTextStyle={styles.triggerFamiliaTexto}
             />
           </View>
           <Pressable
@@ -376,7 +401,7 @@ export default function StockMaximoScreen() {
           <TextInput
             value={busqueda}
             onChangeText={setBusqueda}
-            placeholder="Buscar producto"
+            placeholder="Buscar por id, nombre o familia"
             placeholderTextColor="#94a3b8"
             style={styles.buscar}
           />
@@ -437,9 +462,25 @@ const styles = StyleSheet.create({
   migas: { color: SECUNDARIO, fontSize: 13 },
   migaLink: { color: '#ec4899', fontWeight: '600' },
   migaActual: { color: TEXTO, fontWeight: '700' },
-  filtros: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, alignItems: 'center' },
+  filtros: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, alignItems: 'flex-end' },
   filtrosPila: { flexDirection: 'column', alignItems: 'stretch' },
   filtro: { minWidth: 220, flexGrow: 1 },
+  etiquetaFamilia: { ...estiloEtiqueta, marginBottom: 6 },
+  selectorFamilia: { width: '100%' },
+  triggerFamilia: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+  },
+  triggerFamiliaTexto: {
+    fontSize: 13,
+    fontFamily: familia.medio,
+    fontWeight: peso.medio,
+    color: colores.texto,
+  },
   chip: {
     minHeight: MIN_TOUCH,
     paddingHorizontal: 14,

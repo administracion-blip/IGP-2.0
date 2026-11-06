@@ -18,7 +18,8 @@ const { invalidarPermisosRol } = await import('../lib/permisos/cachePermisos.js'
 const {
   MENSAJE_CANTIDAD_FORMATO,
   MENSAJE_CANTIDAD_NEGATIVA,
-  MENSAJE_RECALCULO_BLOQUEADO,
+  MENSAJE_BORRADO_BLOQUEADO,
+  MENSAJE_LINEA_BLOQUEADA,
   crearConteoStock,
   marcarPedidoProveedor,
 } = await import('../lib/mia/conteoStock.js');
@@ -199,6 +200,7 @@ test('un proveedor en Pedido bloquea el guardado y un almacén ajeno responde 40
     multiplicador: 1,
     lineas: [
       { productId: '501', nombre: 'Tonica', proveedorId: '42', stockReal: 4, maximo: 10, formatoCompra: 6, cantidadPedida: 6 },
+      { productId: '502', nombre: 'Agua', proveedorId: '77', stockReal: 1, maximo: 8, formatoCompra: 1, cantidadPedida: 4 },
     ],
   });
   await marcarPedidoProveedor('c1', '42', { estado: 'pedido', serie: 'MIA', number: 8 });
@@ -206,11 +208,23 @@ test('un proveedor en Pedido bloquea el guardado y un almacén ajeno responde 40
     lineas: [{ productId: '501', proveedorId: '42', cantidadManual: true, cantidadPedida: 12, maximoManual: false }],
   });
   assert.equal(bloqueado.status, 409);
-  assert.equal(bloqueado.body.error, MENSAJE_RECALCULO_BLOQUEADO);
+  assert.equal(bloqueado.body.error, MENSAJE_LINEA_BLOQUEADA);
   assert.equal(linea('501').cantidadPedida, 6);
 
+  const libre = await api('PUT', '/api/mia/conteos/c1/lineas', {
+    lineas: [{ productId: '502', proveedorId: '77', cantidadManual: true, cantidadPedida: 2, maximoManual: false }],
+  });
+  assert.equal(libre.status, 200, JSON.stringify(libre.body));
+  assert.equal(linea('502').cantidadPedida, 2);
+  assert.equal(linea('501').cantidadPedida, 6);
+
+  const noBorra = await api('DELETE', '/api/mia/conteos/c1');
+  assert.equal(noBorra.status, 409);
+  assert.equal(noBorra.body.error, MENSAJE_BORRADO_BLOQUEADO);
+  assert.ok(db.obtener(tables.miaInformes, { PK: 'INFORME#c1', SK: 'META' }));
+
   const lista = await api('GET', '/api/mia/conteos?warehouseId=101');
-  assert.equal(lista.body.conteos[0].estado, 'pedido');
+  assert.equal(lista.body.conteos[0].estado, 'mixto');
 
   const ajeno = await api('GET', '/api/mia/conteos?warehouseId=202');
   assert.equal(ajeno.status, 403);
@@ -221,4 +235,23 @@ test('un proveedor en Pedido bloquea el guardado y un almacén ajeno responde 40
   assert.equal(sinPermiso.status, 403);
   assert.equal(sinPermiso.body.error, 'Permiso insuficiente');
   assert.equal(linea('501').cantidadPedida, 6);
+});
+
+test('borra el conteo si todos los proveedores siguen en Generado', async () => {
+  montar();
+  await crearConteoStock({
+    informeId: 'c1',
+    warehouseId: '101',
+    lineas: [
+      { productId: '501', nombre: 'Tonica', proveedorId: '42', stockReal: 4 },
+    ],
+  });
+  const r = await api('DELETE', '/api/mia/conteos/c1');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.ok, true);
+  assert.equal(db.obtener(tables.miaInformes, { PK: 'INFORME#c1', SK: 'META' }), null);
+  assert.equal(db.listar(tables.miaInformes).some((it) => it.PK === 'INFORME#c1'), false);
+  assert.equal(db.listar(tables.miaInformeLineas).some((it) => it.PK === 'INFORME#c1'), false);
+  const lista = await api('GET', '/api/mia/conteos?warehouseId=101');
+  assert.equal(lista.body.conteos.length, 0);
 });

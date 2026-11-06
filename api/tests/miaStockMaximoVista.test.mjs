@@ -20,6 +20,7 @@ const {
   MENSAJE_MAXIMO_NEGATIVO,
   MENSAJE_UNIDAD,
   MENSAJE_UNIDAD_LIBRE,
+  unidadesAgora,
 } = await import('../lib/mia/stockMaximo.js');
 const { default: miaRouter } = await import('../routes/mia.js');
 
@@ -120,13 +121,65 @@ test('lista con nombre, familia y unidades, y pagina', async () => {
   assert.equal(r.body.items.length, 2);
   const tonica = (await api('GET', '/api/mia/stock-maximo?warehouseId=101&q=toni')).body.items[0];
   assert.equal(tonica.nombre, 'Tonica');
+  const porId = await api('GET', '/api/mia/stock-maximo?warehouseId=101&q=501');
+  assert.deepEqual(porId.body.items.map((i) => i.productId), ['501']);
+  const porFamilia = await api('GET', '/api/mia/stock-maximo?warehouseId=101&q=comida');
+  assert.deepEqual(porFamilia.body.items.map((i) => i.productId), ['503']);
   assert.equal(tonica.familiaNombre, 'Bebidas');
   assert.deepEqual(tonica.unidades.map((u) => u.id).sort(), ['10', '11']);
+  assert.deepEqual(tonica.unidades.map((u) => u.nombre).sort(), ['Botella', 'Caja']);
   const comida = await api('GET', '/api/mia/stock-maximo?warehouseId=101&familia=02');
   assert.deepEqual(comida.body.items.map((i) => i.productId), ['503']);
+  const bebidas = await api('GET', '/api/mia/stock-maximo?warehouseId=101&familias=01');
+  assert.deepEqual(bebidas.body.items.map((i) => i.productId).sort(), ['501', '502']);
+  const ambas = await api('GET', '/api/mia/stock-maximo?warehouseId=101&familias=01,02');
+  assert.equal(ambas.body.total, 3);
+  const orden = await api('GET', '/api/mia/stock-maximo?warehouseId=101&limit=10');
+  assert.deepEqual(orden.body.items.map((i) => i.productId), ['502', '501', '503']);
   const sin = await api('GET', '/api/mia/stock-maximo?warehouseId=101&sinMaximo=1');
   assert.deepEqual(sin.body.items.map((i) => i.productId), ['502']);
   assert.equal(sin.body.items[0].sinMaximo, true);
+});
+
+test('el desplegable muestra el nombre del formato y el id se conserva', () => {
+  const unidades = unidadesAgora({
+    BaseSaleFormatId: 563,
+    Formatos: [
+      { id: '563', nombre: 'Botellín' },
+      { id: '7206', nombre: 'Caja 24', ratio: 24 },
+    ],
+  });
+  assert.deepEqual(unidades, [
+    { id: '563', nombre: 'Botellín' },
+    { id: '7206', nombre: 'Caja 24' },
+  ]);
+  const sinNombre = unidadesAgora({ BaseSaleFormatId: 87 });
+  assert.deepEqual(sinNombre, [{ id: '87', nombre: '87' }]);
+});
+
+test('la unidad muestra el nombre de la última compra y no toca el formato', async () => {
+  montar();
+  db.crearTabla(tables.comprasProveedor, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: {
+      'ProductId-AlbaranFecha-index': { hashKey: 'ProductId', rangeKey: 'AlbaranFecha' },
+    },
+  });
+  db.sembrar(tables.comprasProveedor, {
+    PK: 'ALB#1',
+    SK: '501',
+    ProductId: '501',
+    AlbaranFecha: '2026-03-01',
+    WarehouseId: '101',
+    Confirmed: true,
+    PurchaseUnitId: '11',
+    PurchaseUnitName: 'caja de 24 bot',
+  });
+  const tonica = (await api('GET', '/api/mia/stock-maximo?warehouseId=101&q=501')).body.items[0];
+  assert.equal(tonica.unidadUltima, 'caja de 24 bot');
+  assert.equal(tonica.unidades.find((u) => u.id === '11').nombre, 'caja de 24 bot');
+  assert.equal(tonica.formatoCompra, 6);
 });
 
 test('guarda decimales y la unidad de Ágora; rechaza negativo y texto libre', async () => {

@@ -26,7 +26,6 @@ const {
   calcularConteo,
   AVISO_SIN_MAXIMO,
   AVISO_SIN_CONTAR,
-  MENSAJE_SIN_LOCAL,
 } = await import('../lib/mia/calculoStock.js');
 const { default: miaRouter } = await import('../routes/mia.js');
 
@@ -84,9 +83,9 @@ function montar() {
   db.sembrar(tables.almacenes, { Id: '101', Nombre: 'Almacen Centro' });
   db.sembrar(tables.almacenes, { Id: '202', Nombre: 'Almacen Sur' });
   db.sembrar(tables.almacenes, { Id: '303', Nombre: 'Almacen Isla' });
-  db.sembrar(tables.locales, { id_Locales: '000010', nombre: 'Bar Centro', agoraCode: '101', 'almacen origen': 'Almacen Centro' });
-  db.sembrar(tables.locales, { id_Locales: '000011', nombre: 'Bar Terraza', agoraCode: '102', 'almacen origen': 'Almacen Centro' });
-  db.sembrar(tables.locales, { id_Locales: '000020', nombre: 'Bar Sur', agoraCode: '202', 'almacen origen': 'Almacen Sur' });
+  db.sembrar(tables.locales, { id_Locales: '000010', nombre: 'Bar Centro', agoraCode: '101', sede: 'Grupo Paripe', 'almacen origen': 'Almacen Centro' });
+  db.sembrar(tables.locales, { id_Locales: '000011', nombre: 'Bar Terraza', agoraCode: '102', sede: 'Grupo Paripe', 'almacen origen': 'Almacen Centro' });
+  db.sembrar(tables.locales, { id_Locales: '000020', nombre: 'Bar Sur', agoraCode: '202', sede: 'Grupo Paripe Madrid', 'almacen origen': 'Almacen Sur' });
   db.sembrar(tables.usuarios, { id_usuario: '000080', Email: COMPRADOR.email, Rol: 'SuperUser', Local: ['Bar Centro'] });
   db.sembrar(tables.usuarios, { id_usuario: '000081', Email: OFICINA.email, Rol: 'SuperUser', Local: [] });
   db.sembrar(tables.usuarios, { id_usuario: '000082', Email: CAMARERO.email, Rol: 'Camarero', Local: ['Bar Centro'] });
@@ -154,7 +153,7 @@ test('el límite del tramo es exclusive y 0 entra en el primero', () => {
 
 test('calcular sin semanas usa mañana respecto a la fecha del conteo', async () => {
   montar();
-  await guardarTramos('101', [{ desde: 0, hasta: null, multiplicador: 1.5 }]);
+  await guardarTramos(null, [{ desde: 0, hasta: null, multiplicador: 1 }]);
   const { meta } = await crearConteoStock({ informeId: 'fechas', warehouseId: '101', lineas: [] });
   const r = await api('POST', '/api/mia/conteos/fechas/calcular', {});
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -168,8 +167,8 @@ test('calcular sin semanas usa mañana respecto a la fecha del conteo', async ()
 
 test('un rango que cruza dos meses suma los días comparables de cada local', async () => {
   montar();
-  await guardarTramos(null, TRAMOS_GLOBAL);
-  await guardarTramos('101', [{ desde: 0, hasta: null, multiplicador: 1.5 }]);
+  await guardarTramos(null, [{ desde: 0, hasta: null, multiplicador: 1.5 }]);
+  await guardarTramos('101', [{ desde: 0, hasta: null, multiplicador: 9 }]);
   const festivo = '2026-01-31';
   const comp = '2025-12-20';
   db.sembrar(tables.gestionFestivos, { PK: festivo, SK: '0', FechaComparativa: comp });
@@ -237,7 +236,7 @@ test('un rango que cruza dos meses suma los días comparables de cada local', as
 
 test('recalcular en Generado deja el multiplicador nuevo; Pedido o Confirmado lo impide', async () => {
   montar();
-  await guardarTramos('101', [{ desde: 0, hasta: null, multiplicador: 1.5 }]);
+  await guardarTramos(null, [{ desde: 0, hasta: null, multiplicador: 1.5 }]);
   config('000101', '501', { maximo: 10, formatoCompra: 6 });
   await crearConteoStock({
     informeId: 're',
@@ -248,7 +247,7 @@ test('recalcular en Generado deja el multiplicador nuevo; Pedido o Confirmado lo
   });
   assert.equal((await api('POST', '/api/mia/conteos/re/calcular', {})).body.multiplicador, 1.5);
 
-  await guardarTramos('101', [{ desde: 0, hasta: null, multiplicador: 3 }]);
+  await guardarTramos(null, [{ desde: 0, hasta: null, multiplicador: 3 }]);
   const segundo = await api('POST', '/api/mia/conteos/re/calcular', {});
   assert.equal(segundo.status, 200, JSON.stringify(segundo.body));
   assert.equal(segundo.body.multiplicador, 3);
@@ -257,7 +256,7 @@ test('recalcular en Generado deja el multiplicador nuevo; Pedido o Confirmado lo
   assert.equal(metaDe('re').multiplicador, 3);
 
   await marcarPedidoProveedor('re', '42', { estado: 'confirmado', serie: 'MIA', number: 1 });
-  await guardarTramos('101', [{ desde: 0, hasta: null, multiplicador: 4 }]);
+  await guardarTramos(null, [{ desde: 0, hasta: null, multiplicador: 4 }]);
   const tercero = await api('POST', '/api/mia/conteos/re/calcular', {});
   assert.equal(tercero.status, 409);
   assert.equal(tercero.body.error, MENSAJE_RECALCULO_BLOQUEADO);
@@ -269,8 +268,8 @@ test('recalcular en Generado deja el multiplicador nuevo; Pedido o Confirmado lo
 
 test('simular no escribe y un almacén sin local deja la previsión a 0', async () => {
   montar();
-  await guardarTramos(null, TRAMOS_GLOBAL);
-  await guardarTramos('101', [{ desde: 0, hasta: null, multiplicador: 1.5 }]);
+  await guardarTramos(null, [{ desde: 0, hasta: null, multiplicador: 1.5 }]);
+  await guardarTramos('101', [{ desde: 0, hasta: null, multiplicador: 9 }]);
   config('000101', '501', { maximo: 10, formatoCompra: 6 });
   config('000303', '501', { maximo: 10 });
   await crearConteoStock({
@@ -291,12 +290,21 @@ test('simular no escribe y un almacén sin local deja la previsión a 0', async 
   assert.equal(primero.body.multiplicador, 1.5);
   const congelado = metaDe('sim');
 
-  await guardarTramos('101', [{ desde: 0, hasta: null, multiplicador: 4 }]);
+  await guardarTramos(null, [{ desde: 0, hasta: null, multiplicador: 4 }]);
   const sim = await api('POST', '/api/mia/conteos/sim/simular', {});
   assert.equal(sim.status, 200, JSON.stringify(sim.body));
   assert.equal(sim.body.multiplicador, 4);
   assert.equal(metaDe('sim').multiplicador, 1.5);
   assert.equal(metaDe('sim').calculadoEn, congelado.calculadoEn);
+  const otraSemana = await api('POST', '/api/mia/conteos/sim/simular', {
+    semanasDesde: '2026-03-16',
+    semanasHasta: '2026-03-22',
+  });
+  assert.equal(otraSemana.status, 200, JSON.stringify(otraSemana.body));
+  assert.equal(otraSemana.body.rangoDesde, '2026-03-16');
+  assert.equal(otraSemana.body.rangoHasta, '2026-03-22');
+  assert.equal(metaDe('sim').semanasDesde, '2026-03-02');
+  assert.equal(metaDe('sim').multiplicador, 1.5);
   const linea = db.listar(tables.miaInformeLineas).find((ln) => ln.informeId === 'sim');
   assert.equal(linea.maximoFinal, 15);
 
@@ -307,8 +315,8 @@ test('simular no escribe y un almacén sin local deja la previsión a 0', async 
 
   const isla = await calcularConteo('isla');
   assert.equal(isla.previsionImporte, 0);
-  assert.match(isla.previsionAviso, new RegExp(MENSAJE_SIN_LOCAL.replace(/[.]/g, '\\.')));
-  assert.equal(isla.multiplicador, 1);
+  assert.equal(isla.previsionAviso, null);
+  assert.equal(isla.multiplicador, 4);
   assert.equal(metaDe('isla').previsionImporte, 0);
 });
 

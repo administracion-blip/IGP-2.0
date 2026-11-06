@@ -24,6 +24,7 @@ const {
   MENSAJE_SIN_HOJA,
   MENSAJE_CABECERAS,
   MENSAJE_SIN_CONTADAS,
+  precioDeUltimaCompra,
 } = await import('../lib/mia/importarExcel.js');
 const { upsertConfigProducto } = await import('../lib/mia/configProducto.js');
 const { default: miaRouter } = await import('../routes/mia.js');
@@ -147,8 +148,9 @@ test('importa el conteo, avisa duplicados y no calcula previsión', async () => 
   const stock = (id) => lineas.find((ln) => ln.productId === id)?.stockReal;
   assert.equal(stock('501'), 4);
   assert.equal(stock('502'), 0);
-  assert.equal(stock('503'), null);
+  assert.equal(lineas.some((ln) => ln.productId === '503'), false);
   assert.equal(stock('504'), 1.5);
+  assert.equal(lineas.length, 3);
   assert.equal(lineas.some((ln) => ln.productId === '999'), false);
   assert.equal(lineas.filter((ln) => ln.productId === '501').length, 1);
   assert.equal(lineas.find((ln) => ln.productId === '501').proveedorId, 'SIN_PROVEEDOR');
@@ -247,6 +249,22 @@ test('copia el proveedor de la ficha o de la última compra, y la unidad del for
   assert.equal(de('504').proveedorId, 'SIN_PROVEEDOR');
   assert.equal(de('504').purchaseUnitId, '8');
   assert.equal(de('504').unit, 'Lata');
+});
+
+test('el precio de la última compra solo entra si la unidad coincide', () => {
+  const ultima = {
+    PurchaseUnitId: '10',
+    Price: 2,
+    DiscountRate: 0.1,
+    CashDiscount: 1.2,
+    Quantity: 6,
+  };
+  const misma = precioDeUltimaCompra('10', ultima);
+  assert.equal(misma.costeUnitario, 2);
+  assert.equal(misma.discountRate, 0.1);
+  assert.equal(misma.cashDiscountUnitario, 0.2);
+  assert.equal(precioDeUltimaCompra('8', ultima).costeUnitario, null);
+  assert.equal(precioDeUltimaCompra('10', { ...ultima, DiscountRate: 1 }).costeUnitario, null);
 });
 
 test('almacén fuera del filtro del usuario: 403 y no guarda', async () => {

@@ -50,9 +50,9 @@ import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLectu
 import { permiteAlmacen, permiteLecturaAlmacen } from '../lib/alcanceAlmacenes.js';
 import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
 import { aprobarPedidoProveedor, comprobarPedidoProveedor } from '../lib/mia/aprobarConteo.js';
-import { crearConteoStock, guardarLineasConteo, leerConteo, listarConteos } from '../lib/mia/conteoStock.js';
-import { calcularConteo, simularConteo, sumarPrevisionRango } from '../lib/mia/calculoStock.js';
-import { borrarTramosPropios, elegirTramo, guardarTramos, vistaTramos } from '../lib/mia/tramos.js';
+import { borrarConteoStock, crearConteoStock, guardarLineasConteo, leerConteo, listarConteos } from '../lib/mia/conteoStock.js';
+import { calcularConteo, listarLocalesGrupoParipe, simularConteo, sumarPrevisionLocales } from '../lib/mia/calculoStock.js';
+import { borrarTramosPropios, elegirTramo, guardarTramos, listarTramos, vistaTramos } from '../lib/mia/tramos.js';
 import { guardarLineasStockMaximo, listarVistaStockMaximo, sanearConfigStock } from '../lib/mia/stockMaximo.js';
 import {
   MAX_EXCEL_CONTEO_BYTES,
@@ -76,6 +76,14 @@ function recibirExcelConteo(req, res, next) {
 
 function sinAcceso(res) {
   return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+}
+
+/** Fechas de una consulta. Solo si las dos vienen y tienen forma de día. */
+function fechasConsulta(body) {
+  const desde = String(body?.semanasDesde || '').slice(0, 10);
+  const hasta = String(body?.semanasHasta || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) return {};
+  return { semanasDesde: desde, semanasHasta: hasta };
 }
 
 /** Acciones sobre un informe: el almacén del informe leído tiene que ser del usuario (basta un local suyo). */
@@ -153,10 +161,13 @@ router.post('/mia/conteos/:id/simular', requirePermission('mia.calcular'), async
   if (!(await permiteInforme(req, req.params.id))) return sinAcceso(res);
   try {
     const body = req.body || {};
+    const fechas = fechasConsulta(body);
     const resultado = await simularConteo(req.params.id, {
       ...(body.previsionImporte != null && body.previsionImporte !== ''
         ? { previsionImporte: body.previsionImporte }
         : {}),
+      ...(Array.isArray(body.localIds) ? { localIds: body.localIds } : {}),
+      ...fechas,
     });
     return res.json(resultado);
   } catch (err) {
@@ -172,6 +183,15 @@ router.get('/mia/conteos', requirePermission('mia.ver'), async (req, res) => {
     return res.json(await listarConteos(wid));
   } catch (err) {
     return responderError(res, err, { mensaje: 'No se pudieron cargar los conteos' });
+  }
+});
+
+router.delete('/mia/conteos/:id', requirePermission('mia.calcular'), async (req, res) => {
+  if (!(await permiteInforme(req, req.params.id))) return sinAcceso(res);
+  try {
+    return res.json({ ok: true, ...(await borrarConteoStock(req.params.id)) });
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudo borrar el conteo' });
   }
 });
 
@@ -242,7 +262,9 @@ router.post('/mia/conteos/:id/proveedores/:proveedorId/comprobar', requirePermis
 router.post('/mia/conteos/:id/calcular', requirePermission('mia.calcular'), async (req, res) => {
   if (!(await permiteInforme(req, req.params.id))) return sinAcceso(res);
   try {
-    const resultado = await calcularConteo(req.params.id);
+    const body = req.body || {};
+    const localIds = Array.isArray(body.localIds) ? body.localIds : undefined;
+    const resultado = await calcularConteo(req.params.id, { localIds, ...fechasConsulta(body) });
     return res.json(resultado);
   } catch (err) {
     return responderError(res, err, { mensaje: 'No se pudo calcular el conteo' });
@@ -393,6 +415,7 @@ router.get('/mia/stock-maximo', requirePermission('mia.ver'), async (req, res) =
   try {
     const vista = await listarVistaStockMaximo(wid, {
       familia: req.query.familia,
+      familias: req.query.familias,
       sinMaximo: req.query.sinMaximo === '1' || req.query.sinMaximo === 'true',
       q: req.query.q,
       offset: req.query.offset,
@@ -456,25 +479,22 @@ router.delete('/mia/tramos', requirePermission('mia.configurar'), async (req, re
 router.post('/mia/tramos/simular', requirePermission('mia.calcular'), async (req, res) => {
   try {
     const body = req.body || {};
-    const wid = idAlmacenTramo(body.warehouseId);
-    if (!wid) return res.status(400).json({ error: 'Elige un almacén para ver la previsión' });
-    if (!(await permiteAlmacen(req, wid))) return sinAcceso(res);
     const desde = String(body.semanasDesde || '').slice(0, 10);
     const hasta = String(body.semanasHasta || '').slice(0, 10);
     if (!RE_FECHA_TRAMO.test(desde) || !RE_FECHA_TRAMO.test(hasta) || hasta < desde) {
       return res.status(400).json({ error: 'Elige un rango de semanas válido' });
     }
-    const prevision = await sumarPrevisionRango(wid, desde, hasta);
-    const vista = await vistaTramos(wid);
-    const tramo = elegirTramo(prevision.importe, vista.tramos);
+    const localIds = Array.isArray(body.localIds) ? body.localIds : undefined;
+    const prevision = await sumarPrevisionLocales(localIds, desde, hasta);
+    const tramo = elegirTramo(prevision.importe, await listarTramos(null));
     return res.json({
-      warehouseId: wid,
       rangoDesde: desde,
       rangoHasta: hasta,
       previsionImporte: prevision.importe,
       aviso: prevision.aviso,
       desglose: prevision.desglose,
-      heredados: vista.heredados,
+      locales: prevision.locales,
+      heredados: false,
       tramoDesde: tramo?.desde ?? null,
       tramoHasta: tramo?.hasta ?? null,
       multiplicador: tramo?.multiplicador ?? null,
@@ -528,6 +548,15 @@ router.put('/mia/proveedores-config', requirePermission('mia.configurar'), async
 });
 
 // ─── Diagnóstico mapa local ↔ almacén ────────────────────────────────────────
+
+router.get('/mia/locales-prevision', requirePermission('mia.ver'), async (_req, res) => {
+  try {
+    const locales = await listarLocalesGrupoParipe();
+    return res.json({ locales: locales.map((l) => ({ id: l.id, nombre: l.nombre || l.id })) });
+  } catch (err) {
+    return responderError(res, err, { mensaje: 'No se pudieron cargar los locales' });
+  }
+});
 
 router.get('/mia/locales-almacenes', requirePermission('mia.ver'), async (_req, res) => {
   const mapa = await buildMapaLocalAlmacen();

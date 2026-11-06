@@ -1,9 +1,10 @@
 /**
  * Cálculo del pedido por stock máximo.
  *
- * La previsión del rango es la suma, día a día y local a local, del objetivo
- * del día comparable (FechaComparativa del festivo, o el mismo día del año
- * anterior). No se prorratea un mes.
+ * La previsión del rango es la suma, día a día, del objetivo del día comparable
+ * (FechaComparativa del festivo, o el mismo día del año anterior) de los locales
+ * de sede «Grupo Paripe». Si no se elige ninguno, entran todos. No se prorratea
+ * un mes. El tramo que se aplica es el global.
  *
  * El día de inicio, si el conteo no trae semanasDesde, es el día siguiente a
  * la fecha del conteo en calendario de Madrid: mañana respecto a esa fecha,
@@ -15,6 +16,9 @@
  * Sin máximo configurado no se pide.
  */
 
+import { ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { docClient, tables } from '../db.js';
+import { formatId6 } from '../usuarioLocales.js';
 import {
   buildFechaToComp,
   loadFestivosByFecha,
@@ -25,12 +29,12 @@ import { guardarCalculoConteo, TIPO_CONTEO } from './conteoStock.js';
 import { redondearCantidadCompra } from './demanda.js';
 import { aplicarProveedorYUnidad } from './importarExcel.js';
 import { getInformeMeta, listInformeLineas } from './informes.js';
-import { buildMapaLocalAlmacen } from './localAlmacen.js';
 import { elegirTramo, listarTramos } from './tramos.js';
 
 export const AVISO_SIN_MAXIMO = 'Sin máximo configurado';
 export const AVISO_SIN_CONTAR = 'Sin contar; no se pide';
-export const MENSAJE_SIN_LOCAL = 'Este almacén no tiene local asociado; la previsión es 0';
+export const MENSAJE_SIN_SEDE = 'No hay locales de sede Grupo Paripe';
+export const MENSAJE_SIN_SELECCION = 'Elige al menos un local de sede Grupo Paripe';
 export const AVISO_IMPORTE_PRUEBA = 'Importe de prueba; no sustituye a la previsión del rango';
 
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
@@ -100,28 +104,63 @@ function diasEntre(desde, hasta) {
   return dias;
 }
 
-async function tramosAplicables(warehouseId) {
-  const propios = await listarTramos(warehouseId);
-  if (propios.length) return propios;
+async function tramosGlobales() {
   const globales = await listarTramos(null);
-  if (globales.length) return globales;
-  throw fallo('No hay tramos de multiplicador');
+  if (!globales.length) throw fallo('No hay tramos de multiplicador');
+  return globales;
+}
+
+/** Sede exacta. «Grupo Paripe Madrid» no entra. */
+export function esSedeExactaGrupoParipe(loc) {
+  return String(loc?.sede ?? loc?.Sede ?? '').trim().toLowerCase() === 'grupo paripe';
+}
+
+export async function listarLocalesGrupoParipe() {
+  const items = [];
+  let lastKey = null;
+  do {
+    const r = await docClient.send(new ScanCommand({
+      TableName: tables.locales,
+      ProjectionExpression: 'id_Locales, nombre, agoraCode, sede, Sede',
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(r.Items || []));
+    lastKey = r.LastEvaluatedKey || null;
+  } while (lastKey);
+  return items
+    .map((l) => ({
+      id: formatId6(l.id_Locales),
+      nombre: String(l.nombre ?? '').trim(),
+      agoraCode: l.agoraCode != null ? String(l.agoraCode).trim() : '',
+      sede: String(l.sede ?? l.Sede ?? '').trim(),
+    }))
+    .filter((l) => l.id && l.id !== '000000' && esSedeExactaGrupoParipe(l))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+function idsPedidos(raw) {
+  if (raw == null) return null;
+  const lista = Array.isArray(raw) ? raw : String(raw).split(',');
+  return [...new Set(lista.map((id) => formatId6(id)).filter((id) => id && id !== '000000'))];
 }
 
 /**
- * Suma el objetivo comparable de cada día del rango en cada local del almacén.
- * @returns {Promise<{ importe: number, aviso: string|null, desglose: object[] }>}
+ * Suma el objetivo comparable de los locales de sede Grupo Paripe.
+ * Sin `localIds`, entran todos. Una lista vacía no suma ninguno.
+ * Un id de otra sede se ignora.
  */
-export async function sumarPrevisionRango(warehouseId, desde, hasta) {
+export async function sumarPrevisionLocales(localIds, desde, hasta) {
   const dias = diasEntre(desde, hasta);
-  const mapa = await buildMapaLocalAlmacen();
-  const ids = mapa.porWarehouseId[warehouseId] || [];
-  const locales = ids
-    .map((id) => mapa.locales.find((l) => l.id === id))
-    .filter(Boolean)
-    .sort((a, b) => a.id.localeCompare(b.id));
+  const paripe = await listarLocalesGrupoParipe();
+  const pedidos = idsPedidos(localIds);
+  const locales = pedidos == null ? paripe : paripe.filter((l) => pedidos.includes(l.id));
   if (!locales.length) {
-    return { importe: 0, aviso: MENSAJE_SIN_LOCAL, desglose: [] };
+    return {
+      importe: 0,
+      aviso: pedidos == null ? MENSAJE_SIN_SEDE : MENSAJE_SIN_SELECCION,
+      desglose: [],
+      locales: [],
+    };
   }
 
   const festivos = await loadFestivosByFecha(desde, hasta);
@@ -150,7 +189,12 @@ export async function sumarPrevisionRango(warehouseId, desde, hasta) {
     }
   }
 
-  return { importe: euros(total), aviso: avisos.length ? avisos.join('. ') : null, desglose };
+  return {
+    importe: euros(total),
+    aviso: avisos.length ? avisos.join('. ') : null,
+    desglose,
+    locales: locales.map((l) => ({ id: l.id, nombre: l.nombre })),
+  };
 }
 
 function maximoConfigurado(config) {
@@ -212,6 +256,7 @@ export function calcularLineaStock(linea, config, multiplicador) {
 function vistaLinea(ln) {
   return {
     productId: ln.productId,
+    proveedorId: ln.proveedorId,
     nombre: ln.nombre,
     stockReal: ln.stockReal,
     maximo: ln.maximo,
@@ -219,16 +264,23 @@ function vistaLinea(ln) {
     maximoManual: ln.maximoManual === true,
     cantidadPedida: ln.cantidadPedida,
     formatoCompra: ln.formatoCompra,
+    purchaseUnitId: ln.purchaseUnitId == null ? '' : String(ln.purchaseUnitId),
+    unit: String(ln.unit || ln.purchaseUnitName || '').trim(),
     aviso: ln.aviso,
   };
 }
 
-async function prepararCalculo(informeId, { previsionImporte } = {}) {
+async function prepararCalculo(informeId, { previsionImporte, localIds, semanasDesde, semanasHasta } = {}) {
   const id = String(informeId || '').trim();
   const meta = await getInformeMeta(id);
   if (!meta || meta.tipo !== TIPO_CONTEO) throw fallo('Conteo no encontrado', 404);
   const warehouseId = meta.WarehouseId || meta.warehouseId;
-  const rango = resolverRangoPrevision(meta);
+  const desdePedido = fechaOVacio(semanasDesde);
+  const hastaPedido = fechaOVacio(semanasHasta);
+  const metaRango = desdePedido && hastaPedido
+    ? { ...meta, semanasDesde: desdePedido, semanasHasta: hastaPedido }
+    : meta;
+  const rango = resolverRangoPrevision(metaRango);
   const prueba = previsionImporte != null && previsionImporte !== '';
   let prevision;
   if (prueba) {
@@ -236,9 +288,9 @@ async function prepararCalculo(informeId, { previsionImporte } = {}) {
     if (!Number.isFinite(n) || n < 0) throw fallo('El importe de prueba no es válido');
     prevision = { importe: euros(n), aviso: AVISO_IMPORTE_PRUEBA, desglose: [] };
   } else {
-    prevision = await sumarPrevisionRango(warehouseId, rango.inicio, rango.fin);
+    prevision = await sumarPrevisionLocales(localIds, rango.inicio, rango.fin);
   }
-  const tramo = elegirTramo(prevision.importe, await tramosAplicables(warehouseId));
+  const tramo = elegirTramo(prevision.importe, await tramosGlobales());
   if (!tramo) throw fallo('Ningún tramo cubre esta previsión');
 
   const configs = await listConfigByWarehouse(warehouseId);
@@ -294,8 +346,8 @@ export async function simularConteo(informeId, opts = {}) {
 }
 
 /** Calcula y congela tramo, multiplicador y cantidades. Recalcula si todo sigue en Generado. */
-export async function calcularConteo(informeId) {
-  const calc = await prepararCalculo(informeId);
+export async function calcularConteo(informeId, opts = {}) {
+  const calc = await prepararCalculo(informeId, opts);
   await guardarCalculoConteo(informeId, {
     meta: {
       previsionImporte: calc.previsionImporte,
@@ -307,6 +359,8 @@ export async function calcularConteo(informeId) {
       lineasSinMaximo: calc.lineasSinMaximo,
       rangoDesde: calc.rangoDesde,
       rangoHasta: calc.rangoHasta,
+      semanasDesde: fechaOVacio(opts.semanasDesde) || undefined,
+      semanasHasta: fechaOVacio(opts.semanasHasta) || undefined,
       fechaConteo: calc.fechaConteo,
       inicioEsManana: calc.inicioEsManana,
     },

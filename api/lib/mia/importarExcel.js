@@ -1,12 +1,12 @@
 /**
  * Lee el Excel de conteo que genera IGP (hoja «Inventario»).
  * No calcula pedido ni previsión: solo Id y Stock Real.
- * Vacío = no contado. Un 0 escrito es 0. Se admiten decimales.
- * Un Id repetido no se suma: se avisa y se queda la primera fila.
+ * Vacío = no se importa. Un 0 escrito es 0 y sí se importa. Se admiten decimales.
+ * Un Id repetido entre filas con stock no se suma: se avisa y se queda la primera.
  */
 
 import ExcelJS from 'exceljs';
-import { GetCommand } from '@aws-sdk/lib-dynamodb';
+import { BatchGetCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { queryUltimaCompraPorProductos } from '../dynamo/comprasProveedor.js';
 import { CABECERAS } from '../inventarios/excel.js';
@@ -98,6 +98,7 @@ export async function leerExcelConteo(buffer) {
     const stock = stockDe(vals[COL_STOCK], n);
     const restoVacio = vals.slice(2).every((c) => texto(c) === '' || c == null);
     if (!id && stock == null && !nombre && restoVacio) return;
+    if (stock == null) return;
     if (!id) throw fallo(`La fila ${n} no tiene Id`);
     lineasLeidas += 1;
     if (porId.has(id)) {
@@ -108,6 +109,42 @@ export async function leerExcelConteo(buffer) {
   });
 
   return { filas: [...porId.values()], duplicados, lineasLeidas };
+}
+
+function clavesProducto(productId) {
+  const id = String(productId || '').trim();
+  if (!id) return [];
+  const claves = [id];
+  if (/^\d+$/.test(id)) {
+    const corto = id.replace(/^0+/, '') || '0';
+    if (!claves.includes(corto)) claves.push(corto);
+  }
+  return claves;
+}
+
+/** Una lectura por lote de 100, en vez de un Get por fila del Excel. */
+async function fichasPorId(ids) {
+  const mapa = new Map();
+  const claves = [...new Set(ids.flatMap(clavesProducto))];
+  for (let i = 0; i < claves.length; i += 100) {
+    const Keys = claves.slice(i, i + 100).map((id) => ({ PK: 'GLOBAL', SK: id }));
+    const r = await docClient.send(new BatchGetCommand({
+      RequestItems: { [tables.agoraProducts]: { Keys } },
+    }));
+    for (const it of r.Responses?.[tables.agoraProducts] || []) {
+      const sk = String(it.SK ?? '');
+      if (sk && sk !== 'META' && sk !== '__meta__') mapa.set(sk, it);
+    }
+  }
+  return mapa;
+}
+
+function fichaDe(mapa, productId) {
+  for (const sk of clavesProducto(productId)) {
+    const ficha = mapa.get(sk);
+    if (ficha) return ficha;
+  }
+  return null;
 }
 
 async function fichaProducto(productId) {
@@ -128,7 +165,7 @@ async function fichaProducto(productId) {
 
 /**
  * Proveedor: ficha de stock máximo, y si no hay, la última compra.
- * Unidad: la de la ficha, y si no hay, el formato base del producto.
+ * Unidad: la de la ficha; si no hay, la de la última compra; si tampoco, el formato base.
  * Un proveedor o una unidad marcados a mano no se pisan.
  */
 export function completarProveedorYUnidad({ config, ultima, producto, linea }) {
@@ -156,9 +193,14 @@ export function completarProveedorYUnidad({ config, ultima, producto, linea }) {
   if (!manualUnidad) {
     const cfgId = String(config?.purchaseUnitId ?? '').trim();
     const cfgNombre = String(config?.purchaseUnitName || '').trim();
+    const ultId = String(ultima?.PurchaseUnitId ?? '').trim();
+    const ultNombre = String(ultima?.PurchaseUnitName || '').trim();
     if (cfgId) {
       purchaseUnitId = cfgId;
       unit = cfgNombre || cfgId;
+    } else if (ultId) {
+      purchaseUnitId = ultId;
+      unit = ultNombre || ultId;
     } else {
       const baseId = String(producto?.BaseSaleFormatId ?? '').trim();
       const baseNombre = String(producto?.FormatoBaseNombre || '').trim();
@@ -178,6 +220,30 @@ export function completarProveedorYUnidad({ config, ultima, producto, linea }) {
     proveedorManual: manualProv,
     unidadManual: manualUnidad,
   };
+}
+
+/**
+ * Precio y descuentos de la última compra, solo si es la misma unidad.
+ * El descuento en euros del albarán es de aquella línea: se guarda por unidad.
+ * Un regalo (descuento ≈ 100 %) no se copia.
+ * @returns {{ costeUnitario: number|null, discountRate: number, cashDiscountUnitario: number }}
+ */
+export function precioDeUltimaCompra(purchaseUnitId, ultima) {
+  const vacio = { costeUnitario: null, discountRate: 0, cashDiscountUnitario: 0 };
+  const id = String(purchaseUnitId || '').trim();
+  const ultId = String(ultima?.PurchaseUnitId || '').trim();
+  if (!id || !ultId || id !== ultId) return vacio;
+  const price = Number(ultima.Price);
+  if (!Number.isFinite(price) || price < 0) return vacio;
+  const rate = Number(ultima.DiscountRate);
+  if (Number.isFinite(rate) && rate >= 0.999) return vacio;
+  const descuento = Number.isFinite(rate) && rate > 0 && rate < 0.999 ? rate : 0;
+  const qty = Number(ultima.Quantity);
+  const cash = Number(ultima.CashDiscount);
+  const porUnidad = Number.isFinite(qty) && qty > 0 && Number.isFinite(cash) && cash > 0
+    ? Math.round((cash / qty) * 10000) / 10000
+    : 0;
+  return { costeUnitario: price, discountRate: descuento, cashDiscountUnitario: porUnidad };
 }
 
 async function configsPorProducto(warehouseId) {
@@ -226,11 +292,13 @@ export async function aplicarProveedorYUnidad(lineas, warehouseId) {
       || ultimas.get(String(Number(linea.productId)))
       || null;
     const datos = completarProveedorYUnidad({ config, ultima, producto, linea });
+    const precio = ultima ? precioDeUltimaCompra(datos.purchaseUnitId, ultima) : null;
     const resto = { ...linea };
     delete resto._producto;
     out.push({
       ...resto,
       ...datos,
+      ...(precio || {}),
       SK: skInformeLinea(datos.proveedorId, linea.productId),
     });
   }
@@ -244,10 +312,11 @@ export async function aplicarProveedorYUnidad(lineas, warehouseId) {
  */
 export async function prepararLineasConteo(buffer, warehouseId) {
   const leido = await leerExcelConteo(buffer);
+  const fichas = await fichasPorId(leido.filas.map((fila) => fila.productId));
   const conocidas = [];
   const desconocidos = [];
   for (const fila of leido.filas) {
-    const ficha = await fichaProducto(fila.productId);
+    const ficha = fichaDe(fichas, fila.productId);
     if (!ficha) {
       desconocidos.push(fila.productId);
       continue;

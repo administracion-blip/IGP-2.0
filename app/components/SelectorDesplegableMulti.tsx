@@ -53,6 +53,15 @@ type Props = {
    */
   etiquetaBoton?: string;
   triggerStyle?: StyleProp<ViewStyle>;
+  /** Sin icono izquierdo: barra rectangular (como el filtro de una sola opción) y chevron expand. */
+  sinIconoTrigger?: boolean;
+  /** Estilo del texto valor/placeholder en el disparador. */
+  triggerTextStyle?: StyleProp<TextStyle>;
+  /**
+   * Con más de una selección, el disparador muestra «N {etiquetaVarios}».
+   * Si no se indica, sigue siendo «N seleccionados».
+   */
+  etiquetaVarios?: string;
 };
 
 /**
@@ -77,6 +86,9 @@ export function SelectorDesplegableMulti({
   compact = false,
   etiquetaBoton,
   triggerStyle,
+  sinIconoTrigger = false,
+  triggerTextStyle,
+  etiquetaVarios,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [filtro, setFiltro] = useState('');
@@ -113,7 +125,7 @@ export function SelectorDesplegableMulti({
       ? null
       : seleccionadas.length === 1
         ? seleccionadas[0].titulo
-        : `${seleccionadas.length} seleccionados`;
+        : `${seleccionadas.length} ${etiquetaVarios || 'seleccionados'}`;
 
   return (
     <View style={style}>
@@ -137,7 +149,8 @@ export function SelectorDesplegableMulti({
         <TouchableOpacity
           style={[
             styles.trigger,
-            compact && styles.triggerCompact,
+            compact && !sinIconoTrigger && styles.triggerCompact,
+            sinIconoTrigger && styles.triggerToolbar,
             triggerStyle,
             open && styles.triggerActive,
             disabled && styles.triggerDisabled,
@@ -146,24 +159,28 @@ export function SelectorDesplegableMulti({
           activeOpacity={0.7}
           disabled={disabled}
         >
-          {icono ? (
+          {icono && !sinIconoTrigger ? (
             <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionadas.length > 0 ? colors.accent : colors.textMuted} />
           ) : null}
           <View style={styles.triggerTextWrap}>
             {loading ? (
-              <Text style={[styles.placeholder, compact && styles.textCompact]}>Cargando…</Text>
+              <Text style={[styles.placeholder, compact && styles.textCompact, sinIconoTrigger && styles.textToolbar, triggerTextStyle]}>Cargando…</Text>
             ) : resumen ? (
-              <Text style={[styles.value, compact && styles.textCompact]} numberOfLines={1}>{resumen}</Text>
+              <Text style={[styles.value, compact && styles.textCompact, sinIconoTrigger && styles.textToolbar, triggerTextStyle]} numberOfLines={1}>{resumen}</Text>
             ) : (
-              <Text style={[styles.placeholder, compact && styles.textCompact]} numberOfLines={1}>{placeholder}</Text>
+              <Text style={[styles.placeholder, compact && styles.textCompact, sinIconoTrigger && styles.textToolbar, triggerTextStyle]} numberOfLines={1}>{placeholder}</Text>
             )}
           </View>
-          {seleccionadas.length > 1 ? (
+          {seleccionadas.length > 1 && !sinIconoTrigger ? (
             <View style={[styles.countBadge, compact && styles.countBadgeCompact]}>
               <Text style={[styles.countBadgeText, compact && styles.countBadgeTextCompact]}>{seleccionadas.length}</Text>
             </View>
           ) : null}
-          <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={compact ? 20 : 22} color={colors.textMuted} />
+          <MaterialIcons
+            name={sinIconoTrigger ? (open ? 'expand-less' : 'expand-more') : (open ? 'arrow-drop-up' : 'arrow-drop-down')}
+            size={sinIconoTrigger ? 20 : (compact ? 20 : 22)}
+            color={colors.textMuted}
+          />
         </TouchableOpacity>
       )}
 
@@ -306,6 +323,22 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 1,
     gap: 6,
+  },
+  triggerToolbar: {
+    minHeight: 0,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: RADIO_MEDIO,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: 0,
+  },
+  textToolbar: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
   },
   triggerActive: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
   triggerDisabled: { opacity: 0.6 },

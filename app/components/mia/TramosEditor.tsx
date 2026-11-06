@@ -4,7 +4,10 @@
 
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { SelectorDesplegable } from '../SelectorDesplegable';
 import { MIN_TOUCH, SPACING } from '../../constants/layout';
+
+const MULTIPLICADORES = ['1', '2', '3', '4', '5'];
 
 export type FilaTramo = {
   clave: string;
@@ -44,16 +47,28 @@ export function TramosEditor({
         const error = errores[fila.clave];
         const campos = (
           <View style={enTarjetas ? styles.camposTarjeta : styles.campos}>
-            <Campo etiqueta="Desde" valor={fila.desde} editable={puedeEditar} error={!!error} onChangeText={(v) => onCambio(fila.clave, 'desde', v)} />
+            <Campo
+              etiqueta="Desde"
+              valor={fila.desde}
+              placeholder="0 €"
+              editable={puedeEditar}
+              error={!!error}
+              onChangeText={(v) => onCambio(fila.clave, 'desde', v)}
+            />
             <Campo
               etiqueta="Hasta"
               valor={fila.hasta}
-              placeholder="Sin tope"
+              placeholder="Sin tope (€)"
               editable={puedeEditar}
               error={!!error}
               onChangeText={(v) => onCambio(fila.clave, 'hasta', v)}
             />
-            <Campo etiqueta="×" valor={fila.multiplicador} editable={puedeEditar} error={!!error} onChangeText={(v) => onCambio(fila.clave, 'multiplicador', v)} />
+            <CampoMultiplicador
+              valor={fila.multiplicador}
+              editable={puedeEditar}
+              error={!!error}
+              onChange={(v) => onCambio(fila.clave, 'multiplicador', v)}
+            />
           </View>
         );
         return (
@@ -80,6 +95,51 @@ export function TramosEditor({
           <Text style={styles.anadirTexto}>Añadir tramo</Text>
         </Pressable>
       ) : null}
+    </View>
+  );
+}
+
+function idMultiplicador(valor: string) {
+  const t = valor.trim().replace(',', '.');
+  if (!t) return '';
+  const n = Number(t);
+  if (!Number.isFinite(n) || n <= 0) return valor.trim();
+  return String(n);
+}
+
+function tituloMultiplicador(id: string) {
+  return `×${id.replace('.', ',')}`;
+}
+
+function CampoMultiplicador({
+  valor,
+  editable,
+  error,
+  onChange,
+}: {
+  valor: string;
+  editable: boolean;
+  error: boolean;
+  onChange: (v: string) => void;
+}) {
+  const id = idMultiplicador(valor);
+  const opciones = MULTIPLICADORES.map((n) => ({ id: n, titulo: tituloMultiplicador(n) }));
+  if (id && !MULTIPLICADORES.includes(id)) {
+    opciones.push({ id, titulo: tituloMultiplicador(id) });
+  }
+  return (
+    <View style={styles.campoMultiplicador}>
+      <Text style={styles.etiqueta}>×</Text>
+      <SelectorDesplegable
+        placeholder="×"
+        opciones={opciones}
+        valorId={id || null}
+        onSeleccionar={onChange}
+        disabled={!editable}
+        sinIconoTrigger
+        triggerStyle={[styles.input, styles.triggerMulti, error && styles.inputError]}
+        triggerTextStyle={styles.triggerTexto}
+      />
     </View>
   );
 }
@@ -141,6 +201,16 @@ const styles = StyleSheet.create({
   campos: { flexDirection: 'row', flexGrow: 1, gap: SPACING.sm },
   camposTarjeta: { gap: SPACING.sm },
   campo: { flexGrow: 1, minWidth: 88 },
+  campoMultiplicador: { width: 96, flexGrow: 0, flexShrink: 0, alignSelf: 'flex-start' },
+  triggerMulti: {
+    width: '100%',
+    minHeight: MIN_TOUCH,
+    height: MIN_TOUCH,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 0,
+  },
+  triggerTexto: { fontSize: 15, color: TEXTO },
   etiqueta: { color: SECUNDARIO, fontSize: 12, marginBottom: 4 },
   input: {
     minHeight: MIN_TOUCH,

@@ -19,7 +19,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../TablaBasica';
-import { SelectorDesplegable } from '../SelectorDesplegable';
+import { CampoSelector } from './CampoSelector';
+import { altoControl, modoPrevision } from '../prevision/tokens';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useConfirmar } from '../../hooks/useConfirmar';
@@ -73,7 +74,8 @@ function formatDias(dias: boolean[] | undefined): string {
 
 export function MiaCalendarioPedidos() {
   const { hasPermiso, localPermitido } = useAuth();
-  const { shouldStackToolbar, isPhone } = useBreakpoint();
+  const { shouldStackToolbar, isPhone, width } = useBreakpoint();
+  const alto = altoControl(modoPrevision(width));
   const { confirmar, ConfirmarView } = useConfirmar();
 
   const puedeVer = hasPermiso('mia.ver');
@@ -482,9 +484,9 @@ export function MiaCalendarioPedidos() {
         <View style={[styles.filtroRow, shouldStackToolbar && styles.filtroCol]}>
           <View style={[styles.fieldGrow, shouldStackToolbar && styles.fieldFull]}>
             <Text style={styles.fieldLabel}>Local</Text>
-            <SelectorDesplegable
+            <CampoSelector
+              alto={alto}
               placeholder="Selecciona local…"
-              icono="store"
               opciones={opcionesLocal}
               valorId={localId}
               onSeleccionar={setLocalId}
@@ -492,7 +494,6 @@ export function MiaCalendarioPedidos() {
               iconoLista="store"
               loading={loadingLocales}
               buscador
-              compact
             />
           </View>
           {!puedeConfigurar && (
@@ -610,9 +611,9 @@ export function MiaCalendarioPedidos() {
                   <Text style={styles.fieldLabel}>Proveedor</Text>
                   {opcionesProveedor.length > 0 && !formManual ? (
                     <>
-                      <SelectorDesplegable
+                      <CampoSelector
+                        alto={alto}
                         placeholder="Selecciona proveedor…"
-                        icono="local-shipping"
                         opciones={opcionesProveedor}
                         valorId={formProveedorId || null}
                         onSeleccionar={seleccionarProveedorLista}
@@ -620,7 +621,6 @@ export function MiaCalendarioPedidos() {
                         iconoLista="local-shipping"
                         loading={loadingProveedores}
                         buscador
-                        compact
                       />
                       <TouchableOpacity
                         style={styles.linkBtn}

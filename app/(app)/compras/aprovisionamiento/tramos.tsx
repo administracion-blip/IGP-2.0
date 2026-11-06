@@ -1,7 +1,7 @@
 /**
  * Tramos del multiplicador por importe de previsión, y simulador.
  * El importe de prueba usa las filas de la pantalla. La previsión del rango
- * llama al cálculo de la fase 3 y no escribe.
+ * suma los locales de sede Grupo Paripe y aplica el tramo global. No escribe.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,8 +23,10 @@ import { useConfirmar } from '../../../hooks/useConfirmar';
 import { apiFetch } from '../../../utils/api';
 import { formatFecha } from '../../../utils/formatFecha';
 import { BotonPrincipal } from '../../../components/ui/BotonPrincipal';
-import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
-import { RangoFechas } from '../../../components/RangoFechas';
+import { CampoSelector } from '../../../components/mia/CampoSelector';
+import { SelectorDesplegableMulti } from '../../../components/SelectorDesplegableMulti';
+import { SelectorDiasRango } from '../../../components/prevision/SelectorDiasRango';
+import { altoControl, colores, estiloEtiqueta, familia, modoPrevision, peso } from '../../../components/prevision/tokens';
 import { TramosEditor, type FilaTramo } from '../../../components/mia/TramosEditor';
 import { MIN_TOUCH, SPACING } from '../../../constants/layout';
 
@@ -74,17 +76,15 @@ function parametro(valor: string | string[] | undefined) {
   return Array.isArray(valor) ? valor[0] || '' : valor || '';
 }
 
-function elegirAlmacen(lista: { id: string }[], pedido: string) {
-  if (pedido && lista.some((a) => a.id === pedido)) return pedido;
-  return lista[0]?.id ?? '';
-}
+type LocalPrevision = { id: string; nombre: string };
 
 export default function TramosScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const almacenPedido = parametro(useLocalSearchParams<{ warehouseId?: string }>().warehouseId);
   const { hasPermiso } = useAuth();
-  const { isPhone } = useBreakpoint();
+  const { isPhone, width } = useBreakpoint();
+  const alto = altoControl(modoPrevision(width));
   const { confirmar, ConfirmarView } = useConfirmar();
   const puedeVer = hasPermiso('mia.ver');
   const puedeEditar = hasPermiso('mia.configurar');
@@ -101,7 +101,8 @@ export default function TramosScreen() {
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [importePrueba, setImportePrueba] = useState('');
-  const [almacenSim, setAlmacenSim] = useState('');
+  const [localesPrevision, setLocalesPrevision] = useState<LocalPrevision[]>([]);
+  const [localesSel, setLocalesSel] = useState<string[]>([]);
   const [semanasDesde, setSemanasDesde] = useState('');
   const [semanasHasta, setSemanasHasta] = useState('');
   const [prevision, setPrevision] = useState<Prevision | null>(null);
@@ -133,7 +134,6 @@ export default function TramosScreen() {
         }));
         lista.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
         setAlmacenes(lista);
-        setAlmacenSim((prev) => prev || elegirAlmacen(lista, almacenPedido));
         if (almacenPedido && lista.some((a) => a.id === almacenPedido)) setAmbito(almacenPedido);
       })
       .catch(() => {
@@ -143,6 +143,32 @@ export default function TramosScreen() {
       vivo = false;
     };
   }, [puedeVer, almacenPedido]);
+
+  useEffect(() => {
+    if (!puedeVer) return;
+    let vivo = true;
+    apiFetch('/api/mia/locales-prevision')
+      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+      .then(({ ok, data }) => {
+        if (!vivo) return;
+        if (!ok || !Array.isArray(data.locales)) {
+          setErrorSim(data.error || 'No se pudieron cargar los locales');
+          return;
+        }
+        const lista: LocalPrevision[] = data.locales.map((l: LocalPrevision) => ({
+          id: String(l.id),
+          nombre: String(l.nombre || l.id),
+        }));
+        setLocalesPrevision(lista);
+        setLocalesSel(lista.map((l) => l.id));
+      })
+      .catch(() => {
+        if (vivo) setErrorSim('No se pudieron cargar los locales');
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [puedeVer]);
 
   const cargar = useCallback(async (ambitoId: string) => {
     const id = ++peticion.current;
@@ -320,7 +346,7 @@ export default function TramosScreen() {
   }, [ambito, cargar, confirmar]);
 
   const simular = useCallback(async () => {
-    if (!almacenSim || !semanasDesde || !semanasHasta) return;
+    if (localesSel.length === 0 || !semanasDesde || !semanasHasta) return;
     setSimulando(true);
     setErrorSim('');
     setPrevision(null);
@@ -329,7 +355,7 @@ export default function TramosScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          warehouseId: almacenSim,
+          localIds: localesSel,
           semanasDesde,
           semanasHasta,
         }),
@@ -345,7 +371,7 @@ export default function TramosScreen() {
     } finally {
       setSimulando(false);
     }
-  }, [almacenSim, semanasDesde, semanasHasta]);
+  }, [localesSel, semanasDesde, semanasHasta]);
 
   const prueba = useMemo(() => {
     const texto = importePrueba.trim();
@@ -407,10 +433,12 @@ export default function TramosScreen() {
           </Text>
           <Text style={styles.nota}>El importe «hasta» no entra en el tramo; el siguiente empieza en ese importe.</Text>
           <View style={styles.filtro}>
-            <SelectorDesplegable
-              placeholder="Ámbito"
-              icono="warehouse"
-              compact
+            <CampoSelector
+              etiqueta="Ámbito"
+              alto={alto}
+              placeholder="Elige ámbito…"
+              buscador
+              buscadorPlaceholder="Buscar almacén…"
               opciones={opcionesAmbito}
               valorId={ambito}
               onSeleccionar={(id) => { void pedirCambioAmbito(id); }}
@@ -479,28 +507,38 @@ export default function TramosScreen() {
           {puedeCalcular ? (
             <>
               <View style={styles.filtro}>
-                <SelectorDesplegable
-                  placeholder="Almacén"
-                  icono="warehouse"
-                  compact
-                  opciones={almacenes.map((a) => ({ id: a.id, titulo: a.nombre }))}
-                  valorId={almacenSim}
-                  onSeleccionar={setAlmacenSim}
+                <Text style={styles.etiquetaLocales}>Locales</Text>
+                <SelectorDesplegableMulti
+                  sinIconoTrigger
+                  buscador
+                  buscadorPlaceholder="Buscar local…"
+                  placeholder="Ningún local"
+                  etiquetaVarios="locales"
+                  tituloLista="Locales"
+                  opciones={localesPrevision.map((l) => ({ id: l.id, titulo: l.nombre }))}
+                  valorIds={localesSel}
+                  onChange={setLocalesSel}
+                  style={styles.selectorLocales}
+                  triggerStyle={[styles.triggerLocales, { minHeight: alto, height: alto }]}
+                  triggerTextStyle={styles.triggerLocalesTexto}
                 />
               </View>
-              <RangoFechas
-                desdeIso={semanasDesde}
-                hastaIso={semanasHasta}
-                onChangeDesde={setSemanasDesde}
-                onChangeHasta={setSemanasHasta}
-                placeholderDesde="Semana desde"
-                placeholderHasta="Semana hasta"
-                fill
-              />
+              <View style={styles.filtro}>
+                <SelectorDiasRango
+                  desdeIso={semanasDesde}
+                  hastaIso={semanasHasta}
+                  onChangeDesde={setSemanasDesde}
+                  onChangeHasta={setSemanasHasta}
+                  variante="campo"
+                  alto={44}
+                  soloFechas
+                  etiqueta="Semanas"
+                />
+              </View>
               <BotonPrincipal
                 titulo="Ver previsión"
                 onPress={() => { void simular(); }}
-                disabled={!almacenSim || !semanasDesde || !semanasHasta || simulando}
+                disabled={localesSel.length === 0 || !semanasDesde || !semanasHasta || simulando}
                 estado={simulando ? 'enviando' : 'idle'}
               />
               {errorSim ? <Text style={styles.error}>{errorSim}</Text> : null}
@@ -593,6 +631,22 @@ const styles = StyleSheet.create({
   },
   simuladorTitulo: { color: TEXTO, fontWeight: '700', fontSize: 16, marginTop: SPACING.xs },
   etiqueta: { color: SECUNDARIO, fontSize: 12 },
+  etiquetaLocales: { ...estiloEtiqueta, marginBottom: 6 },
+  selectorLocales: { width: '100%' },
+  triggerLocales: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+  },
+  triggerLocalesTexto: {
+    fontSize: 13,
+    fontFamily: familia.medio,
+    fontWeight: peso.medio,
+    color: colores.texto,
+  },
   input: {
     minHeight: MIN_TOUCH,
     maxWidth: 220,

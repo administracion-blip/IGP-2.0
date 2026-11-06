@@ -242,15 +242,24 @@ function pickUltimaLinea(items, warehouseId) {
   return pool.reduce((best, cur) => (!best || isCompraLineaNewer(cur, best) ? cur : best), null);
 }
 
+function numeroFinito(raw) {
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function toUltimaResumen(item) {
-  const priceNum = Number(item?.Price);
   const unitId = item?.PurchaseUnitId;
   return {
     SupplierId: String(item?.SupplierId ?? '').trim(),
     SupplierName: String(item?.SupplierName ?? '').trim(),
     PurchaseUnitName: String(item?.PurchaseUnitName ?? '').trim(),
     PurchaseUnitId: unitId != null && String(unitId).trim() !== '' ? String(unitId).trim() : '',
-    Price: Number.isFinite(priceNum) ? priceNum : null,
+    Price: numeroFinito(item?.Price),
+    DiscountRate: numeroFinito(item?.DiscountRate),
+    CashDiscount: numeroFinito(item?.CashDiscount),
+    Quantity: numeroFinito(item?.Quantity),
+    VatRate: numeroFinito(item?.VatRate),
+    SurchargeRate: numeroFinito(item?.SurchargeRate),
     AlbaranFecha: String(item?.AlbaranFecha ?? '').trim() || null,
     WarehouseId: String(item?.WarehouseId ?? '').trim(),
     ProductId: String(item?.ProductId ?? '').trim(),

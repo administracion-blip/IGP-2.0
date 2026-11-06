@@ -7,6 +7,7 @@
 
 import { BatchGetCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
+import { queryUltimaCompraPorProductos } from '../dynamo/comprasProveedor.js';
 import { upsertConfigProducto, listConfigByWarehouse } from './configProducto.js';
 import { normalizeProductId, normalizeWarehouseId } from './keys.js';
 
@@ -54,13 +55,24 @@ export function interpretarFormato(raw) {
   return { vacio: false, valor: n };
 }
 
-function anadirUnidad(salida, vistos, id, nombre) {
-  const i = String(id ?? '').trim();
+function etiquetaUnidad(id, nombre) {
   const n = String(nombre ?? '').trim();
+  if (!n || n === id) return '';
+  return n;
+}
+
+function anadirUnidad(salida, porId, id, nombre) {
+  const i = String(id ?? '').trim();
   if (!i) return;
-  if (vistos.has(i)) return;
-  vistos.add(i);
-  salida.push({ id: i, nombre: n || i });
+  const n = etiquetaUnidad(i, nombre);
+  const ya = porId.get(i);
+  if (ya) {
+    if (n && ya.nombre === i) ya.nombre = n;
+    return;
+  }
+  const item = { id: i, nombre: n || i };
+  porId.set(i, item);
+  salida.push(item);
 }
 
 /**
@@ -71,9 +83,8 @@ function anadirUnidad(salida, vistos, id, nombre) {
  */
 export function unidadesAgora(producto) {
   const salida = [];
-  const vistos = new Set();
+  const porId = new Map();
   if (!producto || typeof producto !== 'object') return salida;
-  anadirUnidad(salida, vistos, producto.BaseSaleFormatId, producto.FormatoBaseNombre);
   const listas = [producto.Formatos, producto.SaleFormats, producto.AdditionalSaleFormats];
   for (const lista of listas) {
     if (!Array.isArray(lista)) continue;
@@ -81,12 +92,13 @@ export function unidadesAgora(producto) {
       if (!f || typeof f !== 'object') continue;
       anadirUnidad(
         salida,
-        vistos,
+        porId,
         f.Id ?? f.id ?? f.SaleFormatId ?? f.saleFormatId,
-        f.nombre ?? f.Name ?? f.name,
+        f.nombre ?? f.Nombre ?? f.Name ?? f.name,
       );
     }
   }
+  anadirUnidad(salida, porId, producto.BaseSaleFormatId, producto.FormatoBaseNombre);
   return salida;
 }
 
@@ -125,12 +137,25 @@ async function leerProductos(ids) {
   return mapa;
 }
 
+async function unidadUltimaCompra(productId, warehouseId) {
+  try {
+    const mapa = await queryUltimaCompraPorProductos([productId], warehouseId ? { warehouseId } : {});
+    const ultima = mapa.get(productId) || mapa.get(String(Number(productId))) || null;
+    const id = String(ultima?.PurchaseUnitId || '').trim();
+    const nombre = String(ultima?.PurchaseUnitName || '').trim();
+    return id ? { id, nombre: nombre || id } : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Si viene unidad, tiene que existir en el producto. El nombre lo pone Ágora,
- * no el texto que envíe el cliente. Vacío borra la unidad.
+ * Si viene unidad, tiene que existir en el producto o ser la de la última
+ * compra en Ágora. El nombre lo pone Ágora, no el texto que envíe el cliente.
+ * Vacío borra la unidad.
  * @returns {Promise<{ id: string, nombre: string }>}
  */
-export async function resolverUnidad(productId, purchaseUnitId, purchaseUnitName) {
+export async function resolverUnidad(productId, purchaseUnitId, purchaseUnitName, warehouseId) {
   const id = String(purchaseUnitId ?? '').trim();
   const nombreLibre = String(purchaseUnitName ?? '').trim();
   if (!id) {
@@ -139,8 +164,10 @@ export async function resolverUnidad(productId, purchaseUnitId, purchaseUnitName
   }
   const producto = await leerProducto(productId);
   const hit = unidadesAgora(producto).find((u) => u.id === id);
-  if (!hit) throw fallo(MENSAJE_UNIDAD);
-  return { id: hit.id, nombre: hit.nombre };
+  if (hit) return { id: hit.id, nombre: hit.nombre };
+  const ultima = await unidadUltimaCompra(normalizeProductId(productId), warehouseId);
+  if (ultima && ultima.id === id) return ultima;
+  throw fallo(MENSAJE_UNIDAD);
 }
 
 function numeroONull(raw) {
@@ -168,7 +195,12 @@ export async function sanearConfigStock(body) {
     Object.prototype.hasOwnProperty.call(body, 'purchaseUnitId')
     || Object.prototype.hasOwnProperty.call(body, 'purchaseUnitName')
   ) {
-    const u = await resolverUnidad(body.productId, body.purchaseUnitId, body.purchaseUnitName);
+    const u = await resolverUnidad(
+      body.productId,
+      body.purchaseUnitId,
+      body.purchaseUnitName,
+      normalizeWarehouseId(body.warehouseId),
+    );
     out.purchaseUnitId = u.id;
     out.purchaseUnitName = u.nombre;
   }
@@ -180,7 +212,7 @@ async function prepararLinea(warehouseId, linea) {
   if (!productId) throw fallo('Cada cambio necesita productId');
   const maximo = interpretarMaximo(linea?.maximo);
   const formato = interpretarFormato(linea?.formatoCompra);
-  const unidad = await resolverUnidad(productId, linea?.purchaseUnitId, linea?.purchaseUnitName);
+  const unidad = await resolverUnidad(productId, linea?.purchaseUnitId, linea?.purchaseUnitName, warehouseId);
   return {
     warehouseId,
     productId,
@@ -226,9 +258,80 @@ function vistaDe(cfg, producto) {
   };
 }
 
+/** Ids de familia: string "01,02", array, o ambos. Vacío se ignora; el Set quita duplicados. */
+function conjuntoFamilias(raw) {
+  const partes = Array.isArray(raw) ? raw : [raw];
+  const ids = new Set();
+  for (const parte of partes) {
+    for (const trozo of String(parte ?? '').split(',')) {
+      const id = trozo.trim();
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function filaEnFamilias(fila, ids) {
+  const clave = fila.familiaId || fila.familiaNombre;
+  return ids.has(fila.familiaId) || ids.has(fila.familiaNombre) || Boolean(clave && ids.has(clave));
+}
+
+function tieneFamilia(fila) {
+  return Boolean(fila.familiaId || fila.familiaNombre);
+}
+
+function ultimaDe(mapa, productId) {
+  return mapa.get(productId) || mapa.get(String(Number(productId))) || null;
+}
+
+/**
+ * El nombre visible de la unidad sale de la última compra, como en el MIA
+ * de consumo. La unidad de esa compra entra en la lista y, si la ficha no
+ * tiene unidad, se propone por defecto (no se guarda hasta Guardar).
+ * No cambia el formato ni una unidad ya guardada.
+ */
+async function etiquetarUnidadUltimaCompra(warehouseId, filas) {
+  if (!filas.length) return filas;
+  let ultimas;
+  try {
+    ultimas = await queryUltimaCompraPorProductos(filas.map((f) => f.productId), { warehouseId });
+  } catch {
+    return filas;
+  }
+  return filas.map((fila) => {
+    const ultima = ultimaDe(ultimas, fila.productId);
+    const nombre = String(ultima?.PurchaseUnitName || '').trim();
+    const id = String(ultima?.PurchaseUnitId || '').trim();
+    if (!nombre) return fila;
+    const unidades = fila.unidades.map((u) => ({ ...u }));
+    if (!id) return { ...fila, unidades, unidadUltima: nombre };
+    const ya = unidades.find((u) => u.id === id);
+    if (ya) ya.nombre = nombre;
+    else unidades.unshift({ id, nombre });
+    const salida = { ...fila, unidades, unidadUltima: nombre, unidadUltimaId: id };
+    if (!fila.purchaseUnitId) {
+      salida.purchaseUnitId = id;
+      salida.purchaseUnitName = nombre;
+      salida.unidadPorDefecto = true;
+    }
+    return salida;
+  });
+}
+
+function compararFilasStock(a, b) {
+  const aTiene = tieneFamilia(a);
+  const bTiene = tieneFamilia(b);
+  if (aTiene !== bTiene) return aTiene ? -1 : 1;
+  if (aTiene) {
+    const porFamilia = a.familiaNombre.localeCompare(b.familiaNombre, 'es');
+    if (porFamilia) return porFamilia;
+  }
+  return a.nombre.localeCompare(b.nombre, 'es');
+}
+
 /**
  * @param {string} warehouseId
- * @param {{ familia?: string, sinMaximo?: boolean, q?: string, offset?: number, limit?: number }} [opts]
+ * @param {{ familia?: string, familias?: string | string[], sinMaximo?: boolean, q?: string, offset?: number, limit?: number }} [opts]
  */
 export async function listarVistaStockMaximo(warehouseId, opts = {}) {
   const wid = normalizeWarehouseId(warehouseId);
@@ -248,26 +351,36 @@ export async function listarVistaStockMaximo(warehouseId, opts = {}) {
   }
   const familias = [...familiasMapa.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 
-  const familia = String(opts.familia || '').trim();
-  if (familia) filas = filas.filter((f) => f.familiaId === familia || f.familiaNombre === familia);
+  const idsFamilia = conjuntoFamilias(opts.familias);
+  if (idsFamilia.size > 0) {
+    filas = filas.filter((f) => filaEnFamilias(f, idsFamilia));
+  } else {
+    const familia = String(opts.familia || '').trim();
+    if (familia) filas = filas.filter((f) => f.familiaId === familia || f.familiaNombre === familia);
+  }
   if (opts.sinMaximo) filas = filas.filter((f) => f.sinMaximo);
   const q = String(opts.q || '').trim().toLowerCase();
   if (q) {
-    filas = filas.filter((f) => f.nombre.toLowerCase().includes(q) || f.productId.toLowerCase().includes(q));
+    filas = filas.filter((f) =>
+      f.nombre.toLowerCase().includes(q)
+      || f.productId.toLowerCase().includes(q)
+      || f.familiaNombre.toLowerCase().includes(q)
+      || f.familiaId.toLowerCase().includes(q));
   }
-  filas.sort((a, b) => a.familiaNombre.localeCompare(b.familiaNombre, 'es') || a.nombre.localeCompare(b.nombre, 'es'));
+  filas.sort(compararFilasStock);
 
   const total = filas.length;
   const offset = Math.max(0, Math.floor(Number(opts.offset) || 0));
   let limit = Math.floor(Number(opts.limit) || LIMITE_DEFECTO);
   if (!Number.isFinite(limit) || limit < 1) limit = LIMITE_DEFECTO;
   if (limit > LIMITE_MAXIMO) limit = LIMITE_MAXIMO;
+  const pagina = await etiquetarUnidadUltimaCompra(wid, filas.slice(offset, offset + limit));
   return {
     warehouseId: wid,
     total,
     offset,
     limit,
     familias,
-    items: filas.slice(offset, offset + limit),
+    items: pagina,
   };
 }

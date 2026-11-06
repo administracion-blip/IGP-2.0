@@ -31,8 +31,10 @@ const {
   MENSAJE_LECTURA,
   MENSAJE_LINEAS,
   MENSAJE_RECIENTE,
+  MENSAJE_SIN_CALCULAR,
   aprobarPedidoProveedor,
   comprobarPedidoProveedor,
+  elegirImpuestoCompra,
 } = await import('../lib/mia/aprobarConteo.js');
 const { crearConteoStock } = await import('../lib/mia/conteoStock.js');
 const { syncEntregasAlmacen } = await import('../lib/mia/syncEntregas.js');
@@ -80,6 +82,13 @@ function montar() {
     indices: { 'WarehouseId-CreadoEn-index': { hashKey: 'WarehouseId', rangeKey: 'CreadoEn' } },
   });
   db.crearTabla(tables.miaInformeLineas, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.comprasProveedor, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: {
+      'ProductId-AlbaranFecha-index': { hashKey: 'ProductId', rangeKey: 'AlbaranFecha' },
+    },
+  });
   db.instalar(docClient);
   for (const p of ['ver', 'aprobar']) {
     db.sembrar(tables.rolesPermisos, { PK: 'ROL#SuperUser', SK: `PERMISO#mia.${p}` });
@@ -107,6 +116,11 @@ function hijo(proveedorId = '42') {
   return db.obtener(tables.miaInformes, { PK: 'INFORME#c1', SK: `PROV#${proveedorId}` });
 }
 
+function marcarCalculado(informeId) {
+  const meta = db.obtener(tables.miaInformes, { PK: `INFORME#${informeId}`, SK: 'META' });
+  db.sembrar(tables.miaInformes, { ...meta, calculadoEn: '2026-03-01T00:00:00.000Z' });
+}
+
 async function conteoBase(lineas) {
   await crearConteoStock({
     informeId: 'c1',
@@ -114,6 +128,7 @@ async function conteoBase(lineas) {
     multiplicador: 1,
     lineas,
   });
+  marcarCalculado('c1');
 }
 
 const LINEA_OK = {
@@ -128,6 +143,8 @@ const LINEA_OK = {
   purchaseUnitId: '10',
   unit: 'Botella',
   costeUnitario: 2,
+  discountRate: 0.1,
+  cashDiscountUnitario: 0.05,
 };
 
 test('un borrador lleva serie MIA y el número del contador; dos a la vez solo envían uno', async () => {
@@ -158,6 +175,9 @@ test('un borrador lleva serie MIA y el número del contador; dos a la vez solo e
   assert.equal(payloads[0].Number, 8);
   assert.equal(payloads[0].Status, 'Draft');
   assert.equal(payloads[0].Lines.length, 1);
+  assert.equal(payloads[0].Lines[0].Price, 2);
+  assert.equal(payloads[0].Lines[0].DiscountRate, 0.1);
+  assert.equal(payloads[0].Lines[0].CashDiscount, 0.3);
   assert.equal(hijo().estado, 'pedido');
   assert.equal(hijo().serie, 'MIA');
   assert.equal(hijo().number, 8);
@@ -189,6 +209,7 @@ test('una línea sin unidad o sin cantidad no envía y Ágora caído devuelve el
     warehouseId: '101',
     lineas: [{ ...LINEA_OK, cantidadPedida: 0 }],
   });
+  marcarCalculado('c-qty');
   await assert.rejects(
     () => aprobarPedidoProveedor('c-qty', '42', { importar, cargarMaestros: maestros() }),
     (err) => {
@@ -200,10 +221,27 @@ test('una línea sin unidad o sin cantidad no envía y Ágora caído devuelve el
   assert.equal(db.obtener(tables.miaInformes, { PK: 'INFORME#c-qty', SK: 'PROV#42' }).estado, 'generado');
 
   await crearConteoStock({
+    informeId: 'c-sin',
+    warehouseId: '101',
+    lineas: [LINEA_OK],
+  });
+  await assert.rejects(
+    () => aprobarPedidoProveedor('c-sin', '42', { importar, cargarMaestros: maestros() }),
+    (err) => {
+      assert.equal(err.status, 409);
+      assert.equal(err.message, MENSAJE_SIN_CALCULAR);
+      return true;
+    },
+  );
+  assert.equal(llamadas, 0);
+  assert.equal(db.obtener(tables.miaInformes, { PK: 'INFORME#c-sin', SK: 'PROV#42' }).estado, 'generado');
+
+  await crearConteoStock({
     informeId: 'c-agora',
     warehouseId: '101',
     lineas: [LINEA_OK],
   });
+  marcarCalculado('c-agora');
   const cae = async () => {
     llamadas += 1;
     throw new Error('red');
@@ -409,4 +447,43 @@ test('comprobar: si Ágora no responde sigue en Enviando; si no está el pedido 
   assert.equal(ausente.estado, 'generado');
   assert.equal(hijo().estado, 'generado');
   assert.equal(hijo().number ?? null, null);
+});
+
+test('el IVA de la última compra gana al IVA de venta del producto', async () => {
+  const vats = new Map([
+    [1, { Id: 1, VatRate: 0.1, SurchargeRate: 0 }],
+    [2, { Id: 2, VatRate: 0.21, SurchargeRate: 0 }],
+    [3, { Id: 3, VatRate: 0.21, SurchargeRate: 0.052 }],
+  ]);
+  assert.equal(elegirImpuestoCompra(vats, { VatRate: 0.21, SurchargeRate: 0 }).vatId, 2);
+  assert.equal(elegirImpuestoCompra(vats, { VatRate: 21, SurchargeRate: 5.2 }).vatId, 3);
+  assert.equal(elegirImpuestoCompra(vats, null), null);
+
+  montar();
+  await conteoBase([LINEA_OK]);
+  db.sembrar(tables.comprasProveedor, {
+    PK: 'ALB#1',
+    SK: 'L1',
+    ProductId: '501',
+    AlbaranFecha: '2026-10-01',
+    WarehouseId: '000101',
+    Confirmed: true,
+    VatRate: 0.21,
+    SurchargeRate: 0,
+  });
+  const payloads = [];
+  await aprobarPedidoProveedor('c1', '42', {
+    importar: async (payload) => {
+      payloads.push(payload);
+      return { status: 200 };
+    },
+    cargarMaestros: async () => ({
+      warehouse: { Id: 101, Name: 'Almacen Centro' },
+      suppliers: new Map([[42, { Id: 42, FiscalName: 'Distrib' }]]),
+      vats,
+    }),
+  });
+  assert.equal(payloads[0].Lines[0].VatId, 2);
+  assert.equal(payloads[0].Lines[0].VatRate, 0.21);
+  assert.equal(payloads[0].Lines[0].SurchargeRate, 0);
 });

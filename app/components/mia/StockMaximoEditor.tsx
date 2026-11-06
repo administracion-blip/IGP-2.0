@@ -1,9 +1,10 @@
 /**
  * Tabla (escritorio y tablet) o tarjetas (móvil) del stock máximo.
  * El máximo y el formato se escriben; la unidad se elige de las de Ágora.
+ * La lista llega ordenada: un título solo cuando cambia la familia.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   FlatList,
   Modal,
@@ -30,8 +31,36 @@ export type FilaStockMaximo = BorradorStock & {
   familiaNombre: string;
   stock: number | null;
   unidades: UnidadAgora[];
+  /** Nombre de la unidad en la última compra. Solo se muestra. */
+  unidadUltima?: string;
+  /** La unidad elegida es la de la última compra y aún no está guardada. */
+  unidadPorDefecto?: boolean;
   sucia: boolean;
 };
+
+type EntradaLista =
+  | { tipo: 'grupo'; clave: string; titulo: string }
+  | { tipo: 'fila'; clave: string; fila: FilaStockMaximo };
+
+function tituloDeFamilia(nombre: string) {
+  const limpio = (nombre || '').trim();
+  return limpio || 'Sin familia';
+}
+
+/** Cabecera solo si el título cambia respecto a la fila anterior (Cargar más concatena). */
+function entradasLista(filas: FilaStockMaximo[]): EntradaLista[] {
+  const entradas: EntradaLista[] = [];
+  let anterior = '';
+  for (const fila of filas) {
+    const titulo = tituloDeFamilia(fila.familiaNombre);
+    if (titulo !== anterior) {
+      entradas.push({ tipo: 'grupo', clave: `grupo:${fila.productId}`, titulo });
+      anterior = titulo;
+    }
+    entradas.push({ tipo: 'fila', clave: fila.productId, fila });
+  }
+  return entradas;
+}
 
 type Props = {
   filas: FilaStockMaximo[];
@@ -66,6 +95,7 @@ export function StockMaximoEditor({
 }: Props) {
   const [unidadAbierta, setUnidadAbierta] = useState<FilaStockMaximo | null>(null);
   const unidadElegida = unidadAbierta?.unidadId || '';
+  const entradas = useMemo(() => entradasLista(filas), [filas]);
 
   const fila = (item: FilaStockMaximo) => {
     const error = errores[item.productId];
@@ -103,17 +133,26 @@ export function StockMaximoEditor({
               <MaterialIcons name="arrow-drop-down" size={22} color={SECUNDARIO} />
             </Pressable>
           )}
+          {item.unidadPorDefecto ? (
+            <Text style={styles.unidadUltima} numberOfLines={2}>Última compra · sin guardar</Text>
+          ) : item.unidadUltima && nombreUnidad(item, item.unidadId) !== item.unidadUltima ? (
+            <Text style={styles.unidadUltima} numberOfLines={2}>{item.unidadUltima}</Text>
+          ) : null}
         </View>
       </View>
     );
     return (
       <View style={[enTarjetas ? styles.tarjeta : styles.fila, item.sucia && styles.sucia]}>
-        <View style={enTarjetas ? undefined : styles.identidad}>
-          <Text style={styles.nombre} numberOfLines={2}>{item.nombre}</Text>
-          <Text style={styles.meta} numberOfLines={1}>
-            {item.familiaNombre || 'Sin familia'}
-            {item.stock == null ? '' : ` · Stock ${item.stock}`}
-          </Text>
+        <View style={enTarjetas ? styles.identidadTarjeta : styles.identidad}>
+          <View style={styles.nombreFila}>
+            <View style={styles.badge}>
+              <Text style={styles.badgeTexto}>{item.productId}</Text>
+            </View>
+            <Text style={styles.nombre} numberOfLines={2}>{item.nombre}</Text>
+          </View>
+          {item.stock == null ? null : (
+            <Text style={styles.meta} numberOfLines={1}>{`Stock ${item.stock}`}</Text>
+          )}
         </View>
         {campos}
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -132,9 +171,13 @@ export function StockMaximoEditor({
         </View>
       ) : null}
       <FlatList
-        data={filas}
-        keyExtractor={(item) => item.productId}
-        renderItem={({ item }) => fila(item)}
+        data={entradas}
+        keyExtractor={(item) => item.clave}
+        renderItem={({ item }) => item.tipo === 'grupo' ? (
+          <View style={[styles.grupoWrap, enTarjetas && styles.grupoWrapTarjetas]}>
+            <Text style={styles.grupo}>{item.titulo}</Text>
+          </View>
+        ) : fila(item.fila)}
         initialNumToRender={20}
         windowSize={8}
         contentContainerStyle={filas.length === 0 ? styles.vacioCont : undefined}
@@ -218,8 +261,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     paddingBottom: SPACING.xs,
   },
+  grupoWrap: {
+    width: '100%',
+    paddingHorizontal: SPACING.md,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+  },
+  grupoWrapTarjetas: { width: '100%' },
+  grupo: { fontSize: 13, fontWeight: '700', color: ROSA },
   cabCol: { fontSize: 12, fontWeight: '700', color: SECUNDARIO },
   identidad: { flex: 1, minWidth: 140 },
+  identidadTarjeta: { width: '100%' },
+  nombreFila: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  badge: {
+    backgroundColor: ROSA,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    flexShrink: 0,
+  },
+  badgeTexto: { color: '#fff', fontSize: 11, fontWeight: '700' },
   unidadCab: { width: 160 },
   fila: {
     flexDirection: 'row',
@@ -241,7 +302,7 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   sucia: { backgroundColor: ROSA_SUAVE },
-  nombre: { fontSize: 15, fontWeight: '700', color: TEXTO },
+  nombre: { flex: 1, fontSize: 15, fontWeight: '700', color: TEXTO },
   meta: { fontSize: 12, color: SECUNDARIO, marginTop: 2 },
   campos: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'flex-start' },
   camposTarjeta: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginTop: SPACING.sm },
@@ -270,6 +331,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   unidadTexto: { flex: 1, color: TEXTO, fontSize: 14 },
+  unidadUltima: { color: SECUNDARIO, fontSize: 12, marginTop: 4 },
   sinUnidad: { minHeight: MIN_TOUCH, color: SECUNDARIO, fontSize: 13, textAlignVertical: 'center' },
   error: { color: '#b91c1c', fontSize: 12, marginTop: 4 },
   vacioCont: { flexGrow: 1, justifyContent: 'center' },
