@@ -15,7 +15,8 @@ import { TablaBasica } from '../../components/TablaBasica';
 import { BadgeFormato, useMapaFormatosBase } from '../../components/compras/BadgeFormato';
 import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../components/compras/EtiquetaZona';
 import { useProductosCache } from '../../contexts/ProductosCache';
-import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
+import { fetchPorcentajeBeneficio } from '../../lib/personalizacion';
+import { importesDetallePedido } from '../../lib/precioDetallePedido';
 import { apiFetch } from '../../utils/api';
 import { anioEnCurso, urlPedidosPorAnio } from '../../lib/rangoAnioListado';
 import { SelectorAnioListado } from '../../components/SelectorAnioListado';
@@ -135,9 +136,8 @@ export default function DetallesPedidosScreen() {
         return formatos.get(idProd) ?? '';
       }
       if (col === 'PrecioUnitario' || col === 'TotalLinea') {
-        const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
-        if (Number.isNaN(n)) return v != null ? String(v) : '—';
-        return formatMoneda(aplicarPorcentajeBeneficio(n, porcentajeBeneficio));
+        const importes = importesDetallePedido(item, porcentajeBeneficio);
+        return formatMoneda(col === 'PrecioUnitario' ? importes.precio : importes.total);
       }
       return v != null ? String(v) : '—';
     },
