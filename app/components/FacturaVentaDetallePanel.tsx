@@ -123,6 +123,11 @@ type Props = {
   onAdjuntos?: (adjuntos: AdjuntoItem[]) => void;
   /** Incrementar tras volver del maestro de empresas para resincronizar empresa/proveedor. */
   resyncMaestroToken?: number;
+  /**
+   * Tras sustituir el documento en el visor: actualiza la lista de adjuntos y la
+   * versión, sin volver a cargar el formulario.
+   */
+  marcaAdjuntos?: { n: number; version?: number; adjuntos: AdjuntoItem[] } | null;
 };
 
 export function FacturaVentaDetallePanel({
@@ -137,6 +142,7 @@ export function FacturaVentaDetallePanel({
   compactPanel = false,
   onAdjuntos,
   resyncMaestroToken = 0,
+  marcaAdjuntos = null,
 }: Props) {
   const router = useRouter();
   const { hasPermiso } = useAuth();
@@ -472,6 +478,12 @@ export function FacturaVentaDetallePanel({
       setLoading(false);
     }
   }, [apiUrl, facturaId, markHydrationFromApi, tipoFactura]);
+
+  useEffect(() => {
+    if (!marcaAdjuntos?.n) return;
+    if (typeof marcaAdjuntos.version === 'number') setVersion(marcaAdjuntos.version);
+    setAdjuntos(marcaAdjuntos.adjuntos);
+  }, [marcaAdjuntos]);
 
   useEffect(() => {
     if (!facturaId) {

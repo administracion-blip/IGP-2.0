@@ -55,6 +55,16 @@ async function subir(nombre) {
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
 
+async function sustituir(adjId, nombre) {
+  const form = new FormData();
+  form.append('file', new Blob([PNG], { type: 'image/png' }), nombre);
+  const res = await fetch(`${base}/api/facturacion/facturas/F-1/adjuntos/${encodeURIComponent(adjId)}`, {
+    method: 'PUT',
+    body: form,
+  });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
 async function borrar(adjId) {
   const res = await fetch(`${base}/api/facturacion/facturas/F-1/adjuntos/${adjId}`, {
     method: 'DELETE',
@@ -144,4 +154,64 @@ test('si la lista no se puede guardar (factura cambiando sin parar): 409 y el fi
   assert.equal(factura().adjuntos, undefined);
   const subido = s3Ops.find((o) => o.tipo === 'PutObjectCommand');
   assert.ok(s3Ops.some((o) => o.tipo === 'DeleteObjectCommand' && o.key === subido.key));
+});
+
+test('sustituir el documento deja el nuevo en su sitio, borra el anterior y no toca la fecha', async () => {
+  db.sembrar(tables.facturas, {
+    ...factura(),
+    fecha_emision: '2026-01-05',
+    documento_file_key: 'facturas/F-1/mal.pdf',
+    documento_nombre: 'mal.pdf',
+    adjuntos: [
+      { id: 'a1', fileKey: 'facturas/F-1/mal.pdf', nombre: 'mal.pdf', tipo: 'application/pdf', size: 10 },
+      { id: 'a2', fileKey: 'facturas/F-1/extra.pdf', nombre: 'extra.pdf', tipo: 'application/pdf', size: 4 },
+    ],
+  });
+  const r = await sustituir('a1', 'bien.pdf');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.version, 3);
+  const guardada = factura();
+  assert.equal(guardada.fecha_emision, '2026-01-05');
+  assert.equal(guardada.version, 3);
+  assert.equal(guardada.adjuntos[0].id, 'a1');
+  assert.equal(guardada.adjuntos[0].nombre, 'bien.pdf');
+  assert.equal(guardada.adjuntos[1].nombre, 'extra.pdf');
+  assert.equal(guardada.documento_file_key, guardada.adjuntos[0].fileKey);
+  assert.notEqual(guardada.documento_file_key, 'facturas/F-1/mal.pdf');
+  assert.ok(s3Ops.some((o) => o.tipo === 'DeleteObjectCommand' && o.key === 'facturas/F-1/mal.pdf'));
+  assert.equal(s3Ops.some((o) => o.tipo === 'DeleteObjectCommand' && o.key === 'facturas/F-1/extra.pdf'), false);
+});
+
+test('sustituir el documento virtual de una factura antigua borra la clave vieja', async () => {
+  db.sembrar(tables.facturas, {
+    ...factura(),
+    fecha_emision: '2026-02-01',
+    adjuntos: [],
+    documento_file_key: 'facturas/ocr/mal.pdf',
+    documento_nombre: 'mal.pdf',
+  });
+  const r = await sustituir('documento', 'bien.pdf');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const guardada = factura();
+  assert.equal(guardada.fecha_emision, '2026-02-01');
+  assert.equal(guardada.adjuntos.length, 1);
+  assert.equal(guardada.adjuntos[0].nombre, 'bien.pdf');
+  assert.equal(guardada.documento_file_key, guardada.adjuntos[0].fileKey);
+  assert.ok(s3Ops.some((o) => o.tipo === 'DeleteObjectCommand' && o.key === 'facturas/ocr/mal.pdf'));
+});
+
+test('sustituir un adjunto que no existe: 404 y se borra el fichero recién subido', async () => {
+  db.sembrar(tables.facturas, {
+    ...factura(),
+    adjuntos: [{ id: 'a1', fileKey: 'facturas/F-1/mal.pdf', nombre: 'mal.pdf' }],
+    documento_file_key: 'facturas/F-1/mal.pdf',
+  });
+  const r = await sustituir('no-existe', 'bien.pdf');
+  assert.equal(r.status, 404);
+  assert.equal(r.body.error, 'Adjunto no encontrado');
+  assert.equal(factura().adjuntos[0].nombre, 'mal.pdf');
+  assert.equal(factura().documento_file_key, 'facturas/F-1/mal.pdf');
+  const subido = s3Ops.find((o) => o.tipo === 'PutObjectCommand');
+  assert.ok(s3Ops.some((o) => o.tipo === 'DeleteObjectCommand' && o.key === subido.key));
+  assert.equal(s3Ops.some((o) => o.tipo === 'DeleteObjectCommand' && o.key === 'facturas/F-1/mal.pdf'), false);
 });

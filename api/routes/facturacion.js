@@ -2463,6 +2463,75 @@ router.post('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion
   }
 });
 
+/**
+ * Sustituye un adjunto por otro fichero, en el mismo sitio de la lista, y borra
+ * el anterior en S3. Si era el documento de la factura (`documento_file_key` o
+ * el primero), el puntero pasa al fichero nuevo. No modifica fechas ni importes.
+ */
+// [SEC S-01]
+router.put('/facturacion/facturas/:id/adjuntos/:adjId', requirePermission('facturacion.editar'), upload.single('file'), async (req, res) => {
+  const { id, adjId } = req.params;
+  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
+
+  let fileKeyNuevo = '';
+  let guardado = false;
+  try {
+    const buf = normalizeUploadBuffer(req.file.buffer); // [SEC S-06]
+    const detectedMime = assertBufferMimeAllowed(buf, req.file.mimetype); // [SEC S-06]
+    const safeName = sanitizeUploadFileName(req.file.originalname); // [SEC S-06]
+
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
+    if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
+
+    const ext = safeName.includes('.') ? safeName.split('.').pop() : 'bin';
+    fileKeyNuevo = `facturas/${id}/${Date.now()}_${uuid().slice(0, 8)}.${ext}`;
+
+    await s3.send(new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: fileKeyNuevo,
+      Body: buf,
+      ContentType: detectedMime || req.file.mimetype,
+    }));
+
+    const nuevo = {
+      fileKey: fileKeyNuevo,
+      nombre: safeName,
+      tipo: detectedMime || req.file.mimetype,
+      size: buf.length,
+      subido_en: now(),
+      subido_por: req.body.usuario_nombre || '',
+    };
+
+    const { adjuntos, clavesABorrar, nombreAnterior, version } = await reescribirAdjuntosFactura(id, existing.Item, (lista, factura) => (
+      sustituirAdjuntoEnLista(lista, factura, adjId, nuevo)
+    ));
+    guardado = true;
+
+    for (const key of clavesABorrar) {
+      await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key })).catch((e) => {
+        logger.error({ err: e, fileKey: key }, '[facturacion/adjuntos] no se pudo borrar el fichero sustituido');
+      });
+    }
+
+    await registrarAuditoria(id, 'adjunto_sustituido', req.body.usuario_id, req.body.usuario_nombre, {
+      nombre_anterior: nombreAnterior,
+      nombre: safeName,
+      fileKey: fileKeyNuevo,
+    });
+
+    res.json({ ok: true, adjuntos, version });
+  } catch (err) {
+    if (fileKeyNuevo && !guardado) {
+      await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: fileKeyNuevo })).catch((e) => {
+        logger.error({ err: e, fileKey: fileKeyNuevo }, '[facturacion/adjuntos] no se pudo borrar el fichero huérfano');
+      });
+    }
+    responderError(res, err);
+  }
+});
+
 // [SEC S-01]
 router.get('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion.ver'), async (req, res) => {
   const id = req.params.id;
@@ -2545,19 +2614,67 @@ async function reescribirAdjuntosFactura(id, leida, cambiar) {
     }
     const resultado = cambiar(Array.isArray(factura.adjuntos) ? [...factura.adjuntos] : [], factura);
     const tieneVersion = factura.version !== undefined && factura.version !== null;
+    const recolocaDocumento = resultado.documento_file_key !== undefined;
     await docClient.send(new UpdateCommand(updateFacturaVersionado(conClavesFactura({
       Key,
-      UpdateExpression: 'SET adjuntos = :adj, actualizado_en = :ts',
+      UpdateExpression: recolocaDocumento
+        ? 'SET adjuntos = :adj, actualizado_en = :ts, documento_file_key = :dfk, documento_nombre = :dn'
+        : 'SET adjuntos = :adj, actualizado_en = :ts',
       ConditionExpression: `attribute_exists(#pk) AND ${tieneVersion ? '#ver = :verLeida' : 'attribute_not_exists(#ver)'}`,
       ExpressionAttributeNames: { '#pk': Object.keys(Key)[0] },
       ExpressionAttributeValues: {
         ':adj': resultado.adjuntos,
         ':ts': now(),
         ...(tieneVersion && { ':verLeida': factura.version }),
+        ...(recolocaDocumento && {
+          ':dfk': resultado.documento_file_key,
+          ':dn': resultado.documento_nombre ?? '',
+        }),
       },
     }, factura))));
+    resultado.version = (Number(factura.version) || 1) + 1;
     return resultado;
   });
+}
+
+/**
+ * Deja el fichero nuevo en el hueco de `adjId`. El id `'documento'` cubre las
+ * facturas antiguas que solo tienen `documento_file_key`.
+ */
+function sustituirAdjuntoEnLista(lista, factura, adjId, nuevo) {
+  const docKey = String(factura.documento_file_key || '');
+  const virtual = lista.length === 0 && adjId === 'documento' && docKey;
+  let idx = lista.findIndex((a) => a.id === adjId);
+  let anterior;
+  let adjuntos;
+  if (virtual) {
+    anterior = { fileKey: docKey, nombre: factura.documento_nombre || '' };
+    adjuntos = [{ id: uuid(), ...nuevo }];
+    idx = 0;
+  } else {
+    if (idx < 0) throw Object.assign(new Error('Adjunto no encontrado'), { status: 404 });
+    anterior = lista[idx];
+    adjuntos = lista.slice();
+    adjuntos[idx] = {
+      ...anterior,
+      fileKey: nuevo.fileKey,
+      nombre: nuevo.nombre,
+      tipo: nuevo.tipo,
+      size: nuevo.size,
+      subido_en: nuevo.subido_en,
+      subido_por: nuevo.subido_por,
+    };
+  }
+  const esElDocumento = idx === 0 || (docKey && anterior.fileKey === docKey);
+  const clavesABorrar = new Set([anterior.fileKey]);
+  if (esElDocumento && docKey) clavesABorrar.add(docKey);
+  clavesABorrar.delete(nuevo.fileKey);
+  return {
+    adjuntos,
+    nombreAnterior: anterior.nombre || '',
+    clavesABorrar: [...clavesABorrar],
+    ...(esElDocumento && docKey ? { documento_file_key: nuevo.fileKey, documento_nombre: nuevo.nombre } : {}),
+  };
 }
 
 function adjuntosDeFacturaItem(item) {

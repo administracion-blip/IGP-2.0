@@ -1125,6 +1125,48 @@ export default function FacturaDetalleScreen() {
     input.click();
   };
 
+  const sustituirAdjunto = async (adjId: string, nombreActual: string) => {
+    if (Platform.OS !== 'web') {
+      alertMsg('Info', 'Sustituir el documento solo está disponible en web');
+      return;
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const ok = await confirmar(
+        'Sustituir documento',
+        `Se eliminará «${nombreActual || 'el archivo actual'}» y se guardará «${file.name}». La fecha y el resto de datos de la factura no cambian.`,
+        { confirmarLabel: 'Sustituir', variant: 'danger' },
+      );
+      if (!ok) return;
+      setSubiendoAdjunto(true);
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('usuario_id', user?.id_usuario ?? '');
+        formData.append('usuario_nombre', user?.Nombre ?? '');
+        const res = await apiFetch(
+          `/api/facturacion/facturas/${facturaId}/adjuntos/${encodeURIComponent(adjId)}`,
+          { method: 'PUT', body: formData },
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? 'Error al sustituir');
+        if (typeof data.version === 'number') setVersion(data.version);
+        const adjRes = await apiFetch(`/api/facturacion/facturas/${facturaId}/adjuntos`);
+        const adjData = await adjRes.json();
+        setAdjuntos(adjData.adjuntos ?? []);
+      } catch (e: unknown) {
+        alertMsg('Error', errorMessage(e));
+      } finally {
+        setSubiendoAdjunto(false);
+      }
+    };
+    input.click();
+  };
+
   const eliminarAdjunto = async (adjId: string) => {
     const ok = await confirmar('Eliminar adjunto', '¿Seguro que deseas eliminar este adjunto?', {
       confirmarLabel: 'Eliminar',
@@ -1949,6 +1991,15 @@ export default function FacturaDetalleScreen() {
                     {adj.subido_por} · {adj.subido_en ? new Date(adj.subido_en).toLocaleDateString('es-ES') : ''} · {((adj.size || 0) / 1024).toFixed(0)} KB
                   </Text>
                 </View>
+                <TouchableOpacity
+                  onPress={() => sustituirAdjunto(adj.id, adj.nombre)}
+                  disabled={subiendoAdjunto}
+                  style={styles.sustituirBtn}
+                  accessibilityLabel="Sustituir documento"
+                >
+                  <MaterialIcons name="swap-horiz" size={16} color={colors.accent} />
+                  <Text style={styles.sustituirBtnText}>Sustituir</Text>
+                </TouchableOpacity>
                 {adj.url && (
                   <TouchableOpacity
                     onPress={() => descargarAdjunto(adj.id)}
@@ -2820,6 +2871,17 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     gap: SPACING.xs,
   },
+  sustituirBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  sustituirBtnText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.regular, fontWeight: '600', color: colors.accent },
   adjuntoNombre: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textStrong },
   adjuntoMeta: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted },
 

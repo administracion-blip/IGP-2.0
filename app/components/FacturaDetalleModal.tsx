@@ -24,6 +24,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { FacturaVentaDetallePanel } from './FacturaVentaDetallePanel';
 import { descargarAdjuntoFacturaRecibida } from '../lib/descargarAdjuntoFactura';
+import { useConfirmar } from '../hooks/useConfirmar';
+import { apiFetch, errorMessage } from '../utils/api';
 
 type AdjuntoItem = {
   id: string;
@@ -67,16 +69,71 @@ export function FacturaDetalleModal({
   const [selIdx, setSelIdx] = useState(0);
   const [descargando, setDescargando] = useState(false);
   const [descargaOk, setDescargaOk] = useState(false);
+  const [sustituyendo, setSustituyendo] = useState(false);
+  const [marcaAdjuntos, setMarcaAdjuntos] = useState<{ n: number; version?: number; adjuntos: AdjuntoItem[] } | null>(null);
+  const { confirmar, ConfirmarView } = useConfirmar();
 
   useEffect(() => {
     setAdjuntos(null);
     setSelIdx(0);
     setDescargando(false);
     setDescargaOk(false);
+    setSustituyendo(false);
+    setMarcaAdjuntos(null);
   }, [facturaId]);
 
   const adjSel =
     adjuntos && adjuntos.length > 0 ? adjuntos[Math.min(selIdx, adjuntos.length - 1)] : null;
+
+  const sustituirDocumento = () => {
+    if (!facturaId || !adjSel?.id || !puedeEditar) return;
+    if (Platform.OS !== 'web') {
+      void confirmar('Sustituir documento', 'Sustituir el documento solo está disponible en web', { soloAceptar: true });
+      return;
+    }
+    const nombreActual = adjSel.nombre;
+    const adjId = adjSel.id;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const ok = await confirmar(
+        'Sustituir documento',
+        `Se eliminará «${nombreActual || 'el archivo actual'}» y se guardará «${file.name}». La fecha y el resto de datos de la factura no cambian.`,
+        { confirmarLabel: 'Sustituir', variant: 'danger' },
+      );
+      if (!ok) return;
+      setSustituyendo(true);
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('usuario_id', usuarioId ?? '');
+        formData.append('usuario_nombre', usuarioNombre ?? '');
+        const res = await apiFetch(
+          `/api/facturacion/facturas/${facturaId}/adjuntos/${encodeURIComponent(adjId)}`,
+          { method: 'PUT', body: formData },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error ?? 'Error al sustituir');
+        const adjRes = await apiFetch(`/api/facturacion/facturas/${facturaId}/adjuntos`);
+        const adjData = await adjRes.json().catch(() => ({}));
+        const lista: AdjuntoItem[] = Array.isArray(adjData.adjuntos) ? adjData.adjuntos : [];
+        setAdjuntos(lista);
+        setMarcaAdjuntos({
+          n: Date.now(),
+          version: typeof data.version === 'number' ? data.version : undefined,
+          adjuntos: lista,
+        });
+      } catch (e: unknown) {
+        void confirmar('No se pudo sustituir', errorMessage(e, 'No se pudo sustituir el documento'), { soloAceptar: true });
+      } finally {
+        setSustituyendo(false);
+      }
+    };
+    input.click();
+  };
 
   const descargarDocumento = async () => {
     if (!facturaId || !adjSel?.id || tipoFactura !== 'IN') return;
@@ -117,6 +174,7 @@ export function FacturaDetalleModal({
     if (Platform.OS === 'web') {
       return (
         <iframe
+          key={adjSel.url}
           src={adjSel.url}
           style={{ width: '100%', height: '100%', border: 'none' } as React.CSSProperties}
           title="Documento de la factura"
@@ -135,6 +193,7 @@ export function FacturaDetalleModal({
   };
 
   return (
+    <>
     <Modal visible={facturaId !== null} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity activeOpacity={1} onPress={() => {}} style={[styles.wrap, { maxHeight: winH * 0.94 }]}>
@@ -161,13 +220,29 @@ export function FacturaDetalleModal({
                   onAbrirCompleto={onAbrirCompleto}
                   onAdjuntos={setAdjuntos}
                   resyncMaestroToken={resyncMaestroToken}
+                  marcaAdjuntos={marcaAdjuntos}
                 />
               </View>
 
               {/* Derecha: previsualización del documento */}
               <View style={[styles.panelPreview, apilado && styles.panelApilado]}>
                 {tipoFactura === 'IN' && adjSel?.url && facturaId ? (
-                  <View style={styles.previewToolbar}>
+                  <View style={[styles.previewToolbar, puedeEditar && styles.previewToolbarEntre]}>
+                    {puedeEditar ? (
+                      <TouchableOpacity
+                        style={styles.sustituirBtn}
+                        onPress={sustituirDocumento}
+                        disabled={sustituyendo}
+                        accessibilityLabel="Sustituir documento"
+                      >
+                        {sustituyendo ? (
+                          <ActivityIndicator size="small" color="#0369a1" />
+                        ) : (
+                          <MaterialIcons name="swap-horiz" size={16} color="#0369a1" />
+                        )}
+                        <Text style={styles.sustituirBtnText}>{sustituyendo ? 'Sustituyendo…' : 'Sustituir'}</Text>
+                      </TouchableOpacity>
+                    ) : null}
                     <TouchableOpacity
                       style={styles.descargarBtn}
                       onPress={descargarDocumento}
@@ -213,6 +288,8 @@ export function FacturaDetalleModal({
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
+    {ConfirmarView}
+    </>
   );
 }
 
@@ -243,7 +320,20 @@ const styles = StyleSheet.create({
   panelDetalle: { flex: 1.2, minWidth: 0, borderRightWidth: 1, borderRightColor: '#e2e8f0', backgroundColor: '#f8fafc' },
   panelPreview: { flex: 1, minWidth: 0, padding: 10 },
   panelApilado: { borderRightWidth: 0 },
-  previewToolbar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 },
+  previewToolbar: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 8, gap: 8 },
+  previewToolbarEntre: { justifyContent: 'space-between' },
+  sustituirBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#7dd3fc',
+    backgroundColor: '#f0f9ff',
+  },
+  sustituirBtnText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
   descargarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
